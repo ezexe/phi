@@ -1,0 +1,2 @@
+phi    additions per dot product 3486, rounds per addition 3.35 (worst 13), accumulator width 32, 1.2 s
+binary additions per dot product 4009, rounds per addition 2.41 (worst 16), accumulator width 23, 1.9 s

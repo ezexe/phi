@@ -159,7 +159,7 @@ What these numbers mean:
 
 ## φ-Register vs Binary Register
 
-`phi_prune.register` models the φ-register and a binary register as local rewrite rules and compares them on phi-prune's own multiply-accumulate step; [`.docs/register.md`](.docs/register.md) walks through the module, its tests and the CPU notebook [`.docs/register_settling.ipynb`](.docs/register_settling.ipynb).
+`phi_prune.register` models the φ-register and a binary register as local rewrite rules and compares them on phi-prune's own multiply-accumulate step; [`.docs/register.md`](.docs/register.md) walks through the module, its tests, the CPU notebook [`.docs/register_settling.ipynb`](.docs/register_settling.ipynb) and the transformer checks in [`scripts/transformer_check.py`](scripts/transformer_check.py), with a table linking every result to the script that produced it ([`scripts/session/`](scripts/session/)) and its saved output ([`.docs/results/`](.docs/results/)).
 In short, on synthetic weights so far: a self-timed φ accumulator needs 15% fewer additions and fewer settling rounds per dot product than a clocked binary one (1.7× against carry-lookahead), catches 41-45% of single-bit flips, and loses to a binary accumulator that is also self-timed (0.82×).
 
 ## How It Works

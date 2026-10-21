@@ -7,6 +7,7 @@ This walkthrough covers the φ-register work on branch `claude/kind-hopper-juyjm
 3. `tests/test_register.py`, test by test, with what each one establishes
 4. The changes to `.docs/phi/phi.md` and `.docs/phi/matrix.md`
 5. The notebook `.docs/register_settling.ipynb`, cell by cell, with the saved run's output
+5b–5d. The transformer checks: low and high density and level counts, and fine-tuning updates
 6. What holds up, what doesn't, and what is still open
 
 Run everything with:
@@ -17,11 +18,32 @@ pytest -q tests/test_register.py          # 16 tests, a few seconds
 jupyter nbconvert --to notebook --execute .docs/register_settling.ipynb   # about a minute on CPU
 ```
 
+### Scripts, outputs, and where each is explained
+
+Every number in this walkthrough comes from one of these scripts. Their saved output is in [`results/`](results/).
+
+| Section | What | Script | Saved output |
+|---|---|---|---|
+| 0 | Choice each mask pattern leaves | [`scripts/session/mask_choice.py`](../scripts/session/mask_choice.py) | [`mask_choice.txt`](results/mask_choice.txt) |
+| 1 | Growth rates and digits per level count | [`scripts/session/growth_rates.py`](../scripts/session/growth_rates.py) | [`growth_rates.txt`](results/growth_rates.txt) |
+| 2 | The register module | [`phi_prune/register.py`](../phi_prune/register.py) | — |
+| 3 | Tests | [`tests/test_register.py`](../tests/test_register.py) | `pytest -q` |
+| 3, 6 | Flips, rules fired, settling rounds, 32-lane lockstep | [`scripts/session/register_measure.py`](../scripts/session/register_measure.py) | [`register_measure.txt`](results/register_measure.txt) |
+| 5 | First dot-product prototype | [`scripts/session/dot_prototype.py`](../scripts/session/dot_prototype.py) | [`dot_prototype.txt`](results/dot_prototype.txt) |
+| 5 | Notebook generator | [`scripts/session/make_register_notebook.py`](../scripts/session/make_register_notebook.py) | [`register_settling.ipynb`](register_settling.ipynb), outputs saved in the notebook |
+| 5b | Transformer check, 50% and 25% masks, 16–32 levels | [`scripts/transformer_check.py`](../scripts/transformer_check.py) | [`transformer_check_low.log`](results/transformer_check_low.log), [`.json`](results/transformer_check_low.json) |
+| 5c | Same, `--part high`: 75% masks, 55–987 levels | same script | [`transformer_check_high.log`](results/transformer_check_high.log), [`.json`](results/transformer_check_high.json) |
+| 5c | 1 digits over uniformly spread levels | [`scripts/session/digit_counts_uniform.py`](../scripts/session/digit_counts_uniform.py) | [`digit_counts_uniform.txt`](results/digit_counts_uniform.txt) |
+| 5d | Same, `--part delta`: fine-tuning updates | same script | [`transformer_check_delta.log`](results/transformer_check_delta.log), [`.json`](results/transformer_check_delta.json) |
+| — | Smoke runs (too short to mean anything; they only showed the pipeline works) | same script | [`results/smoke/`](results/smoke/) |
+
+Rerun the scripts with, for example, `python scripts/session/register_measure.py` or `python scripts/transformer_check.py --part high`.
+
 ---
 
 ## 0. Starting point: why φ masks lose to 2:4 at 50%
 
-This step is analysis only; it isn't implemented yet.
+This section started as analysis only. The density target it proposes is now `adjacency_dp_density` in `phi_prune/masks.py`, and section 5b tests it.
 The φ pruner keeps the heaviest set of channels with no two neighbours, which lands at 48.8–49.8% density.
 At that density almost no masks satisfy the rule, so the mask can't follow where the weights matter.
 The table below counts how much choice each mask has on a 64-channel layer, in bits of choice per channel:
@@ -489,7 +511,7 @@ This is a pre-registered test of the ideas on a small transformer.
 - **Runs:** 3 seeds, each with 1500 dense steps, then 300 mask-aware fine-tune steps per pruning method.
 - **Masks:** pruning removes whole MLP hidden neurons.
 - **Metric:** bits per character (bpc) on held-out files; lower is better.
-- **Raw results:** `.docs/transformer_check.json`.
+- **Raw results:** [`results/transformer_check_low.json`](results/transformer_check_low.json), log [`results/transformer_check_low.log`](results/transformer_check_low.log).
 
 It also uses a new package feature: `adjacency_dp_density(scores, density)` and `phi_mask(..., density=)` hit a target density below the 50% cap, by subtracting a bisected threshold from the scores before the DP.
 
