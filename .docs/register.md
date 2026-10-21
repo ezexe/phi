@@ -611,15 +611,70 @@ What this says:
 
 ---
 
+## 5d. Post-training: fine-tuning updates, `--part delta`
+
+Per seed:
+1. Train a base model on 80% of the standard library files.
+2. Fine-tune a copy for 300 steps on another 10% of the files (`i % 10 == 1`). The last tenth of that text is held out.
+3. Take the update (fine-tuned minus base weights) of every Linear layer.
+
+The pass rules were committed before the run.
+Output: [`results/transformer_check_delta.log`](results/transformer_check_delta.log), [`.json`](results/transformer_check_delta.json).
+
+**What the fine-tune did (mean of 3 seeds):**
+- General validation improved from 2.1163 to 2.0165 bpc.
+- The held-out part of the fine-tune files got worse, 1.6445 to 1.7124 bpc. Those are different files from the ones fine-tuned on, so this is file-to-file shift.
+- The update is 14.6% of the weights' norm.
+
+So this behaved more like continued training of an undertrained base than a small, targeted fine-tune. Keep that in mind for K7.
+
+### 1 digits per weight, symmetric per-channel quantization (mean of 3 seeds)
+
+| | Binary | Zeckendorf | CSD | Zeckendorf saving vs CSD |
+|---|---|---|---|---|
+| Weights, 21 levels | 1.228 | 1.082 | 1.200 | 9.84% |
+| Update, 21 levels | 1.221 | 1.077 | 1.194 | 9.78% |
+| Weights, 55 levels | 1.827 | 1.554 | 1.683 | 7.69% |
+| Update, 55 levels | 1.819 | 1.548 | 1.677 | 7.68% |
+
+K7 (a bigger saving on the update than on the weights) is **killed**.
+Per seed the update's saving is 0.02 to 0.10 points *smaller* than the weights'.
+
+There is also a structural reason this was unlikely to pass. Per-channel quantization divides each channel by its own largest value, so it doesn't care how large the numbers are, only how they are spread. A small update lands on low levels only if its spread is more peaked than the weights', and here its spread has the same shape.
+The saving itself is solid, though: Zeckendorf needs about 10% fewer 1 digits than CSD and 12% fewer than binary at 21 levels in this symmetric form, for updates and weights alike.
+
+### Coding the positions of a sparse update (bits per kept position, mean of 3 seeds)
+
+| Kept | Fibonacci | Elias-gamma | Elias-delta | Fixed-width | Entropy (floor) |
+|---|---|---|---|---|---|
+| 10% | **5.15** | 5.51 | 5.90 | 16 | 4.66 |
+| 1% | **9.15** | 11.08 | 10.26 | 16 | 7.90 |
+
+K8 (Fibonacci gap codes below Elias-gamma and fixed-width at 10%) **survives**, in every seed.
+- **Against Elias codes:** Fibonacci codes are the shortest of the parameter-free codes tested: 0.4 bits per position shorter than Elias-gamma at 10% kept, 1.9 bits at 1%.
+- **Against the floor:** they sit 0.5 to 1.3 bits above the entropy floor.
+- **Against fixed-width:** fixed-width position codes need 16 bits, the address size of the largest layer, so Fibonacci gap codes take a third to a half of that.
+- **Not yet tested:** codes tuned to the gap distribution (Golomb-Rice with a fitted parameter, Huffman, arithmetic coding) can reach the entropy floor. `.docs/phi/Q.md` already names Golomb as optimal for geometric gaps.
+
+What this says for post-training:
+- **Digits:** the digit saving carries over to fine-tuning updates unchanged, but updates are not a special low-end case.
+- **Shipping updates:** this is where Fibonacci codes show up best so far. For shipping a sparse update, the gaps between kept positions code compactly with no parameter to tune or transmit, and the codes are self-delimiting.
+
+---
+
 ## 6. Where this leaves the claims
 
 **Holds up**
+- **Sparse update shipping (5d):** Fibonacci gap codes beat Elias-gamma, Elias-delta and fixed-width position codes, by up to 1.9 bits per position at 1% kept, with no parameter. Codes tuned to the gaps are untested.
+- **Fewer 1 digits at low precision (5b–5d):** on trained transformer weights and updates, Zeckendorf needs 7–10% fewer 1 digits than CSD and about 16% fewer than binary at 4–6 bits. The saving ends at about 7 bits (offset form) to 8.5 bits (sign-magnitude form).
 - **Fewer additions:** Zeckendorf levels have fewer 1 digits than binary, giving 15% fewer partial products per dot product. This is the low-end advantage, and it doesn't depend on timing.
 - **Self-timed against clocked:** a self-timed φ accumulator beats a clocked binary one, by 1.7× against lookahead and 8.8× against ripple (in rounds).
 - **One scan, three jobs:** the same no-`11` scan signals "done", checks integrity and frames self-delimiting streams. Binary needs extra carry-completion wires to know it's done, and can't detect a flip at all.
 - **Free integrity:** 41% of single flips detected in 8-digit registers, 45% in the accumulators; 8.6% correctable.
 
 **Doesn't hold up**
+- **The φ mask pattern on a transformer (5b, 5c):** at 50% it is worse than 2:4 in every seed. Reordering neurons removes the gap only by turning φ into "keep the heaviest half". At 25% and 75% every chosen pattern ties.
+- **Updates as a special low-end case (5d):** updates get the same digit saving as the weights, no more.
 - **"Self-correcting":** normalizing keeps the corrupted value and hides the error. Check before settling.
 - **"No sweep order" is not φ-only:** binary carries are order-independent too.
 - **Against self-timed binary, φ loses:** 0.82×. Binary additions settle in fewer rounds, which outweighs φ's fewer additions.
@@ -628,5 +683,7 @@ What this says:
 **Still open**
 - Run the notebook with torchvision's weights and CIFAR-10 activations, for example on Colab, to replace the synthetic numbers.
 - Rounds are a model of the rewrite rules, not gate delays. A gate-level or FPGA model of both accumulators would turn this into a hardware result.
-- Signed-digit binary (CSD, about 1/3 of digits nonzero) is the stronger binary competitor for counting additions and hasn't been compared.
-- The density-targeted φ mask from section 0, against a 1:4 baseline.
+- Signed-digit binary (CSD) was compared on transformer weights (5b–5d), but not yet inside the register notebook's accumulator cost model.
+- Gap codes tuned to the data (Golomb-Rice, Huffman, arithmetic) against Fibonacci gap codes.
+- A real fine-tune (a small learning rate, LoRA, or instruction data) instead of continued training on shifted files, for K7.
+- All transformer results come from a 0.8M-parameter model on CPU; a larger model is needed before trusting the sizes.
