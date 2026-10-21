@@ -568,6 +568,49 @@ What this says:
 
 ---
 
+## 5c. Going higher: `--part high`
+
+Same model, data and seeds as 5b.
+Two kinds of "higher" are tested:
+- **Density above φ's 50% cap:** the rule moves to the pruned neurons (no two neighbouring neurons both pruned), keeping 75%.
+- **More levels:** the 8-, 10-, 12- and 14-digit Fibonacci grids (55, 144, 377 and 987 levels).
+
+The pass rules were committed before the run, and this time they compare within each seed.
+Output: [`results/transformer_check_high.log`](results/transformer_check_high.log), [`.json`](results/transformer_check_high.json).
+
+### Masks at 75% (mean of 3 seeds, dense 1.9985 bpc)
+
+| Method | One-shot | Fine-tuned | Within-seed difference from heaviest 75% |
+|---|---|---|---|
+| φ on the pruned neurons | 2.1691 | 1.9986 | −0.0004, +0.0017, +0.0001 |
+| 3:4 | 2.1645 | 1.9988 | +0.0006, +0.0010, +0.0003 |
+| heaviest 75% | 2.1998 | 1.9982 | — |
+| random 75% | 2.2286 | 2.0115 | +0.0144, +0.0132, +0.0123 |
+
+At 75%, every chosen mask recovers to the dense model's loss after fine-tuning, and only the random mask is measurably worse.
+φ against 3:4 is −0.0009, +0.0007 and −0.0003 across the three seeds, so K5 (lower in every seed) is **killed**: the two can't be told apart.
+
+### More levels: 1 digits per weight on the trained weights (mean of 3 seeds)
+
+| Levels (bits) | bpc | Offset form: Zeckendorf / CSD / binary | Sign-magnitude form: Zeckendorf / CSD / binary |
+|---|---|---|---|
+| 55 (5.78) | 2.0002 | **2.411** / 2.438 / 2.882 | **1.621** / 1.749 / 1.911 |
+| 144 (7.17) | 1.9987 | 2.963 / **2.938** / 3.584 | **2.133** / 2.201 / 2.542 |
+| 377 (8.56) | 1.9986 | 3.514 / **3.372** / 4.281 | **2.664** / 2.668 / 3.221 |
+| 987 (9.95) | 1.9985 | 4.066 / **3.845** / 4.948 | 3.213 / **3.143** / 3.924 |
+
+K6 (Zeckendorf below CSD at 144 levels, offset form) is **killed**, as predicted before the run from evenly spread levels ([`results/digit_counts_uniform.txt`](results/digit_counts_uniform.txt): CSD takes the lead between 55 and 144 levels).
+- **Offset form:** the crossover on trained weights sits between 55 and 144 levels, the same place as for evenly spread levels.
+- **Sign-magnitude form:** small magnitudes are common there, so Zeckendorf holds on longer, up to about 377 levels (a tie at 2.664 against 2.668), and loses at 987.
+
+Above about 6 bits there's nothing left to gain in loss either: from 144 levels up, bpc matches the dense model to the fourth decimal.
+
+What this says:
+- **Higher density:** above 50%, pruning a quarter of the neurons costs nothing after fine-tuning with any chosen mask, so the pattern doesn't matter.
+- **Higher precision:** the digit saving belongs to the low end. It is strongest at 4–6 bits, gone by 7 bits in offset form and by about 8.5 bits in sign-magnitude form. Signed-digit binary wins above that, and those precisions don't need saving anyway.
+
+---
+
 ## 6. Where this leaves the claims
 
 **Holds up**
