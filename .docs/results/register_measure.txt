@@ -1,0 +1,35 @@
+1. flips and rules fired per random addition (random firing order)
+   4 digits phi        8 values  detected 0.375  correctable 0.062  rules fired mean 1.22 max 5
+   4 digits binary    16 values  detected 0.000  correctable 0.000  rules fired mean 1.55 max 4
+   6 digits phi       21 values  detected 0.397  correctable 0.079  rules fired mean 2.03 max 7
+   6 digits binary    64 values  detected 0.000  correctable 0.000  rules fired mean 2.49 max 6
+   8 digits phi       55 values  detected 0.409  correctable 0.086  rules fired mean 2.83 max 11
+   8 digits binary   256 values  detected 0.000  correctable 0.000  rules fired mean 3.52 max 8
+  10 digits phi      144 values  detected 0.417  correctable 0.090  rules fired mean 3.66 max 15
+  10 digits binary  1024 values  detected 0.000  correctable 0.000  rules fired mean 4.49 max 10
+  13 digits phi      610 values  detected 0.424  correctable 0.094  rules fired mean 4.97 max 16
+  13 digits binary  8192 values  detected 0.000  correctable 0.000  rules fired mean 5.92 max 13
+
+2. rules fired per sum, same values in both registers (lowest position first)
+  values < 21   phi    mean 2.20 max 9
+  values < 21   binary mean 1.33 max 5
+  values < 55   phi    mean 3.18 max 16
+  values < 55   binary mean 2.13 max 6
+  values < 144  phi    mean 4.17 max 25
+  values < 144  binary mean 2.80 max 8
+
+3. parallel settling rounds per sum
+  values < 21   phi    width  6  mean 1.82 worst 6
+  values < 21   binary width  5  mean 1.20 worst 5
+  values < 55   phi    width  8  mean 2.32 worst 7
+  values < 55   binary width  6  mean 1.72 worst 6
+  values < 144  phi    width 10  mean 2.73 worst 8
+  values < 144  binary width  8  mean 2.08 worst 8
+  values < 610  phi    width 13  mean 3.20 worst 11
+  values < 610  binary width 10  mean 2.51 worst 10
+
+4. lockstep: expected rounds when lanes wait for the slowest (values < 144)
+  phi     1 lanes  2.75
+  phi    32 lanes  5.86
+  binary  1 lanes  2.09
+  binary 32 lanes  5.71

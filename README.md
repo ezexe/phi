@@ -157,6 +157,11 @@ What these numbers mean:
 - Stream size: the Fibonacci stream marks where each weight ends, so it needs no length fields, but at 9.7–10.3 bits per weight it is 35–45% larger than a plain fixed-size code for the same 144 levels (7.17 bits); it buys that marking and the flip check, not smaller files.
 - Source: the notebook at commit 6f9ef3a, run on a Colab T4 with the same training setup as the main table.
 
+## φ-Register vs Binary Register
+
+`phi_prune.register` models the φ-register and a binary register as local rewrite rules and compares them on phi-prune's own multiply-accumulate step; [`.docs/register.md`](.docs/register.md) walks through the module, its tests, the CPU notebook [`.docs/register_settling.ipynb`](.docs/register_settling.ipynb) and the transformer checks in [`scripts/transformer_check.py`](scripts/transformer_check.py), with a table linking every result to the script that produced it ([`scripts/session/`](scripts/session/)) and its saved output ([`.docs/results/`](.docs/results/)).
+In short, on synthetic weights so far: a self-timed φ accumulator needs 15% fewer additions and fewer settling rounds per dot product than a clocked binary one (1.7× against carry-lookahead), catches 41-45% of single-bit flips, and loses to a binary accumulator that is also self-timed (0.82×).
+
 ## How It Works
 
 The adjacency constraint ("no two consecutive 1s") is applied along the output channel axis of each layer.

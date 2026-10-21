@@ -150,17 +150,23 @@ Three operations, all just the axiom rewritten:
 
 **Doubling (resolve a 2):** Raw addition can produce a cell holding "2." Since 2·F(k) = F(k+1) + F(k-2), clear the 2 and set those two cells. This is the axiom applied to F(k) + F(k) = F(k) + F(k-1) + F(k-2) = F(k+1) + F(k-2).
 
-That's the complete arithmetic engine. Addition is raw cell-wise sum followed by sweeping these three rules until the register is valid. Subtraction is alignment plus downward expansion plus normalization. Every operation terminates because carries propagate strictly upward and the register is finite.
+That's the complete arithmetic engine. Addition is raw cell-wise sum followed by sweeping these three rules until the register is valid. Subtraction is alignment plus downward expansion plus normalization. Every operation terminates, though not because carries only move up: the doubling rule sends one carry two cells down. `phi_prune/register.py` checks the result on every sum of two 6-cell registers and on random rule orders.
 
 ## The Clock is Convergence
 
 There's no external clock. You pour values into a register, and the normalization rules cascade like a wavefront until the system settles into a valid state. **Computation is settling.** The settling time is bounded by register width, so it always halts — but the machine's natural rhythm is the propagation speed of carries, not an imposed tick.
 
+Settling also announces itself. A register still settling holds a `11` or a 2 somewhere; a settled one holds neither, so "done" is the same local scan as the error check below, with no worst-case timer. A binary adder's wires show an ordinary number while a carry is still in flight, which is why a CPU latches its sum on a clock tick sized for the longest carry.
+
+Measured with every cell rewriting in parallel (`normalize_rounds` in `phi_prune/register.py`, every sum of two values below 144): the φ-register settles in 2.7 rounds on average and 8 at worst; binary in 2.1 on average and 8 at worst. A self-timed φ-register pays its average, a clocked binary register its worst case, about 3× apart. Two limits: binary can be self-timed too, with carry-completion wires, and then pays its lower average; and a CPU's carry-lookahead adder settles in about log₂(width) gate delays, not one cell per round, so rounds compare the rule systems, not circuits.
+
 This is closer to how physical systems actually compute. A crystal grows until it's stable. A river finds its channel. The φ-register normalizes.
 
 ## Error Detection is Free
 
-In any positional system with unconstrained digits, every bit pattern is valid and corruption is silent. Here, the "no adjacent 1s" invariant means any corruption that creates an adjacency is **immediately visible** — and self-correcting by applying the carry rule. The representation itself is a checksum. You don't bolt on parity bits; structural integrity is native.
+In any positional system with unconstrained digits, every bit pattern is valid and corruption is silent. Here, the "no adjacent 1s" invariant means any corruption that creates an adjacency is **immediately visible**. The representation itself is a checksum.
+
+Detection is not correction. Applying the carry rule to a corrupted register makes it valid again at the corrupted value, which hides the error, so check before you normalize. Only a 0→1 flip next to a 1 shows: 40.9% of single flips over all 8-cell registers. A flip that lands between two 1s (`101 → 111`) has one valid repair, 8.6% of flips; a lone `11` could have come from either cell. You don't bolt on parity bits; structural integrity is native.
 
 ## Multiplication
 
@@ -206,6 +212,9 @@ Index composition       expensive (matrix)    native (multiply)
 Normalization           required              impossible to violate
 Arbitrary integers      direct                only Fibonacci-indexed
 Inspectable digits      yes                   no (opaque pair)
+Settling                self-timed            none (valid by construction)
+Done signal             no 11, no 2           not needed
+Integrity check         no 11 (same scan)     a²+b² on sequence, Cassini ±1
 ```
 
 ## The Switching Strategy
@@ -214,11 +223,21 @@ The matrix identity's practical consequence isn't a hybrid architecture — it's
 
 **Value work → stay in 1D.** Addition, subtraction, comparison, reading individual digits. The normalization sweep is the right cost to pay. Converting to matrix form would require decomposition and reconstruction for no benefit.
 
-**Composition work → switch to matrix.** Exponentiation, fast doubling, multiplying by Fibonacci numbers, advancing indices. Build the `(F(k), F(k+1))` pair from the Zeckendorf form — O(width), same cost as one normalization sweep — then compose via matrix multiplication with no further normalization. Convert back to 1D when done.
+**Composition work → switch to matrix.** Exponentiation, fast doubling, multiplying by Fibonacci numbers, advancing indices. Build the `(F(k), F(k+1))` pair from the Zeckendorf form, O(width), then compose via matrix multiplication with no further normalization. Convert back to 1D when done.
 
 **Multiplication decomposes naturally.** The multiplier determines the structure: Zeckendorf-decompose it (1D work), then for each active digit, shift and add (1D work). The matrix enters only if you need to compute F(n) for large n, or if the multiplication is by a Fibonacci number (which is a single index shift in matrix form).
 
-The startup cost of building the matrix pair from Zeckendorf form when you actually need it is O(width). That's the same cost as one normalization sweep. You don't pre-pay it — you convert on demand.
+The startup cost of building the matrix pair from Zeckendorf form when you actually need it is O(width): a walk over every cell, where a self-timed addition settles in a few rounds whatever the width (2.7 on average at 10 cells). You don't pre-pay it — you convert on demand, when the composition work saves more than that walk.
+
+### Self-timing in the switching strategy
+
+Self-timing belongs to the 1D side only, so it sharpens the rule for when to stay there.
+
+**The 1D side is where the clock disappears.** Each value operation settles locally and signals its own end with the no-`11` scan, the same scan that checks for corruption and frames codewords in a stream: one check, three jobs. A run of additions, such as accumulating the shift-and-add partial products of a Fibonacci-coded weight, pays each sum's own settling time, not the widest carry's.
+
+**The matrix side never settles.** Products are valid by construction, so there is nothing to wait for and nothing to signal. Its entries are ordinary integers, though, and in hardware its multiplies run on binary multipliers, clocked like any other. Its checks (a²+b² on the sequence, Cassini's ±1) catch corruption; they say nothing about completion.
+
+**So switching projection also switches timing discipline:** value work self-timed in 1D, composition work clocked in the matrix pair, with the O(width) conversion as the boundary between them. Long runs of additions are where staying in 1D pays most; each switch to the matrix gives the self-timing up until you convert back.
 
 ```
 Operation           →  Representation  →  Why

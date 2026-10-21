@@ -75,6 +75,9 @@ Index composition       expensive (matrix)    native (multiply)
 Normalization           required              impossible to violate
 Arbitrary integers      direct                only Fibonacci-indexed
 Inspectable digits      yes                   no (opaque pair)
+Settling                self-timed            none (valid by construction)
+Done signal             no 11, no 2           not needed
+Integrity check         no 11 (same scan)     a²+b² on sequence, Cassini ±1
 ```
 
 Neither is better. They're projections optimized for different operations on the same underlying structure.

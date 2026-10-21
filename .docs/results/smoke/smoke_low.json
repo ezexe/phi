@@ -1,0 +1,129 @@
+{
+ "args": {
+  "seeds": 1,
+  "steps": 5,
+  "finetune": 2,
+  "part": "low",
+  "out": "/tmp/claude-0/-home-user-phi-prune/78753c82-76e7-5f7e-90a2-003553ff1893/scratchpad/smoke_low.json"
+ },
+ "seeds": [
+  {
+   "seed": 0,
+   "dense": 4.556346000336838,
+   "prune": {
+    "phi": {
+     "density": 0.5,
+     "oneshot": 4.627068336261942,
+     "finetuned": 4.530638541034685
+    },
+    "phi-reorder": {
+     "density": 0.5,
+     "oneshot": 4.606747416580476,
+     "finetuned": 4.529181357831322
+    },
+    "2:4": {
+     "density": 0.5,
+     "oneshot": 4.609688018940591,
+     "finetuned": 4.5271752146055375
+    },
+    "top-50": {
+     "density": 0.5,
+     "oneshot": 4.606747416580476,
+     "finetuned": 4.529181357831322
+    },
+    "random-50": {
+     "density": 0.5,
+     "oneshot": 4.631292513938507,
+     "finetuned": 4.53796033263247
+    },
+    "phi-low-25": {
+     "density": 0.25,
+     "oneshot": 4.709043969985291,
+     "finetuned": 4.609858634329379
+    },
+    "1:4": {
+     "density": 0.25,
+     "oneshot": 4.706108054152412,
+     "finetuned": 4.607398044146954
+    },
+    "top-25": {
+     "density": 0.25,
+     "oneshot": 4.696623133565135,
+     "finetuned": 4.6038288279996715
+    }
+   },
+   "quant": {
+    "16": {
+     "bpc": 4.5583645435117495,
+     "bits": 4.0,
+     "digits": {
+      "offset": {
+       "binary": 2.001041499759654,
+       "zeckendorf": 1.6265922929017786,
+       "csd": 1.8329657206377183
+      },
+      "sign-magnitude": {
+       "binary": 1.4767327451530203,
+       "zeckendorf": 1.264296837445922,
+       "csd": 1.4032619472039738
+      }
+     }
+    },
+    "21": {
+     "bpc": 4.552823692457577,
+     "bits": 4.392317422778761,
+     "digits": {
+      "offset": {
+       "binary": 2.0809453112481973,
+       "zeckendorf": 1.8294781986059927,
+       "csd": 1.8658731072744752
+      },
+      "sign-magnitude": {
+       "binary": 1.5826102087005287,
+       "zeckendorf": 1.370305740265983,
+       "csd": 1.4772497396250601
+      }
+     }
+    },
+    "32": {
+     "bpc": 4.555801142100639,
+     "bits": 5.0,
+     "digits": {
+      "offset": {
+       "binary": 2.499555610078513,
+       "zeckendorf": 2.0305652639801313,
+       "csd": 2.163280123377664
+      },
+      "sign-magnitude": {
+       "binary": 1.9364459822143887,
+       "zeckendorf": 1.5894588207018105,
+       "csd": 1.7615679077872135
+      }
+     }
+    }
+   }
+  }
+ ],
+ "verdicts": {
+  "K1 phi vs 2:4 at 50%": {
+   "difference": 0.003463326429147706,
+   "sigma": NaN,
+   "survives": false
+  },
+  "K2 phi-low vs 1:4 at 25%": {
+   "difference": -0.0024605901824248377,
+   "sigma": NaN,
+   "survives": false
+  },
+  "K3 phi-reorder vs top-50": {
+   "difference": 0.0,
+   "sigma": NaN,
+   "survives": false
+  },
+  "K4 Zeckendorf vs CSD digits at 21 levels": {
+   "difference": -0.036394908668482495,
+   "sigma": 0.0,
+   "survives": true
+  }
+ }
+}

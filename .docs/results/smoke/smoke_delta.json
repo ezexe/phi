@@ -1,0 +1,75 @@
+{
+ "args": {
+  "seeds": 1,
+  "steps": 30,
+  "finetune": 10,
+  "part": "delta",
+  "out": "/tmp/claude-0/-home-user-phi-prune/78753c82-76e7-5f7e-90a2-003553ff1893/scratchpad/smoke_delta.json"
+ },
+ "seeds": [
+  {
+   "seed": 0,
+   "base": {
+    "val": 4.017949160930422,
+    "tune_val": 3.5823932000188017
+   },
+   "tuned": {
+    "val": 3.9128278354808477,
+    "tune_val": 3.5901757675347783
+   },
+   "digits": {
+    "weights-21": {
+     "binary": 1.5011141043102068,
+     "zeckendorf": 1.2964218474603428,
+     "csd": 1.4167789116327512,
+     "saving_vs_csd": 0.0849511968199076
+    },
+    "update-21": {
+     "binary": 1.3773771731293063,
+     "zeckendorf": 1.2073923950488703,
+     "csd": 1.3113182983496234,
+     "saving_vs_csd": 0.07925299557822874
+    },
+    "weights-55": {
+     "binary": 2.121791629947124,
+     "zeckendorf": 1.7978639240506329,
+     "csd": 1.9247366207338568,
+     "saving_vs_csd": 0.06591691315918866
+    },
+    "update-55": {
+     "binary": 2.0074707578913635,
+     "zeckendorf": 1.6929841471719276,
+     "csd": 1.8426696943598782,
+     "saving_vs_csd": 0.08123297824136061
+    }
+   },
+   "gaps": {
+    "0.1": {
+     "fibonacci": 5.002941691910973,
+     "elias-gamma": 5.32183361289838,
+     "elias-delta": 5.678929975214681,
+     "fixed-width": 16.0,
+     "entropy": 4.616650382753476
+    },
+    "0.01": {
+     "fibonacci": 8.908988482724086,
+     "elias-gamma": 10.760640961442164,
+     "elias-delta": 10.030796194291437,
+     "fixed-width": 16.0,
+     "entropy": 7.804922242968342
+    }
+   },
+   "update_norm_ratio": 0.051145173609256744
+  }
+ ],
+ "verdicts": {
+  "K7 Zeckendorf saving vs CSD, update vs weights": {
+   "difference": -0.005698201241678871,
+   "survives": false
+  },
+  "K8 Fibonacci gap code vs Elias-gamma, fixed": {
+   "difference": -0.31889192098740704,
+   "survives": true
+  }
+ }
+}
