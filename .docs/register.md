@@ -482,6 +482,70 @@ These are written from the saved run, which used the synthetic fallback.
 
 ---
 
+## 5b. Transformer check: `scripts/transformer_check.py`
+
+This is a pre-registered test of the ideas on a small transformer.
+- **Model and data:** a character-level GPT (4 layers, width 128, MLP width 512) learns Python's standard library source on CPU.
+- **Runs:** 3 seeds, each with 1500 dense steps, then 300 mask-aware fine-tune steps per pruning method.
+- **Masks:** pruning removes whole MLP hidden neurons.
+- **Metric:** bits per character (bpc) on held-out files; lower is better.
+- **Raw results:** `.docs/transformer_check.json`.
+
+It also uses a new package feature: `adjacency_dp_density(scores, density)` and `phi_mask(..., density=)` hit a target density below the 50% cap, by subtracting a bisected threshold from the scores before the DP.
+
+### Pruning (mean of 3 seeds, dense 1.9985 bpc)
+
+| Method | Density | One-shot | Fine-tuned |
+|---|---|---|---|
+| φ | 0.494 | 2.6533 | 2.0689 |
+| φ, neurons reordered | 0.500 | 2.7236 | 2.0527 |
+| 2:4 | 0.500 | 2.6254 | 2.0530 |
+| heaviest 50% | 0.500 | 2.7236 | 2.0527 |
+| random 50% | 0.500 | 2.6885 | 2.0770 |
+| φ at 25% | 0.250 | 3.5714 | 2.1801 |
+| 1:4 | 0.250 | 3.4960 | 2.1795 |
+| heaviest 25% | 0.250 | 3.6058 | 2.1796 |
+
+Seed-to-seed spread is about 0.024 bpc, mostly from how good each seed's dense model is.
+Comparing methods within each seed (paired) is much sharper:
+
+| Within-seed difference (fine-tuned bpc) | Seed 0 | Seed 1 | Seed 2 |
+|---|---|---|---|
+| φ − 2:4 | +0.0166 | +0.0131 | +0.0179 |
+| φ − heaviest 50% | +0.0190 | +0.0147 | +0.0148 |
+| φ reordered − heaviest 50% | 0.0000 | 0.0000 | 0.0000 |
+| φ at 25% − 1:4 | +0.0009 | +0.0005 | +0.0003 |
+| φ at 25% − heaviest 25% | −0.0016 | +0.0006 | +0.0024 |
+
+### Encoding: 1 digits per weight, all Linear layers quantized per output channel
+
+| Levels (bits) | bpc | Binary | Zeckendorf | CSD |
+|---|---|---|---|---|
+| 16 (4.00) | 2.0279 | 2.000 | 1.695 | 1.832 |
+| 21 (4.39) | 2.0132 | 2.220 | 1.862 | 2.000 |
+| 32 (5.00) | 2.0055 | 2.500 | 2.098 | 2.193 |
+
+These counts are in offset form, `(w − min)·scale`, the form the package uses.
+In sign-magnitude form at 21 levels, Zeckendorf needs 1.139 against 1.258 for CSD and 1.296 for binary.
+The bpc depends only on the number of levels: the 6-digit Fibonacci grid *is* 21 uniform levels, because every integer 0..20 has a Zeckendorf form.
+
+### Verdicts (the criteria are in the script's docstring, written before any run)
+
+| Criterion | As registered | Paired reading |
+|---|---|---|
+| K1: φ within σ of 2:4 at 50% | survives (+0.016 against σ 0.025) | **φ is worse in all 3 seeds** (+0.013 to +0.018); the unpaired σ, as registered, was too lenient |
+| K2: φ at 25% beats 1:4 by more than σ | **killed** (−0.0006) | the three 25% masks are indistinguishable after fine-tuning; the pattern doesn't matter at 25% |
+| K3: φ reordered within σ of the heaviest 50% | survives | identical masks, 0.0000 in every seed: reordering turns the φ rule into "keep the heaviest half" |
+| K4: Zeckendorf has fewer 1 digits than CSD at 21 levels | **survives** | 1.862 against 2.000 (−7%), and −16% against binary; the same ordering at 16 and 32 levels |
+
+What this says:
+- **The φ rule's cost at 50% comes from neuron order.** The no-neighbours rule in arbitrary neuron order costs about 0.015 bpc. Reordering removes the cost entirely, but then the rule is simply "keep the heaviest half". The rule itself doesn't add anything to a transformer's MLP.
+- **Going low doesn't help the mask.** At 25% every pattern recovers to the same loss after fine-tuning, so φ's extra choice there isn't an advantage in practice.
+- **The digit saving is the result that survives.** Zeckendorf codes need fewer 1 digits per weight than both binary and CSD on real trained weights, so a shift-and-add multiply needs fewer additions. Two costs stand against it: storing the digits takes more bits than storing the level index (so store the index), and each φ addition settles in more rounds (section 5).
+- **The scale is small:** a 0.8M-parameter model, 1500 steps, CPU. Read these as directions, not sizes.
+
+---
+
 ## 6. Where this leaves the claims
 
 **Holds up**
