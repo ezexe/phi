@@ -8,7 +8,7 @@ import torch.nn as nn
 import pytest
 
 from phi_prune.masks import (
-    adjacency_dp, phi_mask, verify_mask, mask_stats, two_four_mask, verify_two_four,
+    adjacency_dp, adjacency_dp_density, phi_mask, verify_mask, mask_stats, two_four_mask, verify_two_four,
 )
 from phi_prune.encoding import FibonacciEncoder
 from phi_prune.integrity import adjacency_check, simulate_corruption
@@ -52,6 +52,17 @@ class TestAdjacencyDP:
     def test_single(self):
         mask = adjacency_dp(np.array([5.0]))
         assert mask[0] == 1
+
+
+    def test_density_target(self):
+        """adjacency_dp_density keeps about the asked fraction, valid and at most the cap."""
+        rng = np.random.default_rng(0)
+        for density in (0.1, 0.25, 0.28, 0.38):
+            scores = rng.random(512)
+            mask = adjacency_dp_density(scores, density)
+            assert verify_mask(mask)
+            assert abs(int(mask.sum()) - round(density * 512)) <= 2
+        assert adjacency_dp_density(np.ones(10), 0.9).sum() == 5  # capped by the constraint
 
 
 # ── Mask on tensors ──

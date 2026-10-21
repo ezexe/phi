@@ -32,7 +32,7 @@ A φ-pruned teacher produces smoother soft labels (less high-frequency noise in 
 
 **I. Quantization-aware training — Fibonacci as the quantization grid**
 
-Instead of uniform INT8 levels, quantize to Fibonacci levels (55 levels at 8 digits, 144 at 10 digits). The grid is non-uniform — denser near zero where most weights live. Combine with pruning: prune first (removes 50% of weights), then quantize survivors to Fibonacci grid. Both operations respect the same constraint.
+Quantize to Fibonacci levels (55 levels at 8 digits, 144 at 10 digits). The levels themselves are uniform — every integer from 0 to F(n+2) − 1 has a Zeckendorf form — so accuracy matches uniform quantization with the same number of levels; what changes is the digits, which need fewer 1s per weight than binary (see `scripts/transformer_check.py`). Combine with pruning: prune first (removes 50% of weights), then quantize survivors to Fibonacci grid. Both operations respect the same constraint.
 
 **J. Model integrity verification — deployment pipeline checksums**
 

@@ -66,10 +66,48 @@ def adjacency_dp(scores: np.ndarray) -> np.ndarray:
     return mask
 
 
+def adjacency_dp_density(scores: np.ndarray, density: float, iters: int = 60) -> np.ndarray:
+    """
+    adjacency_dp with a density target below the constraint's cap.
+
+    Subtracts a threshold from every score and runs adjacency_dp, which then
+    keeps only positions whose score beats it; a bisection on the threshold
+    finds the mask whose kept count is closest to round(density * n). The
+    count can miss by one or two when scores tie, and never exceeds what the
+    constraint allows ((n + 1) // 2).
+
+    Args:
+        scores: 1D array of non-negative importance scores
+        density: Target fraction of positions to keep, in [0, 1]
+
+    Returns:
+        Binary mask array, same length as scores. 1 = keep, 0 = prune.
+    """
+    scores = np.asarray(scores, dtype=np.float64)
+    target = round(density * len(scores))
+    best = adjacency_dp(scores)
+    if best.sum() <= target:
+        return best
+    lo, hi = 0.0, float(scores.max()) + 1.0
+    for _ in range(iters):
+        mid = (lo + hi) / 2
+        mask = adjacency_dp(scores - mid)
+        if abs(int(mask.sum()) - target) < abs(int(best.sum()) - target):
+            best = mask
+        if mask.sum() > target:
+            lo = mid
+        elif mask.sum() < target:
+            hi = mid
+        else:
+            break
+    return best
+
+
 def phi_mask(
     weight: torch.Tensor,
     axis: int = 0,
     score_fn: str = "magnitude",
+    density: Optional[float] = None,
 ) -> torch.Tensor:
     """
     Generate an adjacency-constrained pruning mask for a weight tensor.
@@ -89,6 +127,9 @@ def phi_mask(
         weight: Parameter tensor (2D or 4D)
         axis: Dimension to apply the adjacency constraint along
         score_fn: Importance scoring method. Currently: "magnitude"
+        density: Keep about this fraction of positions (adjacency_dp_density)
+                 instead of the heaviest set the constraint allows, which
+                 lands just under 0.5
 
     Returns:
         Binary mask tensor, same shape as weight. Ready to multiply.
@@ -102,7 +143,7 @@ def phi_mask(
         raise ValueError(f"Unknown score function: {score_fn}")
 
     # Run DP to find optimal mask
-    mask_1d = adjacency_dp(scores)
+    mask_1d = adjacency_dp(scores) if density is None else adjacency_dp_density(scores, density)
 
     # Broadcast mask to full tensor shape
     shape = [1] * weight.dim()
