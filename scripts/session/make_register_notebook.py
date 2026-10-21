@@ -26,11 +26,11 @@ This notebook runs that dot product for real conv-layer weights in two accumulat
 
 Settling is counted in rounds, every cell rewriting at once (`normalize_rounds`). Rounds compare the rule systems, not gate-level circuits."""))
 cells.append(md("## 0. Install"))
-cells.append(code("""# phi_prune.register ships on branch claude/kind-hopper-juyjmk until it is merged into main
+cells.append(code("""# phi_prune.register ships in main from PR #2 on
 import importlib.util, subprocess, sys
 if importlib.util.find_spec("phi_prune.register") is None:
     subprocess.check_call([sys.executable, "-m", "pip", "install", "-q",
-                           "git+https://github.com/ezexe/phi-prune.git@claude/kind-hopper-juyjmk"])"""))
+                           "git+https://github.com/ezexe/phi-prune.git"])"""))
 cells.append(md("""## 1. One pruned, encoded conv layer
 
 ResNet-18's `layer3.0.conv1` (256 output channels, fan-in 128 × 3 × 3 = 1152) with torchvision's ImageNet weights, φ-pruned and encoded per output channel with 10 Fibonacci digits (144 levels), as in the README pipeline.
