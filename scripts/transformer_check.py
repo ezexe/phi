@@ -49,6 +49,21 @@ proved too lenient, so these compare methods within each seed:
         per weight than CSD, offset form; over uniformly spread levels CSD
         already needs fewer from 144 levels, so the prediction is KILLED
 
+--part delta tests the post-training case. Per seed it trains the dense model
+on most of the training files, fine-tunes a copy on a held-out tenth of them,
+and takes the update (fine-tuned minus base weights) of every Linear layer.
+Weights and updates are both quantized symmetrically per output channel
+(round(w / max|w| * m), m = (L - 1) / 2) and their magnitudes counted in
+binary, Zeckendorf and CSD. The update keeps its largest 10% (and 1%) entries
+per tensor, and the gaps between kept positions are coded with Fibonacci,
+Elias-gamma, Elias-delta and fixed-width codes. Kill criteria, fixed before
+its first run:
+    K7  Zeckendorf suits updates if its saving over CSD in 1 digits per weight
+        ((CSD - Zeckendorf) / CSD, 21 levels) is larger on the updates than on
+        the full weights of the same model, averaged over seeds
+    K8  Fibonacci gap codes survive if, at 10% kept, they take fewer bits per
+        kept position than both Elias-gamma and fixed-width codes
+
 Usage:
     python scripts/transformer_check.py                 # 3 seeds, ~40 min on 4 CPU cores
     python scripts/transformer_check.py --seeds 1 --steps 300 --finetune 100   # smoke run
@@ -77,14 +92,19 @@ EVAL_BATCHES = 40
 
 # ── data ──
 
-def load_text():
+CHARS = [chr(c) for c in range(32, 127)] + ["\n", "\t"]
+
+
+def read_files(keep):
+    """Encoded text of the standard library files whose sorted index i passes keep(i)."""
     files = sorted(glob.glob(sysconfig.get_paths()["stdlib"] + "/*.py"))
-    val = "".join(open(f, errors="replace").read() for f in files[::10])
-    train = "".join(open(f, errors="replace").read() for i, f in enumerate(files) if i % 10)
-    chars = [chr(c) for c in range(32, 127)] + ["\n", "\t"]
-    lookup = {c: i for i, c in enumerate(chars)}
-    encode = lambda s: torch.tensor([lookup.get(c, lookup["?"]) for c in s], dtype=torch.long)
-    return encode(train), encode(val), len(chars)
+    lookup = {c: i for i, c in enumerate(CHARS)}
+    text = "".join(open(f, errors="replace").read() for i, f in enumerate(files) if keep(i))
+    return torch.tensor([lookup.get(c, lookup["?"]) for c in text], dtype=torch.long)
+
+
+def load_text():
+    return read_files(lambda i: i % 10), read_files(lambda i: i % 10 == 0), len(CHARS)
 
 
 def batch(data, g):
@@ -280,6 +300,109 @@ def quantized_model(model, L):
     return q, torch.cat(all_levels).numpy()
 
 
+# ── post-training: updates ──
+
+def symmetric_magnitudes(w, levels):
+    """|round(w / max|w| * m)| per output channel, m = (levels - 1) // 2."""
+    m = (levels - 1) // 2
+    scale = w.abs().max(1, keepdim=True).values.clamp_min(1e-12) / m
+    return torch.round(w / scale).abs().long().flatten().numpy()
+
+
+def magnitude_digits(mags):
+    top = int(mags.max()) + 1
+    zeck = np.array([sum(from_int(v, PHI)) for v in range(top)])
+    binary = np.array([sum(from_int(v, BINARY)) for v in range(top)])
+    csd = np.array([csd_nonzeros(v) for v in range(top)])
+    return {"binary": binary[mags].mean(), "zeckendorf": zeck[mags].mean(), "csd": csd[mags].mean()}
+
+
+def gap_bits(gaps, n_positions):
+    """Mean bits per kept position for each gap code; gaps are >= 1."""
+    fib_len = {g: len(from_int(int(g), PHI)) + 1 for g in np.unique(gaps)}  # digits + the closing 1
+    lg = np.floor(np.log2(gaps))
+    _, counts = np.unique(gaps, return_counts=True)
+    p = counts / counts.sum()
+    return {
+        "fibonacci": float(np.mean([fib_len[g] for g in gaps])),
+        "elias-gamma": float(np.mean(2 * lg + 1)),
+        "elias-delta": float(np.mean(lg + 2 * np.floor(np.log2(lg + 1)) + 1)),
+        "fixed-width": float(math.ceil(math.log2(n_positions))),
+        "entropy": float(-(p * np.log2(p)).sum()),  # floor for any code of these gaps, one gap at a time
+    }
+
+
+def update_gaps(deltas, keep):
+    """Gaps between the positions of each tensor's largest keep fraction of entries, pooled."""
+    gaps, n_max = [], 1
+    for d in deltas:
+        flat = d.abs().flatten()
+        k = max(1, round(keep * flat.numel()))
+        pos = np.sort(torch.topk(flat, k).indices.numpy())
+        gaps.append(np.diff(pos, prepend=-1))
+        n_max = max(n_max, flat.numel())
+    return np.concatenate(gaps), n_max
+
+
+def run_delta(args):
+    pre = read_files(lambda i: i % 10 not in (0, 1))
+    tune = read_files(lambda i: i % 10 == 1)
+    split = int(0.9 * len(tune))
+    tune_train, tune_val = tune[:split], tune[split:]
+    val = read_files(lambda i: i % 10 == 0)
+    print(f"pretrain {len(pre):,} chars, fine-tune {len(tune_train):,} (+{len(tune_val):,} held out), val {len(val):,}")
+    results = {"args": vars(args), "seeds": []}
+    t0 = time.time()
+    for seed in range(args.seeds):
+        torch.manual_seed(seed)
+        base = GPT(len(CHARS))
+        train(base, pre, args.steps, seed)
+        tuned = copy.deepcopy(base)
+        train(tuned, tune_train, args.finetune, seed + 100, lr=LR / 3)
+        r = {"seed": seed, "base": {"val": bpc(base, val), "tune_val": bpc(base, tune_val)},
+             "tuned": {"val": bpc(tuned, val), "tune_val": bpc(tuned, tune_val)}, "digits": {}, "gaps": {}}
+        pairs = [(a.weight.detach(), b.weight.detach()) for a, b in zip(base.modules(), tuned.modules())
+                 if isinstance(a, nn.Linear)]
+        deltas = [b - a for a, b in pairs]
+        rel = float(torch.cat([d.flatten() for d in deltas]).norm() / torch.cat([a.flatten() for a, _ in pairs]).norm())
+        r["update_norm_ratio"] = rel
+        print(f"\nseed {seed}: held-out fine-tune bpc {r['base']['tune_val']:.4f} -> {r['tuned']['tune_val']:.4f}, "
+              f"val {r['base']['val']:.4f} -> {r['tuned']['val']:.4f}; |update| / |weights| {rel:.3f} "
+              f"({time.time() - t0:.0f} s)")
+        for L in (21, 55):
+            for name, ws in (("weights", [a for a, _ in pairs]), ("update", deltas)):
+                mags = np.concatenate([symmetric_magnitudes(w, L) for w in ws])
+                d = magnitude_digits(mags)
+                d["saving_vs_csd"] = (d["csd"] - d["zeckendorf"]) / d["csd"]
+                r["digits"][f"{name}-{L}"] = d
+                print(f"  {L} levels, {name:<7}: 1 digits per weight binary {d['binary']:.3f}, Zeckendorf "
+                      f"{d['zeckendorf']:.3f}, CSD {d['csd']:.3f}; Zeckendorf saves {d['saving_vs_csd']:+.1%} vs CSD")
+        for keep in (0.10, 0.01):
+            gaps, n = update_gaps(deltas, keep)
+            r["gaps"][keep] = gap_bits(gaps, n)
+            print(f"  update, {keep:.0%} kept: bits per position " +
+                  ", ".join(f"{k} {v:.2f}" for k, v in r["gaps"][keep].items()))
+        results["seeds"].append(r)
+
+    def mean(f):
+        return float(np.mean([f(s) for s in results["seeds"]]))
+
+    upd = mean(lambda s: s["digits"]["update-21"]["saving_vs_csd"])
+    full = mean(lambda s: s["digits"]["weights-21"]["saving_vs_csd"])
+    fib, gamma, fixed = (mean(lambda s, k=k: s["gaps"][0.10][k]) for k in ("fibonacci", "elias-gamma", "fixed-width"))
+    verdicts = {
+        "K7 Zeckendorf saving vs CSD, update vs weights": (upd - full, upd > full),
+        "K8 Fibonacci gap code vs Elias-gamma, fixed": (fib - min(gamma, fixed), fib < gamma and fib < fixed),
+    }
+    results["verdicts"] = {k: {"difference": float(a), "survives": bool(b)} for k, (a, b) in verdicts.items()}
+    print()
+    for k, v in results["verdicts"].items():
+        print(f"{k:<48} difference {v['difference']:+.4f}  {'SURVIVES' if v['survives'] else 'KILLED'}")
+    with open(args.out, "w") as f:
+        json.dump(results, f, indent=1, default=float)
+    print(f"\n{time.time() - t0:.0f} s; results in {args.out}")
+
+
 # ── run ──
 
 def pooled(a, b):
@@ -291,11 +414,14 @@ def main():
     ap.add_argument("--seeds", type=int, default=3)
     ap.add_argument("--steps", type=int, default=1500, help="dense training steps")
     ap.add_argument("--finetune", type=int, default=300, help="mask-aware fine-tune steps")
-    ap.add_argument("--part", choices=sorted(PARTS), default="low",
-                    help="low: masks at 50%% and 25%%, 16-32 levels; high: masks at 75%%, 55-987 levels")
+    ap.add_argument("--part", choices=sorted(PARTS) + ["delta"], default="low",
+                    help="low: masks at 50%% and 25%%, 16-32 levels; high: masks at 75%%, 55-987 levels; "
+                         "delta: fine-tuning updates")
     ap.add_argument("--out", default="transformer_check.json")
     args = ap.parse_args()
     torch.set_num_threads(4)
+    if args.part == "delta":
+        return run_delta(args)
     methods, level_counts = PARTS[args.part]
 
     train_data, val_data, vocab = load_text()
