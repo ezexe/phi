@@ -174,6 +174,33 @@ def add(a: List[int], b: List[int], kind: str, rng: Optional[random.Random] = No
     return normalize(pour(a, b), kind, rng)
 
 
+def dot(levels, xs, kind: str) -> Tuple[List[int], List[int]]:
+    """
+    Shift-and-add dot product of non-negative integer weight levels and
+    activations, accumulated in one register of the given kind.
+
+    Each weight level is written in the register's own digits, and each
+    of its 1s adds a partial product x * place value to the accumulator,
+    which then settles (normalize_rounds). Partial products are taken as
+    given: in binary x * 2^k is wiring, in a φ-register x * F(k) needs a
+    ladder of additions per activation, shared by every weight it meets.
+
+    Returns:
+        (accumulator digits, rounds each addition took to settle)
+    """
+    acc, rounds = [0], []
+    for level, x in zip(levels, xs):
+        level, x = int(level), int(x)
+        if level == 0 or x == 0:
+            continue
+        digits = from_int(level, kind)
+        for k, p in enumerate(place_values(kind, len(digits))):
+            if digits[k]:
+                acc, r = normalize_rounds(pour(acc, from_int(x * p, kind)), kind)
+                rounds.append(r)
+    return acc, rounds
+
+
 def flip_detected(codeword: List[int], kind: str) -> bool:
     """Whether a register reads as corrupt: only a φ-register can, via adjacent 1s."""
     return not is_canonical(codeword, kind)

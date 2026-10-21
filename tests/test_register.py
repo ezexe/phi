@@ -6,7 +6,7 @@ import pytest
 
 from phi_prune.encoding import FibonacciEncoder
 from phi_prune.register import (
-    BINARY, KINDS, PHI, add, apply, correction_candidates, flip_detected, from_int,
+    BINARY, KINDS, PHI, add, apply, dot, correction_candidates, flip_detected, from_int,
     is_canonical, normalize, normalize_rounds, place_values, pour, rewrites, value,
 )
 
@@ -59,6 +59,17 @@ class TestRewrites:
                 s, _ = add(a, b, kind)
                 assert is_canonical(s, kind)
                 assert value(s, kind) == value(a, kind) + value(b, kind)
+
+    @pytest.mark.parametrize("kind", KINDS)
+    def test_dot(self, kind):
+        rng = random.Random(2)
+        levels = [rng.randrange(144) for _ in range(64)]
+        xs = [rng.randrange(256) for _ in range(64)]
+        acc, rounds = dot(levels, xs, kind)
+        assert is_canonical(acc, kind)
+        assert value(acc, kind) == sum(l * x for l, x in zip(levels, xs))
+        n_ones = sum(sum(from_int(l, kind)) for l, x in zip(levels, xs) if x)
+        assert len(rounds) == n_ones  # one addition per 1 digit of each weight level
 
     def test_phi_carry_runs_down_binary_does_not(self):
         """2·3 = 5 + 1: a φ split reaches two places below; a binary carry only goes up."""
