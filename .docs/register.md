@@ -6,8 +6,7 @@ This walkthrough covers the φ-register work on branch `claude/kind-hopper-juyjm
 2. `phi_prune/register.py`, function by function
 3. `tests/test_register.py`, test by test, with what each one establishes
 4. The changes to `.docs/phi/phi.md` and `.docs/phi/matrix.md`
-5. The notebook `.docs/register_settling.ipynb`, cell by cell, with the saved run's output
-5b–5d. The transformer checks: low and high density and level counts, and fine-tuning updates
+5. The notebook `.docs/register_settling.ipynb`, cell by cell, with the saved run's output; then (5b–5d) the transformer checks: low and high density and level counts, and fine-tuning updates
 6. What holds up, what doesn't, and what is still open
 
 Run everything with:
