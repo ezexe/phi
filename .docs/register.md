@@ -1,6 +1,6 @@
 # φ-Register vs Binary Register: a Walkthrough
 
-This walkthrough covers the φ-register work on branch `claude/kind-hopper-juyjmk`, in the order it was built:
+This walkthrough covers the φ-register work merged in [ezexe/phi-prune#2](https://github.com/ezexe/phi-prune/pull/2), in the order it was built:
 
 1. The growth-rate equations that set up the comparison
 2. `phi_prune/register.py`, function by function
@@ -384,10 +384,10 @@ It runs on CPU in about a minute.
 import importlib.util, subprocess, sys
 if importlib.util.find_spec("phi_prune.register") is None:
     subprocess.check_call([sys.executable, "-m", "pip", "install", "-q",
-                           "git+https://github.com/ezexe/phi-prune.git@claude/kind-hopper-juyjmk"])
+                           "git+https://github.com/ezexe/phi-prune.git"])
 ```
 
-Installs the package from this branch if `phi_prune.register` isn't importable; point it at `main` once the branch is merged.
+Installs the package from `main` if `phi_prune.register` isn't importable.
 
 ### Cell 1: one pruned, encoded conv layer
 
