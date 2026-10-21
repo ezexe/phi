@@ -17,9 +17,17 @@ mask-aware fine-tuning:
     25%:  phi-low        adjacency_dp_density(scores, 0.25)
           1:4            1 of every 4 neighbouring neurons
           top            the heaviest quarter, no pattern
+--part high instead prunes above the 50% cap, by putting the φ rule on the
+pruned neurons (no two neighbouring neurons both pruned):
+    75%:  phi-comp       adjacency_dp_density on (max score - score) picks the
+                         pruned quarter, so pruned neurons never sit side by side
+          3:4            3 of every 4 neighbouring neurons
+          top            the heaviest three quarters, no pattern
+          random         a random three quarters, as a floor
 
 Part B, encoding: every Linear weight quantized per output channel to L
-uniform levels, L in {16 (4-bit), 21 (6 Fibonacci digits), 32 (5-bit)},
+uniform levels, L in {16 (4-bit), 21 (6 Fibonacci digits), 32 (5-bit)}
+(--part high: {55, 144, 377, 987}, the 8, 10, 12 and 14-digit grids),
 and for each the 1 digits a shift-and-add multiply needs per weight in
 binary, Zeckendorf and canonical signed digit (CSD/NAF) form. FibonacciEncoder's
 grid is every integer 0 .. F(n+2) - 1, so 6-digit Fibonacci quantization is
@@ -33,6 +41,13 @@ Kill criteria, fixed before the first run (lower bits per character = better;
     K3  reordering prediction holds if |mean(phi-reorder) - mean(top 50%)| < σ
     K4  Zeckendorf encoding survives if it needs fewer 1 digits per weight
         than CSD at 21 levels, offset form (the package's (w - min) * scale)
+
+Kill criteria for --part high, fixed before its first run; K1's unpaired σ
+proved too lenient, so these compare methods within each seed:
+    K5  φ-comp at 75% survives against 3:4 if it is lower in every seed
+    K6  Zeckendorf encoding survives at 144 levels if it needs fewer 1 digits
+        per weight than CSD, offset form; over uniformly spread levels CSD
+        already needs fewer from 144 levels, so the prediction is KILLED
 
 Usage:
     python scripts/transformer_check.py                 # 3 seeds, ~40 min on 4 CPU cores
@@ -200,10 +215,23 @@ def make_mask(method, scores, rng):
         return n_of_four(scores, 1)
     if method == "top-25":
         return top_k(scores, 0.25)
+    if method == "phi-comp-75":
+        return 1 - adjacency_dp_density(scores.max() - scores + 1e-6, 0.25)
+    if method == "3:4":
+        return n_of_four(scores, 3)
+    if method == "top-75":
+        return top_k(scores, 0.75)
+    if method == "random-75":
+        m = np.zeros(len(scores))
+        m[rng.permutation(len(scores))[:round(0.75 * len(scores))]] = 1
+        return m
     raise ValueError(method)
 
 
-METHODS = ["phi", "phi-reorder", "2:4", "top-50", "random-50", "phi-low-25", "1:4", "top-25"]
+PARTS = {
+    "low": (["phi", "phi-reorder", "2:4", "top-50", "random-50", "phi-low-25", "1:4", "top-25"], (16, 21, 32)),
+    "high": (["phi-comp-75", "3:4", "top-75", "random-75"], (55, 144, 377, 987)),
+}
 
 
 # ── Part B: quantization and digit counts ──
@@ -263,9 +291,12 @@ def main():
     ap.add_argument("--seeds", type=int, default=3)
     ap.add_argument("--steps", type=int, default=1500, help="dense training steps")
     ap.add_argument("--finetune", type=int, default=300, help="mask-aware fine-tune steps")
+    ap.add_argument("--part", choices=sorted(PARTS), default="low",
+                    help="low: masks at 50%% and 25%%, 16-32 levels; high: masks at 75%%, 55-987 levels")
     ap.add_argument("--out", default="transformer_check.json")
     args = ap.parse_args()
     torch.set_num_threads(4)
+    methods, level_counts = PARTS[args.part]
 
     train_data, val_data, vocab = load_text()
     print(f"train {len(train_data):,} chars, val {len(val_data):,} chars, vocab {vocab}")
@@ -279,7 +310,7 @@ def main():
         print(f"\nseed {seed}: dense {r['dense']:.4f} bpc ({time.time() - t0:.0f} s)")
 
         rng = np.random.default_rng(seed)
-        for method in METHODS:
+        for method in methods:
             model = copy.deepcopy(dense)
             masks = [torch.tensor(make_mask(method, neuron_scores(b), rng), dtype=torch.float32)
                      for b in model.blocks]
@@ -291,7 +322,7 @@ def main():
             print(f"  {method:<12} density {density:.3f}  one-shot {oneshot:.4f}  fine-tuned "
                   f"{r['prune'][method]['finetuned']:.4f}")
 
-        for L in (16, 21, 32):
+        for L in level_counts:
             q, levels = quantized_model(dense, L)
             r["quant"][L] = {"bpc": bpc(q, val_data), "bits": math.log2(L), "digits": digit_counts(levels, L)}
             d = r["quant"][L]["digits"]["offset"]
@@ -303,11 +334,30 @@ def main():
     def ft(m):
         return [s["prune"][m]["finetuned"] for s in results["seeds"]]
 
+    def digits(L):
+        d = [s["quant"][L]["digits"]["offset"] for s in results["seeds"]]
+        return np.mean([x["zeckendorf"] for x in d]), np.mean([x["csd"] for x in d])
+
+    if args.part == "high":
+        comp, three4 = ft("phi-comp-75"), ft("3:4")
+        paired = [a - b for a, b in zip(comp, three4)]
+        zeck, csd = digits(144)
+        verdicts = {
+            "K5 phi-comp vs 3:4 at 75% (paired)": (np.mean(paired), 0.0, all(p < 0 for p in paired)),
+            "K6 Zeckendorf vs CSD digits at 144 levels": (zeck - csd, 0.0, zeck < csd),
+        }
+    else:
+        verdicts = low_verdicts(ft, digits)
+    results["verdicts"] = {k: {"difference": float(a), "sigma": float(b), "survives": bool(c)}
+                           for k, (a, b, c) in verdicts.items()}
+    report(results, methods, ft, args, t0)
+
+
+def low_verdicts(ft, digits):
     phi, two4, reo, top50 = ft("phi"), ft("2:4"), ft("phi-reorder"), ft("top-50")
     low, one4 = ft("phi-low-25"), ft("1:4")
-    d21 = [s["quant"][21]["digits"]["offset"] for s in results["seeds"]]
-    zeck21, csd21 = np.mean([d["zeckendorf"] for d in d21]), np.mean([d["csd"] for d in d21])
-    verdicts = {
+    zeck21, csd21 = digits(21)
+    return {
         "K1 phi vs 2:4 at 50%": (np.mean(phi) - np.mean(two4), pooled(phi, two4),
                                  np.mean(phi) - np.mean(two4) < pooled(phi, two4)),
         "K2 phi-low vs 1:4 at 25%": (np.mean(one4) - np.mean(low), pooled(low, one4),
@@ -316,11 +366,11 @@ def main():
                                      abs(np.mean(reo) - np.mean(top50)) < pooled(reo, top50)),
         "K4 Zeckendorf vs CSD digits at 21 levels": (zeck21 - csd21, 0.0, zeck21 < csd21),
     }
-    results["verdicts"] = {k: {"difference": float(a), "sigma": float(b), "survives": bool(c)}
-                           for k, (a, b, c) in verdicts.items()}
 
+
+def report(results, methods, ft, args, t0):
     print(f"\n{'method':<12}{'density':>9}{'one-shot':>10}{'fine-tuned':>12}{'± sd':>8}")
-    for m in METHODS:
+    for m in methods:
         v = ft(m)
         dens = np.mean([s["prune"][m]["density"] for s in results["seeds"]])
         one = np.mean([s["prune"][m]["oneshot"] for s in results["seeds"]])
