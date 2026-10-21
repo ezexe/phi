@@ -7,7 +7,7 @@ import pytest
 from phi_prune.encoding import FibonacciEncoder
 from phi_prune.register import (
     BINARY, KINDS, PHI, add, apply, correction_candidates, flip_detected, from_int,
-    is_canonical, normalize, place_values, rewrites, value,
+    is_canonical, normalize, normalize_rounds, place_values, pour, rewrites, value,
 )
 
 
@@ -73,6 +73,22 @@ class TestRewrites:
             counts[kind] = (sum(steps) / len(steps), max(steps))
         assert counts[PHI][0] > counts[BINARY][0]
         assert counts[PHI][1] > counts[BINARY][1]
+
+    def test_parallel_rounds_self_timed_phi_against_clocked_binary(self):
+        """Over every sum of two values below 144: φ settles in ~2.7 rounds on average,
+        binary in ~2.1, and binary's worst case, which a clock must wait for, is 8."""
+        stats = {}
+        for kind in KINDS:
+            rounds = []
+            for a in range(144):
+                for b in range(144):
+                    out, r = normalize_rounds(pour(from_int(a, kind), from_int(b, kind)), kind)
+                    assert value(out, kind) == a + b and is_canonical(out, kind)
+                    rounds.append(r)
+            stats[kind] = (sum(rounds) / len(rounds), max(rounds))
+        assert 2.6 < stats[PHI][0] < 2.8 and stats[PHI][1] == 8
+        assert 2.0 < stats[BINARY][0] < 2.2 and stats[BINARY][1] == 8
+        assert stats[BINARY][1] / stats[PHI][0] > 2.9  # clocked binary worst case vs self-timed φ average
 
 
 class TestCorruption:

@@ -137,11 +137,41 @@ def normalize(
     raise RuntimeError(f"no canonical form after {max_steps} rewrites")
 
 
-def add(a: List[int], b: List[int], kind: str, rng: Optional[random.Random] = None) -> Tuple[List[int], int]:
-    """Digit-by-digit sum, then normalize; returns (digits, rules fired)."""
+def normalize_rounds(digits: List[int], kind: str, max_rounds: int = 10_000) -> Tuple[List[int], int]:
+    """
+    Normalize in rounds, each firing at once every rule it can without two
+    rules touching the same digit (picked from the lowest position up).
+
+    Rounds stand in for settling time when every cell rewrites itself in
+    parallel. A self-timed register stops after the rounds a sum needs;
+    a clocked one waits the worst case on every sum.
+
+    Returns:
+        (canonical digits, number of rounds)
+    """
+    d = list(digits)
+    for rounds in range(max_rounds + 1):
+        options = rewrites(d, kind)
+        if not options:
+            return d, rounds
+        used = set()
+        for rule, k in options:
+            cells = {"carry": {k, k + 1}, "merge": {k, k + 1, k + 2}, "split": {k - 2, k, k + 1}}[rule]
+            if not cells & used:
+                used |= cells
+                d = apply(d, rule, k)
+    raise RuntimeError(f"no canonical form after {max_rounds} rounds")
+
+
+def pour(a: List[int], b: List[int]) -> List[int]:
+    """Digit-by-digit sum of two registers, digits allowed above 1."""
     n = max(len(a), len(b))
-    summed = [x + y for x, y in zip(a + [0] * (n - len(a)), b + [0] * (n - len(b)))]
-    return normalize(summed, kind, rng)
+    return [x + y for x, y in zip(a + [0] * (n - len(a)), b + [0] * (n - len(b)))]
+
+
+def add(a: List[int], b: List[int], kind: str, rng: Optional[random.Random] = None) -> Tuple[List[int], int]:
+    """pour, then normalize; returns (digits, rules fired)."""
+    return normalize(pour(a, b), kind, rng)
 
 
 def flip_detected(codeword: List[int], kind: str) -> bool:
