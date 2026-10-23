@@ -182,6 +182,6 @@ The adjacency constraint is the rule of Zeckendorf's theorem (every positive int
 @software{phi_prune,
   title={phi-prune: Structured Sparsity via the Adjacency Constraint},
   year={2026},
-  url={https://github.com/ezexe/phi-prune}
+  url={https://github.com/ezexe/phi}
 }
 ```

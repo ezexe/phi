@@ -30,7 +30,7 @@ cells.append(code("""# phi_prune.register ships in main from PR #2 on
 import importlib.util, subprocess, sys
 if importlib.util.find_spec("phi_prune.register") is None:
     subprocess.check_call([sys.executable, "-m", "pip", "install", "-q",
-                           "git+https://github.com/ezexe/phi-prune.git"])"""))
+                           "git+https://github.com/ezexe/phi.git"])"""))
 cells.append(md("""## 1. One pruned, encoded conv layer
 
 ResNet-18's `layer3.0.conv1` (256 output channels, fan-in 128 × 3 × 3 = 1152) with torchvision's ImageNet weights, φ-pruned and encoded per output channel with 10 Fibonacci digits (144 levels), as in the README pipeline.
