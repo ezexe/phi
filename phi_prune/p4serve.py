@@ -30,13 +30,15 @@ import torch
 from phi_prune.p4rank import load, models_dir, write_text_atomic
 
 CACHE_MAX = 50_000            # entry embeddings kept between requests, by text
+MAX_BODY = 16 << 20           # a /score request larger than this is refused (413), never read
 
 
 class Holder:
     """The loaded ranker, swapped whole when the checkpoint changes on disk."""
 
-    def __init__(self, path: str):
+    def __init__(self, path: str, p4: str):
         self.path = path
+        self.p4 = os.path.realpath(p4)      # named in every reply: a client trusts only its own store's server
         self.lock = threading.Lock()
         self.model = None
         self.meta: Dict = {}
@@ -61,20 +63,28 @@ class Holder:
 
     @torch.no_grad()
     def score(self, task: str, texts):
+        """Scores against the model current at the call, its entry embeddings cached by text. The cache is used
+        under the holder's lock and only for the model it was built with, so concurrent requests and a reload in
+        between never read another model's embeddings or a cache being trimmed."""
         model, meta = self.current()
         if model is None:
             return None, meta
         q = model.encode([task], "task")[0]
         keys = [hashlib.sha1(t.encode("utf-8")).hexdigest() for t in texts]
-        missing = [i for i, k in enumerate(keys) if k not in self.cache]
+        with self.lock:
+            cache = self.cache if self.model is model else {}
+            have = {k: cache[k] for k in keys if k in cache}
+        missing = [i for i, k in enumerate(keys) if k not in have]
         for s in range(0, len(missing), 512):
             idx = missing[s:s + 512]
-            emb = model.encode([texts[i] for i in idx], "entry")
-            for i, e in zip(idx, emb):
-                self.cache[keys[i]] = e
-        if len(self.cache) > CACHE_MAX:
-            self.cache = {k: self.cache[k] for k in keys if k in self.cache}
-        return [float(self.cache[k] @ q) for k in keys], meta
+            for i, e in zip(idx, model.encode([texts[i] for i in idx], "entry")):
+                have[keys[i]] = e
+        with self.lock:
+            if self.model is model:
+                self.cache.update(have)
+                if len(self.cache) > CACHE_MAX:
+                    self.cache = dict(have)
+        return [float(have[k] @ q) for k in keys], meta
 
 
 def make_handler(holder: Holder):
@@ -83,7 +93,7 @@ def make_handler(holder: Holder):
             pass
 
         def reply(self, code: int, body: Dict):
-            data = json.dumps(body).encode("utf-8")
+            data = json.dumps({**body, "p4": holder.p4}).encode("utf-8")
             self.send_response(code)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(data)))
@@ -102,10 +112,20 @@ def make_handler(holder: Holder):
             if self.path != "/score":
                 return self.reply(404, {"error": "not found"})
             try:
-                req = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))))
-                scores, meta = holder.score(str(req["task"]), [str(t) for t in req["texts"]])
+                size = int(self.headers.get("Content-Length", 0))
+            except ValueError:
+                return self.reply(400, {"error": "a Content-Length is required"})
+            if size <= 0 or size > MAX_BODY:
+                return self.reply(413 if size > MAX_BODY else 400, {"error": f"body of {size} bytes refused"})
+            try:
+                req = json.loads(self.rfile.read(size))
+                task, texts = str(req["task"]), [str(t) for t in req["texts"]]
             except (ValueError, KeyError, TypeError) as e:
                 return self.reply(400, {"error": f"{type(e).__name__}: {e}"})
+            try:
+                scores, meta = holder.score(task, texts)
+            except Exception as e:  # noqa: BLE001 — the model failed: say so, and keep serving
+                return self.reply(500, {"error": f"{type(e).__name__}: {e}"})
             if scores is None:
                 return self.reply(503, {"error": "no checkpoint loaded"})
             self.reply(200, {"scores": scores, "round": meta.get("round"), "threshold": meta.get("threshold"),
@@ -118,15 +138,22 @@ def write_atomic(path: str, text: str) -> None:
     write_text_atomic(text, path)
 
 
-def serve(p4: str, port: int = 0, idle_hours: float = 4.0, ready: Optional[threading.Event] = None):
-    """Run until idle; returns the server (tests stop it with .shutdown())."""
+def serve(p4: str, port: int = 0, idle_hours: float = 4.0, ready: Optional[threading.Event] = None,
+          info_name: str = "ranker.server.json"):
+    """Run until idle. The port file is ranker.server.json, the one the plugin's hooks read; a check run beside a live
+    server passes another info_name so it never takes that server's place."""
     mdir = models_dir(p4)
-    holder = Holder(os.path.join(mdir, "ranker.pt"))
+    holder = Holder(os.path.join(mdir, "ranker.pt"), p4)
     _model, meta = holder.current()
     server = ThreadingHTTPServer(("127.0.0.1", port), make_handler(holder))
-    info = os.path.join(mdir, "ranker.server.json")
+    info = os.path.join(mdir, info_name)
     os.makedirs(mdir, exist_ok=True)
-    write_atomic(info, json.dumps({"port": server.server_address[1], "pid": os.getpid(), "round": meta.get("round")}))
+    write_atomic(info, json.dumps({"port": server.server_address[1], "pid": os.getpid(), "round": meta.get("round"),
+                                   "p4": holder.p4}))
+    try:
+        os.remove(os.path.join(mdir, ".server-start"))   # the plugin's start lock: this start has landed
+    except OSError:
+        pass
 
     def idle_watch():
         while True:

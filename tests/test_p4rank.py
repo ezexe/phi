@@ -42,9 +42,13 @@ def make_store(root):
 
 def test_corpus_follows_git(tmp_path):
     make_store(tmp_path)
-    files = [os.path.relpath(p, tmp_path) for p in p4rank.text_files(str(tmp_path))]
+    (tmp_path / "sessions" / "s1" / "vlds" / "recall-pool.md").write_text("task: x\n## steering\n- picks", "utf-8")
+    (tmp_path / "scratchpad" / "pool-picks-s1.md").write_text("picks — x", "utf-8")
+    files = [os.path.relpath(p, tmp_path).replace(os.sep, "/") for p in p4rank.text_files(str(tmp_path))]
     assert "scratchpad/run.log" in files and "scratchpad/take.wav" not in files
     assert all(not f.startswith("models") for f in files)
+    # the labels stay out of pretraining
+    assert not any(f.endswith("recall-pool.md") or "pool-picks-" in f for f in files), files
 
 
 def test_train_eval_and_live_reload(tmp_path):
@@ -55,7 +59,8 @@ def test_train_eval_and_live_reload(tmp_path):
     side = json.loads((mdir / "ranker.json").read_text())
     assert side["round"] == 0 and len(side["pools"]) == len(TOPICS)
     model, meta = p4rank.load(str(mdir / "ranker.pt"))
-    assert next(iter(torch.load(mdir / "ranker.pt", weights_only=False)["state"].values())).dtype == torch.float16
+    assert next(iter(torch.load(mdir / "ranker.pt", weights_only=True)["state"].values())).dtype == torch.float16
+    assert side["threshold_from"].startswith("held-out")
     # it learned the topics: each task ranks its own rules first
     for k, t in enumerate(TOPICS):
         texts = [f"the {u} rule number 0" for u in TOPICS]
@@ -80,7 +85,25 @@ def test_train_eval_and_live_reload(tmp_path):
                                      headers={"Content-Type": "application/json"}, method="POST" if body else "GET")
         with urllib.request.urlopen(req, timeout=10) as r:
             return json.loads(r.read())
-    assert call("/health") == {"ok": True, "round": 0, "threshold": meta["threshold"]}
+    health = call("/health")
+    assert health["ok"] and health["round"] == 0 and health["threshold"] == meta["threshold"]
+    assert health["p4"] == os.path.realpath(tmp_path) and info["p4"] == os.path.realpath(tmp_path)
+    # many requests at once share the embedding cache without a 400
+    errors = []
+
+    def hammer(n):
+        try:
+            for j in range(5):
+                call("/score", {"task": f"a plan about the {TOPICS[n % 6]}",
+                                "texts": [f"the {u} rule number {(n + j) % 30}" for u in TOPICS]})
+        except Exception as e:  # noqa: BLE001
+            errors.append(e)
+    workers = [threading.Thread(target=hammer, args=(n,)) for n in range(8)]
+    for w in workers:
+        w.start()
+    for w in workers:
+        w.join()
+    assert not errors, errors[:1]
     out = call("/score", {"task": "a plan about the toolbar latency readout",
                           "texts": ["the toolbar latency readout rule number 1", "the crash dump symbols rule number 1"]})
     assert out["round"] == 0 and out["scores"][0] > out["scores"][1]
@@ -88,8 +111,7 @@ def test_train_eval_and_live_reload(tmp_path):
     # a retrain swaps the checkpoint: the running server answers from round 1 at its next request, no restart
     time.sleep(1.1)
     assert p4rank.main(["train"] + args) == 0
-    assert (mdir / "ranker.r01.phid").exists()
-    assert call("/health")["round"] == 1
+    assert call("/health")["round"] == 1 and json.loads((mdir / "ranker.json").read_text())["round"] == 1
 
 
 def test_bad_request(tmp_path):
@@ -103,3 +125,9 @@ def test_bad_request(tmp_path):
     with pytest.raises(urllib.error.HTTPError) as e:
         urllib.request.urlopen(req, timeout=10)
     assert e.value.code == 400
+    req = urllib.request.Request(f"http://127.0.0.1:{port}/score", data=b"x", method="POST",
+                                 headers={"Content-Length": str(64 << 20)})
+    with pytest.raises((urllib.error.HTTPError, ConnectionError, urllib.error.URLError)) as e:
+        urllib.request.urlopen(req, timeout=10)
+    if isinstance(e.value, urllib.error.HTTPError):
+        assert e.value.code == 413
