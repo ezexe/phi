@@ -3,8 +3,10 @@ Serve a p4 store's .pt ranker on localhost, the checkpoint loaded once and reloa
 
 The vlds plugin's hooks run a fresh process per call, too short-lived to import torch and load a checkpoint each
 time; this server holds models/ranker.pt in memory instead and answers in milliseconds. It watches the file's
-modification time between requests, so a background retrain that swaps in a new checkpoint is picked up at the next
-request, with no restart: the model keeps running while it trains.
+modification times between requests (ranker.pt, the sidecar ranker.json, the anchor), so a background retrain that
+ships a round, or a pull that brings one, is picked up at the next request with no restart: the model keeps running
+while it trains. What it loads is phi_rank.load_current: the chain's build, rebuilt from the anchor and its φ-deltas
+when ranker.pt is not a build of the chain the sidecar names.
 
     python -m phi_serve --p4 <p4 root> [--port 0] [--idle-hours 4]
 
@@ -27,7 +29,7 @@ from typing import Dict, Optional
 
 import torch
 
-from phi_rank import load, models_dir, write_text_atomic
+from phi_rank import ANCHOR, CURRENT, SIDECAR, load_current, models_dir, write_text_atomic
 
 CACHE_MAX = 50_000            # entry embeddings kept between requests, by text
 MAX_BODY = 16 << 20           # a /score request larger than this is refused (413), never read
@@ -36,29 +38,36 @@ MAX_BODY = 16 << 20           # a /score request larger than this is refused (41
 class Holder:
     """The loaded ranker, swapped whole when the checkpoint changes on disk."""
 
-    def __init__(self, path: str, p4: str):
-        self.path = path
+    def __init__(self, p4: str):
         self.p4 = os.path.realpath(p4)      # named in every reply: a client trusts only its own store's server
+        self.watch = [os.path.join(models_dir(p4), n) for n in (CURRENT, SIDECAR, ANCHOR)]
         self.lock = threading.Lock()
         self.model = None
         self.meta: Dict = {}
-        self.mtime = 0.0
+        self.sig = None
         self.cache: Dict[str, torch.Tensor] = {}
         self.last = time.time()
 
+    def signature(self):
+        out = []
+        for p in self.watch:
+            try:
+                out.append(os.path.getmtime(p))
+            except OSError:
+                out.append(None)
+        return tuple(out)
+
     def current(self):
-        try:
-            m = os.path.getmtime(self.path)
-        except OSError:
-            return self.model, self.meta
-        if m != self.mtime:
+        sig = self.signature()
+        if sig != self.sig:
             with self.lock:
-                if m != self.mtime:
+                if sig != self.sig:
                     try:
-                        model, meta = load(self.path)
+                        model, meta = load_current(self.p4)
                     except Exception:  # noqa: BLE001 — a checkpoint mid-swap or broken: keep serving the old one
                         return self.model, self.meta
-                    self.model, self.meta, self.mtime, self.cache = model, meta, m, {}
+                    # the build load_current may have just written moved ranker.pt's mtime: take the signature now
+                    self.model, self.meta, self.sig, self.cache = model, meta, self.signature(), {}
         return self.model, self.meta
 
     @torch.no_grad()
@@ -143,7 +152,7 @@ def serve(p4: str, port: int = 0, idle_hours: float = 4.0, ready: Optional[threa
     """Run until idle. The port file is ranker.server.json, the one the plugin's hooks read; a check run beside a live
     server passes another info_name so it never takes that server's place."""
     mdir = models_dir(p4)
-    holder = Holder(os.path.join(mdir, "ranker.pt"), p4)
+    holder = Holder(p4)
     _model, meta = holder.current()
     server = ThreadingHTTPServer(("127.0.0.1", port), make_handler(holder))
     info = os.path.join(mdir, info_name)

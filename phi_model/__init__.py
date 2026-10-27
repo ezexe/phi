@@ -47,6 +47,9 @@ MODE_KEYS = ("pool-road", "pool-audit", "dispatch-model")
 
 # ─── where things are ──────────────────────────────────────────────────────────────────────────────────
 
+LOCAL_BUILD = "models/ranker.pt"     # each machine's build of the chain: ignored, never tracked
+
+
 def p4_root(project: str) -> str:
     """The store's root: <project>/.claude/p4, or the path itself when it is a store repository (sessions/ and
     vindex/ at its top, as ezexe/AudioPlugin-p4 and ezexe/p4-p4 are)."""
@@ -205,8 +208,10 @@ def check(p4: str, plugin: str) -> Dict:
     rep["git"] = run(["git", "-C", p4, "rev-parse", "--show-toplevel"]).returncode == 0
     attrs = os.path.join(p4, ".gitattributes")
     rep["lfs"] = os.path.exists(attrs) and "models/*.pt filter=lfs" in open(attrs, encoding="utf-8").read()
-    rep["gitignore"] = os.path.exists(os.path.join(p4, ".gitignore"))
-    if not rep["gitignore"] or not rep["lfs"]:
+    gi = os.path.join(p4, ".gitignore")
+    rep["gitignore"] = os.path.exists(gi)
+    local_build = rep["gitignore"] and LOCAL_BUILD in open(gi, encoding="utf-8").read().split("\n")
+    if not rep["gitignore"] or not rep["lfs"] or not local_build:
         rep["owed"].append("seed .gitignore/.gitattributes")
 
     ids = {p["id"] for p in pm.label_pools(store)}
@@ -246,17 +251,25 @@ def check(p4: str, plugin: str) -> Dict:
 
     r, err = load_json(os.path.join(mdir, "ranker.json"))
     state = pm.checkpoint_state(os.path.join(mdir, "ranker.pt"))
+    if state == "missing":
+        # a clone holds the chain (anchor + φ-deltas), never the local build: the server rebuilds ranker.pt from it
+        state = pm.checkpoint_state(os.path.join(mdir, "ranker-anchor.pt"))
     seen = pm.ranker_seen(store)
     if err:
         rep["corrupt"]["ranker.json"] = err
     rep["ranker"] = None if not r else {
         "round": r.get("round"), "trained": r.get("trained"), "threshold": r.get("threshold"),
-        "threshold_from": r.get("threshold_from"), "unseen_pools": len(ids - (seen or set())),
-        "checkpoint": state, "serving_round": server_round(p4)}
+        "threshold_from": r.get("threshold_from"), "heldout_rprecision": r.get("heldout_rprecision"),
+        "anchor_round": r.get("anchor_round"), "chain": len(r.get("chain", [])),
+        "unseen_pools": len(ids - (seen or set())), "checkpoint": state, "serving_round": server_round(p4)}
     if err or (r and (rep["ranker"]["unseen_pools"] or state == "missing")) or (not r and ids):
         rep["owed"].append("train ranker")
     if state == "lfs-pointer":
-        rep["owed"].append("git lfs pull (models/ranker.pt is a pointer)")
+        rep["owed"].append("git lfs pull (the ranker's checkpoint is a pointer)")
+    if r and "anchor_round" in r and run(["git", "-C", p4, "ls-files", "--error-unmatch", "models/ranker.pt"]
+                                         ).returncode == 0:
+        # the chain is what git keeps; ranker.pt is each machine's own build of it
+        rep["owed"].append("untrack models/ranker.pt (git rm --cached; the chain replaces it)")
     py = pm.ranker_python(store)
     rep["ranker_python"] = py
     if not py:
@@ -386,7 +399,7 @@ def test(p4: str, plugin: str, now: str, minutes: float, folds: int) -> Dict[str
         except OSError:
             pass
     pm, _dm = plugin_modules(plugin)
-    if pm.checkpoint_state(os.path.join(p4, "models", "ranker.pt")) == "present":
+    if "present" in (pm.checkpoint_state(os.path.join(p4, "models", n)) for n in ("ranker.pt", "ranker-anchor.pt")):
         out["server"] = [smoke_server(p4)]
     for k, v in out.items():
         print(f"{k}:")
@@ -449,6 +462,14 @@ def seed_repo(p4: str, plugin: str) -> List[str]:
                             + "# the models' checkpoints in git LFS (added by the p4-model skill)\n"
                             + "\n".join(missing) + "\n")
                 done.append("added the LFS lines to .gitattributes")
+    gi = os.path.join(p4, ".gitignore")
+    have = open(gi, encoding="utf-8").read() if os.path.exists(gi) else ""
+    if LOCAL_BUILD not in have.split("\n"):
+        with open(gi, "a", encoding="utf-8", newline="\n") as g:
+            g.write(("" if not have or have.endswith("\n") else "\n")
+                    + "# the .pt ranker's local build: git keeps its chain, models/ranker-anchor.pt and the "
+                      "ranker.rNNN.phid deltas (added by the p4-model skill)\n" + LOCAL_BUILD + "\n")
+        done.append(f"added {LOCAL_BUILD} to .gitignore")
     if run(["git", "lfs", "version"]).returncode == 0:
         if run(["git", "-C", p4, "lfs", "install", "--local"]).returncode == 0:
             done.append("git lfs install --local")
@@ -488,7 +509,7 @@ def main(argv=None) -> int:
         p.add_argument("--plugin", default="", help="the vlds plugin root (found when omitted)")
         p.add_argument("--now", default=time.strftime("%Y-%m-%d %H:%M"))
         if name in ("init", "train", "test", "update"):
-            p.add_argument("--minutes", type=float, default=20, help="the .pt ranker's pretraining budget")
+            p.add_argument("--minutes", type=float, default=5, help="the .pt ranker's pretraining budget")
         if name == "check":
             p.add_argument("--json", action="store_true")
         if name == "init":

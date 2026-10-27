@@ -42,12 +42,13 @@ pretraining from the base it has. The pick threshold is chosen on held-out
 pools (each fold's model fine-tuned from the base without the pools it is
 scored on) and chosen again when the labelled pools have grown by a quarter.
 
-    python -m phi_rank pretrain --p4 <p4 root> --minutes 20
+    python -m phi_rank pretrain --p4 <p4 root> --minutes 5 [--buckets 32768 --dim 64]
     python -m phi_rank train --p4 <p4 root> --pairs pairs.jsonl --now "2026-10-27 09:00"
     python -m phi_rank eval --p4 <p4 root> --pairs pairs.jsonl
 """
 
 import argparse
+import hashlib
 import json
 import os
 import random
@@ -63,8 +64,9 @@ import torch.nn.functional as F
 
 from phi_prune.delta import apply_delta, delta_stats, encode_delta, load_delta, save_delta
 
-NB = 1 << 17                  # hashed feature buckets
-DIM = 128                     # 2^17 x 128 at fp16: a 34 MB checkpoint
+NB = 1 << 15                  # hashed feature buckets
+DIM = 64                      # 2^15 x 64 at fp16: a 4 MB checkpoint that pretrains in a few minutes on a CPU; a model
+                              # keeps the size it was built at (its meta), and --buckets / --dim build another
 MAX_FEATURES = 768            # features kept per text
 PASSAGE_CHARS = 600
 MAX_FILE_BYTES = 1 << 20      # a trace dump's first megabyte is plenty
@@ -131,6 +133,12 @@ class Ranker(nn.Module):
         h = h + self.body(h)
         h = (self.task_head if side == "task" else self.entry_head)(h)
         return F.normalize(h, dim=-1)
+
+
+def ranker_like(state: Dict) -> "Ranker":
+    """An untrained ranker of the size a state dict was saved at."""
+    nb, dim = state["bag.weight"].shape
+    return Ranker(nb, dim)
 
 
 def info_nce(a: torch.Tensor, b: torch.Tensor, temperature: float = 0.05) -> torch.Tensor:
@@ -392,6 +400,7 @@ def save(model: Ranker, meta: Dict, path: str, half: bool = True) -> None:
 ANCHOR = "ranker-anchor.pt"     # git LFS: the chain's whole start
 CURRENT = "ranker.pt"           # this machine's fp32 build of anchor + chain; never tracked
 SIDECAR = "ranker.json"         # what the hooks read without torch: round, threshold, anchor, chain, pools seen
+OOF = "ranker-oof.json"         # out-of-fold scores of every labelled pool: the JSON ranker's .pt feature
 
 
 def read_sidecar(p4: str) -> Dict:
@@ -483,16 +492,17 @@ def cmd_pretrain(args) -> int:
     torch.manual_seed(0)
     pairs, total = corpus_pairs(args.p4)
     print(f"pretrain — {len(pairs):,} passage pairs from {total / 1e6:.1f} MB of text in {args.p4}")
-    model = Ranker()
+    model = Ranker(args.buckets, args.dim)
     steps = pretrain(model, pairs, args.minutes)
     path = os.path.join(models_dir(args.p4), "ranker-base.pt")
-    save(model, {"nb": NB, "dim": DIM, "stage": "pretrained", "corpus_bytes": total, "steps": steps,
+    save(model, {"nb": args.buckets, "dim": args.dim, "stage": "pretrained", "corpus_bytes": total, "steps": steps,
                  "trained": args.now}, path)
     print(f"pretrain — {steps} steps → {path}")
     return 0
 
 
-def base_model(p4: str, minutes: float, now: str, repretrain: float = 1.25, write: bool = True) -> Tuple[Ranker, Dict]:
+def base_model(p4: str, minutes: float, now: str, repretrain: float = 1.25, write: bool = True, nb: int = NB,
+               dim: int = DIM) -> Tuple[Ranker, Dict]:
     """The pretrained base: models/ranker-base.pt. Built when absent, or when it has fewer than MIN_PRETRAIN_STEPS
     (built with no or a tiny budget) and a budget is given now; when the repository's text has grown by `repretrain`
     times since, it continues pretraining from the base it has, so the base keeps learning what the store adds.
@@ -510,9 +520,10 @@ def base_model(p4: str, minutes: float, now: str, repretrain: float = 1.25, writ
             prior = meta.get("steps", 0)
     torch.manual_seed(0)
     pairs, total = corpus_pairs(p4)
-    model = model or Ranker()
+    model = model or Ranker(nb, dim)       # a base keeps the size it was built at; nb/dim size a new one
     steps = pretrain(model, pairs, minutes) if minutes > 0 else 0
-    meta = {"nb": NB, "dim": DIM, "stage": "pretrained", "corpus_bytes": total, "steps": prior + steps, "trained": now}
+    nb, dim = model.bag.weight.shape
+    meta = {"nb": nb, "dim": dim, "stage": "pretrained", "corpus_bytes": total, "steps": prior + steps, "trained": now}
     if prior:
         meta["continued_from_steps"] = prior
     if write:
@@ -522,21 +533,27 @@ def base_model(p4: str, minutes: float, now: str, repretrain: float = 1.25, writ
     return model, meta
 
 
+def text_key(text: str) -> str:
+    """A candidate's key in the out-of-fold scores: the plugin hashes the same distilled text the same way."""
+    return hashlib.sha1(text.encode("utf-8")).hexdigest()[:12]
+
+
 def heldout_threshold(base_state: Dict, pools: Sequence[Dict], epochs: int, folds: int = 4
-                      ) -> Tuple[float, str, Optional[float]]:
-    """The pick threshold from scores on pools each fold's model never trained on, and those pools' mean
-    r-precision — the figure the plugin weighs against the JSON ranker's before it lets this model pick. With too few
-    pools to fold, the training pools' own threshold, said so, and no held-out figure."""
+                      ) -> Tuple[float, str, Optional[float], Dict[str, Dict[str, float]]]:
+    """The pick threshold from scores on pools each fold's model never trained on; those pools' mean r-precision;
+    and the scores themselves, {pool id: {text key: score}} — out of fold, so the JSON ranker can learn how far to
+    trust this model's score without learning from a score that saw its own label. With too few pools to fold, the
+    training pools' own threshold, said so, no held-out figure and no scores."""
     if len(pools) < 4:
-        model = Ranker()
+        model = ranker_like(base_state)
         model.load_state_dict(base_state)
         finetune(model, pools, epochs=epochs)
-        return best_threshold(model, pools), "train", None
+        return best_threshold(model, pools), "train", None, {}
     k = min(folds, len(pools))
     scored = []
     for i in range(k):
         held = pools[i::k]
-        model = Ranker()
+        model = ranker_like(base_state)
         model.load_state_dict(base_state)
         torch.manual_seed(i)
         finetune(model, [p for j, p in enumerate(pools) if j % k != i], epochs=epochs)
@@ -549,7 +566,8 @@ def heldout_threshold(base_state: Dict, pools: Sequence[Dict], epochs: int, fold
         if f1 > best_f1:
             best, best_f1 = t, f1
     rprec = sum(pool_metrics([r["label"] for r in p["rows"]], sc, [])["r-precision"] for p, sc in scored) / len(scored)
-    return best, f"held-out, {k} folds", rprec
+    oof = {p["id"]: {text_key(r["text"]): round(x, 5) for r, x in zip(p["rows"], sc)} for p, sc in scored}
+    return best, f"held-out, {k} folds", rprec, oof
 
 
 def cmd_train(args) -> int:
@@ -560,7 +578,7 @@ def cmd_train(args) -> int:
         print("train — no labelled pool in the pairs; nothing written")
         return 1
     mdir = models_dir(args.p4)
-    base, bmeta = base_model(args.p4, args.minutes, args.now)
+    base, bmeta = base_model(args.p4, args.minutes, args.now, nb=args.buckets, dim=args.dim)
     base_state = {k: v.clone() for k, v in base.state_dict().items()}
     side = read_sidecar(args.p4)
     adopted = adopt_legacy(args.p4, side)
@@ -571,8 +589,12 @@ def cmd_train(args) -> int:
     have_t = isinstance(side.get("threshold"), (int, float))
     t_pools = side.get("threshold_pools", len(side.get("pools", [])))
     if not have_t or "heldout_rprecision" not in side or len(pools) >= max(1, t_pools) * REFOLD_GROWTH:
-        t, how, rprec = heldout_threshold(base_state, pools, args.epochs)
+        t, how, rprec, oof = heldout_threshold(base_state, pools, args.epochs)
         t_pools = len(pools)
+        if oof:
+            # tracked beside the models (text, small): the JSON ranker's training reads it on any machine, torch or not
+            write_text_atomic(json.dumps({"round": rnd, "from": how, "pools": oof}, separators=(",", ":")) + "\n",
+                              os.path.join(mdir, OOF))
     else:
         t, how, rprec = side["threshold"], side.get("threshold_from", ""), side["heldout_rprecision"]
 
@@ -596,7 +618,7 @@ def cmd_train(args) -> int:
         finetune(parent, pools, epochs=CONTINUE_EPOCHS, seed=rnd)
         header, payload = encode_delta(parent_state, parent.state_dict(), keep=KEEP, n_digits=N_DIGITS,
                                        changed_only=True)
-        shipped = Ranker()
+        shipped = ranker_like(parent_state)
         shipped.load_state_dict(apply_delta({k: v.clone() for k, v in parent_state.items()}, header, payload))
         shipped.eval()
         dense_rp, ship_rp = mean_rprecision(parent, pools), mean_rprecision(shipped, pools)
@@ -616,11 +638,12 @@ def cmd_train(args) -> int:
             model = shipped
     if shipped is None:
         if parent is None:
-            model = Ranker()
+            model = ranker_like(base_state)
             model.load_state_dict(base_state)
             torch.manual_seed(0)
             finetune(model, pools, epochs=args.epochs)
-        meta = {"nb": NB, "dim": DIM, "stage": "finetuned", "round": rnd, "per_file": PER_FILE, "trained": args.now,
+        nb, dim = model.bag.weight.shape
+        meta = {"nb": nb, "dim": dim, "stage": "finetuned", "round": rnd, "per_file": PER_FILE, "trained": args.now,
                 "corpus_bytes": bmeta.get("corpus_bytes", 0), "base_steps": bmeta.get("steps", 0)}
         save(model, meta, os.path.join(mdir, ANCHOR))
         model, _ = load(os.path.join(mdir, ANCHOR))      # the anchor as a reader rebuilds it: fp16, back in fp32
@@ -632,7 +655,8 @@ def cmd_train(args) -> int:
                  "trained": args.now, "pools": [p["id"] for p in pools], "per_file": PER_FILE})
     # `seen` is kept and widened by the plugin too (pools it met with nothing to learn count as met)
     side["seen"] = sorted(set(side.get("seen", [])) | set(side["pools"]))
-    meta = served_meta({"nb": NB, "dim": DIM, "stage": "finetuned"}, side)
+    nb, dim = model.bag.weight.shape
+    meta = served_meta({"nb": nb, "dim": dim, "stage": "finetuned"}, side)
     # the sidecar first: a reader that sees it before the build rebuilds the same model from the chain
     write_text_atomic(json.dumps(side, indent=1) + "\n", os.path.join(mdir, SIDECAR))
     save(model, meta, os.path.join(mdir, CURRENT), half=False)
@@ -647,14 +671,14 @@ def cmd_eval(args) -> int:
     if len(pools) < 3:
         print(f"eval — {len(pools)} labelled pools; at least 3 are needed")
         return 1
-    base, _meta = base_model(args.p4, args.minutes, args.now or "", write=False)
+    base, _meta = base_model(args.p4, args.minutes, args.now or "", write=False, nb=args.buckets, dim=args.dim)
     base_state = {k: v.clone() for k, v in base.state_dict().items()}
     folds = [pools[i::args.folds] for i in range(args.folds)]
     got = []
     for k, held in enumerate(folds):
         if not held:
             continue
-        model = Ranker()
+        model = ranker_like(base_state)
         model.load_state_dict(base_state)
         torch.manual_seed(k)
         finetune(model, [p for j, f in enumerate(folds) if j != k for p in f], epochs=args.epochs)
@@ -674,13 +698,17 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("pretrain")
     p.add_argument("--p4", required=True)
-    p.add_argument("--minutes", type=float, default=20)
+    p.add_argument("--minutes", type=float, default=5)
     p.add_argument("--now", default="")
+    p.add_argument("--buckets", type=int, default=NB, help="hashed feature buckets of a new base")
+    p.add_argument("--dim", type=int, default=DIM, help="embedding width of a new base")
     for name in ("train", "eval"):
         p = sub.add_parser(name)
         p.add_argument("--p4", required=True)
         p.add_argument("--pairs", required=True, help="pick_model.py pairs --jsonl output")
-        p.add_argument("--minutes", type=float, default=20, help="pretraining budget when the base is (re)built")
+        p.add_argument("--minutes", type=float, default=5, help="pretraining budget when the base is (re)built")
+        p.add_argument("--buckets", type=int, default=NB, help="hashed feature buckets of a new base")
+        p.add_argument("--dim", type=int, default=DIM, help="embedding width of a new base")
         p.add_argument("--epochs", type=int, default=30)
         p.add_argument("--now", default="")
         if name == "eval":
