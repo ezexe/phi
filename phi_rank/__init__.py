@@ -716,7 +716,8 @@ def cmd_eval(args) -> int:
     return 0
 
 
-DEFAULT_SHARED_EXCLUDE = ("Ibiza/plugins/legacy/",)   # superseded contracts: their retired terms never teach
+DEFAULT_SHARED_EXCLUDE = ("lbiza/plugins/legacy/", "Ibiza/plugins/legacy/")   # superseded contracts: their retired
+                                                                             # terms never teach (Ibiza: before the rename)
 
 
 def cmd_shared(args) -> int:

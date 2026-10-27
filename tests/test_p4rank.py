@@ -184,15 +184,15 @@ def test_shared_base_seeds_a_store_without_one(tmp_path):
     """`phi_rank shared` pretrains on a marketplace's public text (legacy/ left out); a store with no base of its
     own starts from it and continues on its own text; a git LFS pointer in its place is ignored."""
     market = tmp_path / "market"
-    (market / "Ibiza" / "plugins" / "vlds").mkdir(parents=True)
-    (market / "Ibiza" / "plugins" / "legacy").mkdir(parents=True)
-    (market / "Ibiza" / "plugins" / "vlds" / "operator.md").write_text(
+    (market / "lbiza" / "plugins" / "vlds").mkdir(parents=True)
+    (market / "lbiza" / "plugins" / "legacy").mkdir(parents=True)
+    (market / "lbiza" / "plugins" / "vlds" / "operator.md").write_text(
         "\n".join(f"the operator pours the cold entry {j} through the barrier" for j in range(200)), encoding="utf-8")
-    (market / "Ibiza" / "plugins" / "legacy" / "old.md").write_text("a retired contract\n" * 50, encoding="utf-8")
+    (market / "lbiza" / "plugins" / "legacy" / "old.md").write_text("a retired contract\n" * 50, encoding="utf-8")
     if subprocess.run(["git", "init", "-q", str(market)]).returncode != 0:
         pytest.skip("git is not available")
     assert p4rank.text_files(str(market), p4rank.DEFAULT_SHARED_EXCLUDE) == [
-        str(market / "Ibiza" / "plugins" / "vlds" / "operator.md")]
+        str(market / "lbiza" / "plugins" / "vlds" / "operator.md")]
     out = tmp_path / "p4-base.pt"
     assert p4rank.main(["shared", "--corpus", str(market), "--out", str(out), "--minutes", "0.02", "--buckets", "4096",
                         "--dim", "16"]) == 0

@@ -91,13 +91,15 @@ def find_plugin(given: str = "", project: str = "") -> str:
             return os.path.abspath(explicit)
     home = os.path.expanduser("~")
     cands = []
+    beside = os.path.dirname(os.path.abspath(project or "."))
     for pattern in (os.path.join(home, ".claude", "plugins", "**", "vlds", ".claude-plugin", "plugin.json"),
-                    os.path.join(os.path.dirname(os.path.abspath(project or ".")), "*", "Ibiza", "plugins", "vlds",
-                                 ".claude-plugin", "plugin.json")):
+                    # the marketplace's directory is lbiza (Ibiza in a checkout from before the rename)
+                    *(os.path.join(beside, "*", m, "plugins", "vlds", ".claude-plugin", "plugin.json")
+                      for m in ("lbiza", "Ibiza"))):
         cands += [os.path.dirname(os.path.dirname(p)) for p in glob.glob(pattern, recursive=True)]
     found = [c for c in dict.fromkeys(cands) if is_plugin(c)]
     if not found:
-        raise SystemExit("p4model — the vlds plugin was not found: pass --plugin <…/Ibiza/plugins/vlds> or set "
+        raise SystemExit("p4model — the vlds plugin was not found: pass --plugin <…/lbiza/plugins/vlds> or set "
                          "VLDS_PLUGIN_ROOT")
     return max(found, key=plugin_version)
 

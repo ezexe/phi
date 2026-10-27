@@ -1,7 +1,7 @@
 """Tests for phi_model: the recall config's modes, and the checkpoint routine on a store end to end.
 
 The end-to-end test needs the vlds plugin (ezexe/prompty-prompter-pioneer-puppeteer): set VLDS_PLUGIN_ROOT to its
-Ibiza/plugins/vlds, or it is skipped."""
+lbiza/plugins/vlds, or it is skipped."""
 
 import os
 import sys

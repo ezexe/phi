@@ -20,7 +20,7 @@ Every turn close in the store's repository already retrains what is behind, in t
 ## Before anything
 
 1. **The target.** The user names a repository (a local path) or a store repository (ezexe/AudioPlugin-p4, ezexe/p4-p4). `--project` takes the repository (its `.claude/p4` is used) or the store's root directly. In a cloud session, attach and clone the repository first.
-2. **The plugin.** `phi_model` finds the vlds plugin (newest version) under `~/.claude/plugins`, `$VLDS_PLUGIN_ROOT`, or a checkout of ezexe/p4 (formerly ezexe/prompty-prompter-pioneer-puppeteer) beside the project. If it is not found, clone the marketplace and pass `--plugin <clone>/Ibiza/plugins/vlds`.
+2. **The plugin.** `phi_model` finds the vlds plugin (newest version) under `~/.claude/plugins`, `$VLDS_PLUGIN_ROOT`, or a checkout of ezexe/p4 (formerly ezexe/prompty-prompter-pioneer-puppeteer) beside the project. If it is not found, clone the marketplace and pass `--plugin <clone>/lbiza/plugins/vlds`.
 3. **This package.** `pip install -e .` here (torch included). The `.pt` ranker trains and serves with this interpreter. `init` (and `update`, when it is missing) writes it to the store's `models/.ranker-python`: a local, untracked file the plugin's hooks read to start the server and train at turn close. Without it, or `VLDS_RANKER_PYTHON`, the store's sessions use the JSON ranker alone and `check` says so. A tracked file never names an interpreter: a shared store must not be able to point another machine at an executable.
 
 ## The commands
