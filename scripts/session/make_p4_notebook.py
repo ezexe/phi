@@ -39,8 +39,7 @@ KEEP, N_DIGITS = 0.10, 6                # 10% of each tensor's update shipped, 6
 SHIP = "dense-cut"                      # or "sparse": which of the two rounds below is shipped
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
-sys.path.insert(0, ".")                 # p4_corpus.py sits beside this notebook
-from p4_corpus import read_p4, split
+from phi_prune.p4 import read_p4, split
 from phi_prune.delta import encode_delta, apply_delta, delta_stats, save_delta, load_delta
 from phi_prune.gaps import gap_bits, pooled_gaps, top_positions"""),
     ("markdown", """## 1. The store as records

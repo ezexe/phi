@@ -93,7 +93,7 @@ apply_delta(state, *load_delta("round-01.phid"))  # checks counts, positions and
 base.load_state_dict(state)
 ```
 
-The codes alone are in `phi_prune.gaps` (`encode_positions`, `decode_positions`, `gap_bits`). [`.docs/p4/continual_p4.ipynb`](.docs/p4/continual_p4.ipynb) trains a small model on a `.claude/p4` store in rounds and ships each as a delta; its smoke runs found that cutting an update to 10% or less loses most of a round's gain, and that the gap codes beat Elias-gamma at 1% kept but only tie it at 10%. The vlds plugin's pool ranker ([`MODEL-ROAD.md`](https://github.com/ezexe/prompty-prompter-pioneer-puppeteer/blob/main/Ibiza/plugins/vlds/MODEL-ROAD.md)) records its training rounds in this format, written without numpy or torch; `tests/test_gaps.py::TestPluginDelta` reads one back.
+The codes alone are in `phi_prune.gaps` (`encode_positions`, `decode_positions`, `gap_bits`). `phi_prune.p4` reads a `.claude/p4` store as training records (`read_p4`, `split`, `dispatch_rows`, `pick_pairs`; `python -m phi_prune.p4 <p4 root>` prints a summary), and [`.docs/p4/continual_p4.ipynb`](.docs/p4/continual_p4.ipynb) trains a small model on a `.claude/p4` store in rounds and ships each as a delta; its smoke runs found that cutting an update to 10% or less loses most of a round's gain, and that the gap codes beat Elias-gamma at 1% kept but only tie it at 10%. The vlds plugin's pool ranker ([`MODEL-ROAD.md`](https://github.com/ezexe/prompty-prompter-pioneer-puppeteer/blob/main/Ibiza/plugins/vlds/MODEL-ROAD.md)) records its training rounds in this format, written without numpy or torch; `tests/test_gaps.py::TestPluginDelta` reads one back.
 
 ## CLI
 

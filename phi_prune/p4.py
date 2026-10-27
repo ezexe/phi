@@ -1,8 +1,9 @@
 """
-Sketch: a .claude/p4 tree as training records for small models trained in rounds.
+A .claude/p4 store as training records for small models trained in rounds.
 
-Untested against a model; it reads the layout of the AudioPlugin-p4 store as of
-2026-10-27. A record is one text with its session, time and weight:
+It reads the layout the vlds plugin writes (sessions/*/vlds, sessions/*/src,
+flights/, memory/, mrindex/), as AudioPlugin-p4 holds it. A record is one text
+with its session, time and weight:
 
     pretrain   memory/*.md, sessions/*/vlds/**/*.md (archived runs too),
                sessions/*/src/frags.md and the frags' scripts,
@@ -16,8 +17,11 @@ weight multiplier when it has one. scratchpad/ is skipped: it is build output,
 traces and binaries. split() holds out everything after a cutoff time, so the
 evaluation is on sessions the model never saw.
 
+    from phi_prune.p4 import read_p4, split
     recs = list(read_p4("/path/to/repo/.claude/p4"))
     train, held = split(recs, "2026-10-25 00:00")
+
+Run as a module for a summary: python -m phi_prune.p4 <p4 root>
 """
 
 import csv
@@ -141,9 +145,10 @@ def dispatch_rows(root: str) -> Iterator[dict]:
             if not block.startswith("- fingerprint:"):
                 continue
             fields = dict(re.findall(r"^\s*-?\s*([a-z-]+):\s*(.*)$", block, re.M))
-            state = fields.get("state", "").split()[0] if fields.get("state") else ""
-            if state not in ("FRESH", "ECHO", "SUPERSEDED"):
+            m = re.match(r"(FRESH|ECHO|SUPERSEDED)\b(?!\s*\|)", fields.get("state", "").strip())
+            if not m:   # an open row, or the header's shape line copied as a row
                 continue
+            state = m.group(1)
             yield {"session": session_id(path.parent.parent.name), "time": fields.get("time", ""),
                    "fingerprint": fields.get("fingerprint", "").strip('"'), "state": state,
                    "match": fields.get("match", ""), "addressed": fields.get("addressed", "")}
