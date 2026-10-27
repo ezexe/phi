@@ -15,9 +15,16 @@ FibonacciEncoder(n_digits).max_value levels per side, scaled per tensor.
     base.load_state_dict(state)
 
 The file is one JSON header line and the payload as '0'/'1' text, the layout
-export_bitstream uses. Every code ends in '11', so the payload frames itself;
-a count, a position or a shape that the header does not match raises
-ValueError before any weight is written.
+export_bitstream uses, or with packed=True the payload's bits packed eight to a
+byte (the header's "packed_bits" counts them): the layout a round of a live
+model ships in, an eighth of the size. Every code ends in '11', so the payload
+frames itself; a count, a position or a shape that the header does not match
+raises ValueError before any weight is written.
+
+changed_only=True takes keep as a fraction of the entries that changed rather
+than of all of them: a sparse update (an embedding table whose untouched rows
+never move) keeps its largest changes, never its zeros, and a tensor with no
+change is named in the header's "unchanged" and costs nothing.
 """
 
 import json
@@ -35,6 +42,7 @@ def encode_delta(
     new: Dict[str, torch.Tensor],
     keep: float = 0.01,
     n_digits: int = 6,
+    changed_only: bool = False,
 ) -> Tuple[Dict, str]:
     """
     Header and payload for the largest keep fraction of each floating tensor of new - base.
@@ -46,6 +54,8 @@ def encode_delta(
     """
     levels = FibonacciEncoder(n_digits).max_value
     header = {"keep": keep, "n_digits": n_digits, "levels": levels, "tensors": [], "skipped": []}
+    if changed_only:
+        header["changed_only"], header["unchanged"] = True, []
     parts = []
     for name, w in new.items():
         b = base.get(name)
@@ -53,7 +63,14 @@ def encode_delta(
             header["skipped"].append(name)
             continue
         d = (w.detach().float() - b.detach().float()).flatten().cpu()
-        pos = top_positions(d, keep)
+        if changed_only:
+            nnz = int(torch.count_nonzero(d))
+            if not nnz:
+                header["unchanged"].append(name)
+                continue
+            pos = top_positions(d, keep * nnz / d.numel())
+        else:
+            pos = top_positions(d, keep)
         vals = d[torch.from_numpy(pos)].numpy()
         scale = float(np.abs(vals).max()) / levels or 1.0
         mags = np.rint(np.abs(vals) / scale).astype(np.int64)
@@ -108,14 +125,29 @@ def delta_stats(header: Dict, payload: str) -> Dict[str, float]:
     return {"kept": kept, "entries": total, "bits_per_kept": len(payload) / kept if kept else 0.0}
 
 
-def save_delta(path: str, header: Dict, payload: str) -> str:
-    with open(path, "w", newline="\n") as f:
-        f.write(json.dumps(header) + "\n")
-        f.write(payload)
+def save_delta(path: str, header: Dict, payload: str, packed: bool = False) -> str:
+    """The header line, then the payload: '0'/'1' text, or with packed=True its bits eight to a byte."""
+    if not packed:
+        with open(path, "w", newline="\n") as f:
+            f.write(json.dumps(header) + "\n")
+            f.write(payload)
+        return path
+    bits = np.frombuffer(payload.encode("ascii"), dtype=np.uint8) - ord("0")
+    with open(path, "wb") as f:
+        f.write((json.dumps({**header, "packed_bits": int(bits.size)}) + "\n").encode("utf-8"))
+        f.write(np.packbits(bits).tobytes())
     return path
 
 
 def load_delta(path: str) -> Tuple[Dict, str]:
-    with open(path) as f:
-        header = json.loads(f.readline())
-        return header, f.read().strip()
+    """(header, payload) from save_delta's file, text or packed."""
+    with open(path, "rb") as f:
+        header = json.loads(f.readline().decode("utf-8"))
+        rest = f.read()
+    n = header.pop("packed_bits", None)
+    if n is None:
+        return header, rest.decode("ascii").strip()
+    bits = np.unpackbits(np.frombuffer(rest, dtype=np.uint8))
+    if bits.size < n or bits.size - n >= 8:
+        raise ValueError(f"packed payload holds {bits.size} bits for the header's {n}")
+    return header, (bits[:n] + ord("0")).tobytes().decode("ascii")
