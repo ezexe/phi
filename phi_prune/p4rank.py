@@ -20,8 +20,11 @@ The encoder is a bag of hashed word, word-pair and character-trigram features
 head for tasks and one for entries; a score is the cosine of the two. It trains
 on a CPU in minutes. The checkpoint, models/ranker.pt, holds the weights, the
 config, the pick threshold and what it was trained on; it is written whole or
-not at all, and each fine-tune round after the first also writes its change as
-a phi_prune.delta file (models/ranker.rNN.phid). phi_prune.p4serve serves it.
+not at all; git LFS keeps every round's checkpoint (each round fine-tunes the
+pretrained base afresh, so a delta between two rounds would not be a usable
+record). phi_prune.p4serve serves it. The pick threshold it serves is chosen on
+held-out pools: each fold's model is fine-tuned without the pools it is scored
+on, and the final model is fine-tuned on all of them.
 
     python -m phi_prune.p4rank pretrain --p4 <p4 root> --minutes 20
     python -m phi_prune.p4rank train --p4 <p4 root> --pairs pairs.jsonl --now "2026-10-27 09:00"
@@ -30,7 +33,6 @@ a phi_prune.delta file (models/ranker.rNN.phid). phi_prune.p4serve serves it.
 
 import argparse
 import json
-import math
 import os
 import random
 import re
@@ -52,6 +54,10 @@ PER_FILE = 6                  # the pool's cap per store file, as the children's
 SKIP_EXT = {".wav", ".pak", ".vst3", ".dat", ".png", ".jpg", ".jpeg", ".gif", ".bin", ".dll", ".exe", ".pdb",
             ".lib", ".obj", ".o", ".so", ".dylib", ".zip", ".gz", ".7z", ".pt", ".phid", ".wasm", ".ico", ".pdf"}
 SKIP_DIRS = {".git", "node_modules", "__pycache__", "models"}
+# the labels themselves stay out of pretraining: a pool's task and its steering picks, and the pick sheets a session
+# writes beside them, would hand the encoder the answers its held-out evaluation asks for
+LABEL_FILE_RE = re.compile(r"(^|/)(recall-pool\.md|pool-picks-[^/]*|pool-review-[^/]*|retrain-[^/]*\.tsv)$")
+MIN_PRETRAIN_STEPS = 100      # a base with fewer steps (a --minutes 0 or tiny budget) is pretrained again when asked
 TOKEN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*|\d+(?:\.\d+)*")
 
 
@@ -90,7 +96,7 @@ def batch_features(texts: Sequence[str]) -> Tuple[torch.Tensor, torch.Tensor]:
 class Ranker(nn.Module):
     def __init__(self, nb: int = NB, dim: int = DIM):
         super().__init__()
-        self.bag = nn.EmbeddingBag(nb, dim, mode="mean")
+        self.bag = nn.EmbeddingBag(nb, dim, mode="mean", sparse=True)   # only the rows a batch touches update
         self.body = nn.Sequential(nn.Linear(dim, dim), nn.GELU(), nn.Linear(dim, dim))
         self.task_head = nn.Linear(dim, dim)
         self.entry_head = nn.Linear(dim, dim)
@@ -120,13 +126,15 @@ def candidate_files(root: str) -> List[str]:
                            timeout=120)
         if r.returncode == 0:
             rels = [x for x in r.stdout.decode("utf-8", "replace").split("\0") if x]
-            return [os.path.join(root, x) for x in rels if not set(x.split("/")[:-1]) & SKIP_DIRS]
+            return [os.path.join(root, x) for x in rels
+                    if not set(x.split("/")[:-1]) & SKIP_DIRS and not LABEL_FILE_RE.search(x)]
     except (OSError, subprocess.SubprocessError):
         pass
     out = []
     for d, dirs, files in os.walk(root):
         dirs[:] = [x for x in dirs if x not in SKIP_DIRS]
-        out += [os.path.join(d, f) for f in files]
+        out += [os.path.join(d, f) for f in files
+                if not LABEL_FILE_RE.search(os.path.relpath(os.path.join(d, f), root).replace(os.sep, "/"))]
     return out
 
 
@@ -240,13 +248,31 @@ def best_threshold(model: Ranker, pools: Sequence[Dict]) -> float:
 
 # ─── training ──────────────────────────────────────────────────────────────────────────────────────────
 
+class Optim:
+    """SparseAdam for the embedding table (only touched rows move, so a step costs what its batch touches) and Adam
+    for the dense layers."""
+
+    def __init__(self, model: "Ranker", lr: float):
+        sparse = list(model.bag.parameters())
+        dense = [p for n, p in model.named_parameters() if not n.startswith("bag.")]
+        self.opts = [torch.optim.SparseAdam(sparse, lr=lr), torch.optim.Adam(dense, lr=lr)]
+
+    def zero_grad(self):
+        for o in self.opts:
+            o.zero_grad()
+
+    def step(self):
+        for o in self.opts:
+            o.step()
+
+
 def pretrain(model: Ranker, pairs: List[Tuple[str, str]], minutes: float, batch: int = 256, lr: float = 2e-3,
              seed: int = 0, log=print) -> int:
     """InfoNCE over neighbouring passages until the time budget runs out; returns the steps taken."""
     if len(pairs) < 2:
         return 0
     rng = random.Random(seed)
-    opt = torch.optim.Adam(model.parameters(), lr=lr)
+    opt = Optim(model, lr)
     end, steps = time.time() + minutes * 60, 0
     model.train()
     while time.time() < end:
@@ -265,7 +291,7 @@ def finetune(model: Ranker, pools: Sequence[Dict], epochs: int = 30, negatives: 
              seed: int = 0) -> None:
     """Each picked entry against the task, its pool's unpicked candidates as the negatives (listwise softmax)."""
     rng = random.Random(seed)
-    opt = torch.optim.Adam(model.parameters(), lr=lr)
+    opt = Optim(model, lr)
     model.train()
     for _ in range(epochs):
         for p in rng.sample(list(pools), len(pools)):
@@ -323,7 +349,7 @@ def write_text_atomic(text: str, path: str) -> None:
 
 
 def load(path: str) -> Tuple[Ranker, Dict]:
-    ck = torch.load(path, map_location="cpu", weights_only=False)
+    ck = torch.load(path, map_location="cpu", weights_only=True)   # tensors and plain data only: no pickled code
     model = Ranker(ck["meta"]["nb"], ck["meta"]["dim"])
     model.load_state_dict({k: v.float() for k, v in ck["state"].items()})
     model.eval()
@@ -350,23 +376,52 @@ def cmd_pretrain(args) -> int:
     return 0
 
 
-def base_model(p4: str, minutes: float, now: str, repretrain: float = 1.25) -> Tuple[Ranker, Dict]:
-    """The pretrained base: models/ranker-base.pt, pretrained again when absent or when the repository's text
-    has grown by `repretrain` times since."""
+def base_model(p4: str, minutes: float, now: str, repretrain: float = 1.25, write: bool = True) -> Tuple[Ranker, Dict]:
+    """The pretrained base: models/ranker-base.pt, pretrained again when absent, when it has fewer than
+    MIN_PRETRAIN_STEPS (built with no or a tiny budget) and a budget is given now, or when the repository's text has
+    grown by `repretrain` times since. write=False (an evaluation) builds a missing base in memory and saves nothing."""
     path = os.path.join(models_dir(p4), "ranker-base.pt")
     if os.path.exists(path):
         model, meta = load(path)
-        _pairs, total = corpus_pairs(p4) if minutes > 0 else ([], meta.get("corpus_bytes", 0))
-        if total <= meta.get("corpus_bytes", 0) * repretrain:
+        thin = minutes > 0 and meta.get("steps", 0) < MIN_PRETRAIN_STEPS
+        if not write or (not thin and (minutes <= 0 or corpus_pairs(p4)[1] <= meta.get("corpus_bytes", 0) * repretrain)):
             return model, meta
     torch.manual_seed(0)
     pairs, total = corpus_pairs(p4)
     model = Ranker()
     steps = pretrain(model, pairs, minutes) if minutes > 0 else 0
     meta = {"nb": NB, "dim": DIM, "stage": "pretrained", "corpus_bytes": total, "steps": steps, "trained": now}
-    save(model, meta, path)
-    print(f"pretrain — {steps} steps over {total / 1e6:.1f} MB of text → {path}")
+    if write:
+        save(model, meta, path)
+    print(f"pretrain — {steps} steps over {total / 1e6:.1f} MB of text" + (f" → {path}" if write else " (not saved)"))
     return model, meta
+
+
+def heldout_threshold(base_state: Dict, pools: Sequence[Dict], epochs: int, folds: int = 4) -> Tuple[float, str]:
+    """The pick threshold from scores on pools each fold's model never trained on; with too few pools to fold,
+    the training pools' own threshold, said so."""
+    if len(pools) < 4:
+        model = Ranker()
+        model.load_state_dict(base_state)
+        finetune(model, pools, epochs=epochs)
+        return best_threshold(model, pools), "train"
+    k = min(folds, len(pools))
+    scored = []
+    for i in range(k):
+        held = pools[i::k]
+        model = Ranker()
+        model.load_state_dict(base_state)
+        torch.manual_seed(i)
+        finetune(model, [p for j, p in enumerate(pools) if j % k != i], epochs=epochs)
+        scored += [(p, score_pool(model, p["task"], [r["text"] for r in p["rows"]])) for p in held]
+    best, best_f1 = 0.5, -1.0
+    for step in range(-20, 96, 2):
+        t = step / 100
+        f1 = sum(pool_metrics([r["label"] for r in p["rows"]], sc, select([r["file"] for r in p["rows"]], sc, t))["f1"]
+                 for p, sc in scored)
+        if f1 > best_f1:
+            best, best_f1 = t, f1
+    return best, f"held-out, {k} folds"
 
 
 def cmd_train(args) -> int:
@@ -375,29 +430,28 @@ def cmd_train(args) -> int:
         print("train — no labelled pool in the pairs; nothing written")
         return 1
     model, base = base_model(args.p4, args.minutes, args.now)
+    base_state = {k: v.clone() for k, v in model.state_dict().items()}
+    t, how = heldout_threshold(base_state, pools, args.epochs)
     torch.manual_seed(0)
     finetune(model, pools, epochs=args.epochs)
-    t = best_threshold(model, pools)
     path = os.path.join(models_dir(args.p4), "ranker.pt")
-    old = torch.load(path, map_location="cpu", weights_only=False) if os.path.exists(path) else None
-    rnd = old["meta"]["round"] + 1 if old else 0
-    meta = {"nb": NB, "dim": DIM, "stage": "finetuned", "round": rnd, "threshold": t, "per_file": PER_FILE,
-            "trained": args.now, "pools": [p["id"] for p in pools], "corpus_bytes": base.get("corpus_bytes", 0)}
+    side_path = os.path.join(models_dir(args.p4), "ranker.json")
+    try:
+        with open(side_path, encoding="utf-8") as f:
+            side = json.load(f)
+    except (OSError, ValueError):
+        side = {}
+    rnd = side["round"] + 1 if isinstance(side.get("round"), int) and os.path.exists(path) else 0
+    meta = {"nb": NB, "dim": DIM, "stage": "finetuned", "round": rnd, "threshold": t, "threshold_from": how,
+            "per_file": PER_FILE, "trained": args.now, "pools": [p["id"] for p in pools],
+            "corpus_bytes": base.get("corpus_bytes", 0), "base_steps": base.get("steps", 0)}
     save(model, meta, path)
-    # the sidecar the plugin's hooks read without torch: what this checkpoint has trained on
-    write_text_atomic(json.dumps({k: meta[k] for k in ("round", "threshold", "trained", "pools", "per_file")},
-                                 indent=1) + "\n", os.path.join(models_dir(args.p4), "ranker.json"))
-    line = f"train — round {rnd}: {len(pools)} pools, threshold {t:.2f} → {path}"
-    if old:
-        from phi_prune.delta import delta_stats, encode_delta, save_delta
-        header, payload = encode_delta({k: v.float() for k, v in old["state"].items()}, model.state_dict(),
-                                       keep=args.keep)
-        dpath = os.path.join(models_dir(args.p4), f"ranker.r{rnd:02d}.phid")
-        tmp = f"{dpath}.{os.getpid()}.tmp"
-        save_delta(tmp, header, payload)
-        replace_retrying(tmp, dpath)
-        line += f"; delta {delta_stats(header, payload)['kept']:,} weights → {dpath}"
-    print(line)
+    # the sidecar the plugin's hooks read without torch: what this checkpoint has trained on; `seen` is kept and
+    # widened by the plugin (pools it met with nothing to learn count as met)
+    side.update({k: meta[k] for k in ("round", "threshold", "threshold_from", "trained", "pools", "per_file")})
+    side["seen"] = sorted(set(side.get("seen", [])) | set(meta["pools"]))
+    write_text_atomic(json.dumps(side, indent=1) + "\n", side_path)
+    print(f"train — round {rnd}: {len(pools)} pools, threshold {t:.2f} ({how}) → {path}")
     return 0
 
 
@@ -406,7 +460,7 @@ def cmd_eval(args) -> int:
     if len(pools) < 3:
         print(f"eval — {len(pools)} labelled pools; at least 3 are needed")
         return 1
-    base, _meta = base_model(args.p4, args.minutes, args.now or "")
+    base, _meta = base_model(args.p4, args.minutes, args.now or "", write=False)
     base_state = {k: v.clone() for k, v in base.state_dict().items()}
     folds = [pools[i::args.folds] for i in range(args.folds)]
     got = []
@@ -442,9 +496,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         p.add_argument("--minutes", type=float, default=20, help="pretraining budget when the base is (re)built")
         p.add_argument("--epochs", type=int, default=30)
         p.add_argument("--now", default="")
-        if name == "train":
-            p.add_argument("--keep", type=float, default=0.01, help="fraction of each tensor's change in the delta")
-        else:
+        if name == "eval":
             p.add_argument("--folds", type=int, default=5)
     args = ap.parse_args(argv)
     return {"pretrain": cmd_pretrain, "train": cmd_train, "eval": cmd_eval}[args.cmd](args)
