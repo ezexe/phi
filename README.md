@@ -78,6 +78,23 @@ print(f"{stats['bits_per_weight']:.1f} bits/weight")
 load_bitstream(model, masks, "model.phi")
 ```
 
+## Sparse Deltas
+
+For a model trained in rounds, ship each round's update instead of the whole model: the largest fraction of each tensor's change, positions as Fibonacci gap codes (which beat Elias-gamma, Elias-delta and fixed-width positions on fine-tuning updates, `.docs/register.md` section 5d), values as a sign and a Fibonacci-coded magnitude level.
+
+```python
+from phi_prune.delta import encode_delta, apply_delta, save_delta, load_delta
+
+header, payload = encode_delta(base.state_dict(), tuned.state_dict(), keep=0.01, n_digits=6)
+save_delta("round-01.phid", header, payload)
+
+state = base.state_dict()
+apply_delta(state, *load_delta("round-01.phid"))  # checks counts, positions and shapes before writing
+base.load_state_dict(state)
+```
+
+The codes alone are in `phi_prune.gaps` (`encode_positions`, `decode_positions`, `gap_bits`). `phi_prune.p4` reads a `.claude/p4` store as training records (`read_p4`, `split`, `dispatch_rows`, `pick_pairs`; `python -m phi_prune.p4 <p4 root>` prints a summary), and [`.docs/p4/continual_p4.ipynb`](.docs/p4/continual_p4.ipynb) trains a small model on a `.claude/p4` store in rounds and ships each as a delta; its smoke runs found that cutting an update to 10% or less loses most of a round's gain, and that the gap codes beat Elias-gamma at 1% kept but only tie it at 10%. The vlds plugin's pool ranker ([`MODEL-ROAD.md`](https://github.com/ezexe/prompty-prompter-pioneer-puppeteer/blob/main/Ibiza/plugins/vlds/MODEL-ROAD.md)) records its training rounds in this format, written without numpy or torch; `tests/test_gaps.py::TestPluginDelta` reads one back.
+
 ## CLI
 
 ```bash
