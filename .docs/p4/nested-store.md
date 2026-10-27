@@ -23,12 +23,14 @@ Each session therefore writes a real store: `sessions/<id>/vlds/` (dispatch reco
 ```
 python scripts/session/nested_store.py --plugins <p4 checkout>/lbiza/plugins --depth 8                      # run A
 python scripts/session/nested_store.py --plugins <p4 checkout>/lbiza/plugins --depth 8 --sessions-outer 3  # run B
+python scripts/session/nested_store.py --plugins <p4 checkout>/lbiza/plugins --zeckendorf 8                 # run Z
 ```
 
-| Run | Depth | Sessions per level | Bytes per level (own content) |
+| Run | What grows | Sessions | Bytes per store (own content) |
 |---|---|---|---|
-| A | 8 | 1 | 9,047 B in 16 files |
-| B | 8 | 3 above the deepest, 1 at it | 22,605 B in 32 files (outer); 9,047 B (deepest) |
+| A | a chain 8 deep: each session starts in the previous store | 1 per level | 9,047 B in 16 files |
+| B | the same chain | 3 per level above the deepest, 1 at it | 22,605 B in 32 files (outer); 9,047 B (deepest) |
+| Z | every Zeckendorf address up to 8 digits. Each session starts either in a store (giving `.claude/p4`) or in a `.claude` directory (giving `.claude/.claude/p4`) | 1 per store, 21 stores | 9,022–9,029 B (each prompt names its own address) |
 
 Measured 2026-10-27, vlds 0.0.72.
 
@@ -44,37 +46,44 @@ p4/.claude/p4/.claude/p4   → 10101
 
 | Claim | phi's term | Verdict |
 |---|---|---|
-| No two store nodes are adjacent; every path has no `11` | Zeckendorf adjacency (`phi_mask`, `cassini_check`'s `11` scan) | **Holds, but more narrowly than Zeckendorf.** See 1. |
-| A path is a Zeckendorf number | Zeckendorf digits | **Exact identity.** Depth *n* ↔ F(2n+1) − 1. See 1. |
-| The paths are self-delimiting with no length headers | Fibonacci codes (`phi_prune.gaps`) | **Holds only with phi's comma bit.** The digits alone are refused. See 2. |
+| No two store nodes are adjacent; every path has no `11` | Zeckendorf adjacency (`phi_mask`, `cassini_check`'s `11` scan) | **Holds, exactly as Zeckendorf.** The unchanged hooks grow every Zeckendorf address and never a `p4/p4`. See 1. |
+| A path is a Zeckendorf number | Zeckendorf digits | **Exact.** Every address is a distinct integer, those whose Zeckendorf form ends in 1. See 1. |
+| The paths are self-delimiting with no length headers | Fibonacci codes (`phi_prune.gaps`) | **Holds, and the comma is the tree's forbidden pair.** One more `p4` (`11`) ends an address. The digits alone are refused. See 2. |
 | Binary needs a width or a length header and costs more | the README's 9.7–10.3 vs 7.2 bits | **Mixed.** Binary with a length field costs more; a binary or Fibonacci code of the depth costs less than half. See 3. |
-| Each node splits as `M` = [[1,1],[1,0]] steps (a, b) → (a+b, a) | `M`, F(n−1) : F(n−2) | **Half holds.** The first row is exact; the second fails. See 4. |
-| lvalue : rvalue approaches φ as the tree grows | φ | **Fails.** The ratio is linear in depth. See 4. |
+| Each node splits as `M` = [[1,1],[1,0]] steps (a, b) → (a+b, a) | `M`, F(n−1) : F(n−2) | **Holds, for the store counts of the Zeckendorf tree.** In a single chain (runs A and B) only the first row holds. See 4. |
+| lvalue : rvalue approaches φ as the tree grows | φ | **Holds for the Zeckendorf tree's store counts** (exact Fibonacci numbers, ratio → 1.618034). **Fails in a chain**, where it is linear in depth. Content bytes follow the counts only while each store holds about the same. See 4. |
 | A binary split cuts one half off; this keeps both | — | **Analogy only.** A binary tree keeps both children too. See 4. |
 
-## 1. The digits: no `11`, and more than that
+## 1. The digits: Zeckendorf, grown by the unchanged hooks
 
-Across both runs, all 8 node paths read `1`, `101`, `10101`, … up to `101010101010101`.
+The hooks have one rule: a session's store is `<working dir>/.claude/p4`.
 
-- **Every path has no `11`.** No directory anywhere in the fixture is a `p4` directly inside a `p4` (0 of all directories), so the rule holds at every depth.
-- **Every path also has no `00`.** No `.claude` sits directly inside a `.claude` (0).
+- **A session started in a store** grows a `.claude/p4` under it: the digits `01`.
+- **A session started in a store's `.claude` directory** grows a `.claude/.claude/p4`: the digits `001`. One more `.claude` gives `0001`, and so on.
+- **Nothing ever creates a `p4` directly inside a `p4`.** Every store the hooks make is preceded by a `.claude`.
 
-The tree's language is therefore `(10)*1`: one string per length.
+So the hooks forbid exactly `11` and allow any run of `0`s, which is the Zeckendorf constraint, with every address beginning and ending at a store (`1`).
 
-Zeckendorf allows `F(m+2)` strings of length *m*: `1001`, `10001`, `10100` and so on. The tree produces exactly one of them, so its digits carry one choice, the depth, and not a Fibonacci-sized space of them.
+**Runs A and B** only started sessions in stores, so they grew one address per length: `1`, `101`, `10101`, … (`(10)*1`). That was the fixture's choice, not the hooks'. An earlier draft of this note took it for the tree's whole language. Read as Zeckendorf digits, those chain addresses are 1 + 3 + 8 + … = F(2n+1) − 1, the alternate-sum identity, confirmed for all 8 depths.
 
-The no-`11` rule is real, but its cause is narrower than Zeckendorf's. The hooks only ever create `.claude` and `p4` as a pair, so the alternation is forced. It is a grammar, not a sum of non-consecutive Fibonacci numbers being chosen.
+**Run Z** started its 21 sessions wherever each Zeckendorf address of up to 8 digits needed one, with the hooks unchanged:
 
-**The identity is exact.** Read as Zeckendorf digits, the path of depth *n* is the sum of every other Fibonacci number, 1 + 3 + 8 + … = F(2n+1) − 1. The measurement confirms this for all 8 depths. It is the standard alternate-sum identity, true of any (10)\*1 string, and says nothing particular about stores.
+- **Every store landed at its intended address.** All 21 were found, and their digits match the intended addresses exactly.
+- **The rule held everywhere.** No address contains `11`, and no directory anywhere in the fixture is a `p4` directly inside a `p4` (0).
+- **The counts by address length are 1, 0, 1, 1, 2, 3, 5, 8**, the Fibonacci numbers. Enumerating the grammar further gives …, 13, 21, 34, 55, 89, 144 at lengths 9–14.
 
-## 2. Self-delimiting: the comma is phi's, not the tree's
+**Each address is a distinct integer.** Read as Zeckendorf digits, the 144 addresses of up to 12 digits are 144 different integers, with no collisions across lengths because every address starts with `1`. They are exactly the integers whose Zeckendorf form ends in a 1: 1, 4, 6, 9, 12, 14, 17, 19, 22, … (the upper Wythoff numbers minus one).
+
+## 2. Self-delimiting: the comma is the pair the tree forbids
 
 A stream of node paths was built with one item per file, naming the node that owns it: 128 items in run A, 240 in run B.
 
 - **Concatenated bare, the digits do not parse.** `phi_prune.gaps.read_codes` refuses the stream: "bitstream ends inside a codeword (14 digits without a closing 1)". A path ends in `1`, and the next begins with `1`, so the `11` that marks a codeword's end lands on the boundary. It takes the next path's first digit and the stream falls out of step.
 - **With one `1` appended to each path, every path becomes a Fibonacci codeword**, the code of F(2n+1) − 1. `read_codes` then parses the whole stream back with no length header, and every item comes back exactly (round trip true in both runs).
 
-So the tree supplies the digits, and the self-delimiting comes from the extra bit Fibonacci coding adds. In the filesystem, where a store ends is read from the directory: no further `.claude/p4` means this is the last level. That is a structural ending, not a property of the string.
+The appended `1` is a `p4` written directly after a `p4`, the one pair the hooks never produce. Because `11` cannot occur inside an address, it can mark where one ends, exactly as it ends a Fibonacci codeword. Run Z's addresses, any mix of `0` runs, parse the same way: a stream of 7 of them, written least-significant digit first with one `1` appended to each, comes back exactly from `read_codes`.
+
+So the tree supplies the digits, and its forbidden pair supplies the comma. The comma is one bit a path, which is what Fibonacci coding adds. In the filesystem, where a store ends is read from the directory: no further `.claude/p4` means this is the last level. That is a structural ending, not a property of the string.
 
 ## 3. The bit cost against binary
 
@@ -122,6 +131,25 @@ So **l/r does not approach φ.** It falls in a straight line, l/r = (levels belo
 
 ## What would make the tree follow `M`, and the many-small-models proposal
 
+### The Zeckendorf tree follows `M`
+
+Run Z's tree has a second kind of child, the store reached through two `.claude`s. A store with *h* digits of address left therefore holds N(h) = 1 + N(h−2) + N(h−3) + … stores, and that recurrence reduces to N(h) − N(h−1) = N(h−2): the `M` step.
+
+The root's two nearest child subtrees (through `.claude/p4` and through `.claude/.claude/p4`) are consecutive Fibonacci numbers in a tree grown to a total address length H:
+
+| H | via `.claude/p4` | via `.claude/.claude/p4` | ratio |
+|---|---|---|---|
+| 10 | 34 | 21 | 1.619048 |
+| 16 | 610 | 377 | 1.618037 |
+| 22 | 10,946 | 6,765 | 1.618034 |
+| 28 | 196,418 | 121,393 | 1.618034 |
+
+**So rows 1 and 2 both hold for store counts, and the ratio converges on φ.** The chain of runs A and B is the degenerate case: only one child per store, so the second row can't hold.
+
+**For bytes, the counts carry over only while each store holds about the same content.** In run Z every store is one session's 9,022–9,029 bytes, so bytes track the counts to within 0.1%. In a real store they follow whatever its sessions wrote, as runs A and B showed.
+
+### The many-small-models proposal
+
 The owner's proposal: instead of one large model (where phi has been measured against 2:4), put one small model in every store node's `models/`, nested as an endlessly growing recursive tree that mirrors the matrix it is trained on, so that many small models outgrow and outperform one large one.
 
 The measurement says what that tree needs.
@@ -161,7 +189,16 @@ The counts and shapes can be Fibonacci-coded the same way. The scales cannot, so
 
 ## Verdicts
 
-- **Holds.** The no-`11` rule at every depth, and in fact a stricter `(10)*1`. The F(2n+1) − 1 identity. Headerless parsing with phi's comma. Row 1 of `M`.
-- **Holds only with a qualifier.** Self-delimiting, which comes from the comma bit and not from the tree. The win over binary, which holds against binary with length fields (9.0 vs 12.0 bits) but not against a binary code of the depth (4.3 bits).
-- **Fails.** Row 2 of `M`. l/r → φ, which is linear in depth instead. "Binary cannot express it": binary expresses the same nesting in fewer bits, and the binary-search contrast is an analogy.
+- **Holds.**
+  - The hooks, unchanged, enforce exactly the Zeckendorf constraint: a `p4` in a `.claude` and a `.claude` in a `.claude`, never a `p4` in a `p4`. They grow every Zeckendorf address (run Z: 21 stores, counts 1, 0, 1, 1, 2, 3, 5, 8).
+  - Every address is a distinct integer.
+  - The paths parse with no headers, using the forbidden `11` as the comma.
+  - Both rows of `M` hold for the Zeckendorf tree's store counts, and the child-subtree ratio converges on φ (1.618034 at H = 22).
+- **Holds only with a qualifier.**
+  - The φ ratio is in store counts. Bytes follow it only while stores hold about the same content.
+  - A single chain (runs A and B) is the degenerate case. Its language is `(10)*1`, its depth reads as F(2n+1) − 1, and only row 1 of `M` holds, with l/r linear in depth.
+  - The bit cost in section 3 was measured on the chain. There the tree code (9.0 bits) beats binary carrying the same digits with length fields (12.0), but not a code of the depth itself (about 4.3).
+- **Fails.**
+  - "Binary cannot express it." Binary expresses the same nesting, with a fixed width or a length field.
+  - The binary-search contrast is an analogy: a binary tree also keeps both children.
 - **Untested.** That many nested small models outperform one large one, and the single realtime stream of every node's rounds. The experiment and the numbers above would decide them.

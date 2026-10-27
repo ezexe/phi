@@ -15,7 +15,12 @@ working directory. Nothing is copied. Then it measures:
 
 Run (2026-10-27):
   python scripts/session/nested_store.py --plugins <p4 checkout>/lbiza/plugins --depth 8 [--sessions-outer 1]
+  python scripts/session/nested_store.py --plugins <p4 checkout>/lbiza/plugins --zeckendorf 8
 It prints the tables the note quotes and writes them as JSON beside the fixture.
+
+--zeckendorf L grows every Zeckendorf address of up to L digits (p4 = 1, .claude = 0; it starts and ends with 1,
+no 11). Each address gets one session, started in the directory above its last p4: a store for `...01`, a .claude
+directory for `...001`. The hooks are unchanged; this only chooses where sessions start.
 """
 
 import argparse
@@ -126,13 +131,49 @@ def fib_value(depth):
     return sum(places[2 * k] for k in range(depth))
 
 
+def zeckendorf(plugins, length):
+    import collections
+    import itertools
+    root = tempfile.mkdtemp(prefix="zeck-store-")
+    ok = lambda a: a[0] == "1" and a[-1] == "1" and "11" not in a  # noqa: E731
+    addrs = sorted({"".join(t) for m in range(1, length + 1) for t in itertools.product("01", repeat=m)
+                    if ok("".join(t))}, key=lambda a: (len(a), a))
+    path_of = lambda a: os.path.join(root, ".claude", "p4", *[".claude" if c == "0" else "p4" for c in a[1:]])  # noqa: E731
+    for a in addrs:
+        target = path_of(a)
+        start_session(plugins, os.path.dirname(os.path.dirname(target)) if len(a) > 1 else root, f"address {a}")
+    nodes = store_nodes(root)
+    outer = os.path.join(root, ".claude", "p4")
+    digits = [node_digits(os.path.relpath(n, os.path.dirname(os.path.dirname(outer))).replace(os.sep, "/")
+                          .split("/")[1:]) for n in nodes]
+    every = [os.path.relpath(d, root).replace(os.sep, "/") for d, ds, _ in os.walk(root)
+             for _ in [ds.__setitem__(slice(None), [x for x in ds if x != ".git"])]]
+    counts = collections.Counter(len(a) for a in digits)
+    values = [sum(int(c) * p for c, p in zip(reversed(a), _places(len(a)))) for a in digits]
+    stream = "".join(a[::-1] + "1" for a in digits)            # least significant digit first, then the comma
+    parsed, end = read_codes(stream)
+    sizes = [size_of(n, skip=os.path.join(n, ".claude"))[0] for n in nodes]
+    return {"root": root, "length": length, "sessions": len(addrs), "stores": len(nodes),
+            "digits_match": sorted(digits) == sorted(addrs), "any_11": any("11" in a for a in digits),
+            "p4_inside_p4": sum(1 for d in every if "/p4/p4" in "/" + d),
+            "stores_per_length": [counts[m] for m in range(1, length + 1)],
+            "distinct_integers": len(set(values)) == len(values), "smallest_values": sorted(values)[:10],
+            "stream_roundtrip": parsed == values and end == len(stream),
+            "bytes_per_store": sorted(set(sizes))}
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--plugins", required=True, help="<p4 checkout>/lbiza/plugins")
     ap.add_argument("--depth", type=int, default=8)
     ap.add_argument("--sessions-outer", type=int, default=1, help="sessions per level above the deepest")
+    ap.add_argument("--zeckendorf", type=int, default=0, help="grow every Zeckendorf address up to this length")
     ap.add_argument("--out", default="")
     args = ap.parse_args(argv)
+    if args.zeckendorf:
+        rep = zeckendorf(args.plugins, args.zeckendorf)
+        print(json.dumps(rep, indent=1))
+        return 0
 
     root = tempfile.mkdtemp(prefix="nested-store-")
     os.makedirs(os.path.join(root, "src"))
