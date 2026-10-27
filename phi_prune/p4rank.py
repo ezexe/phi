@@ -43,8 +43,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-NB = 1 << 18                  # hashed feature buckets
-DIM = 192
+NB = 1 << 17                  # hashed feature buckets
+DIM = 128                     # 2^17 x 128 at fp16: a 34 MB checkpoint
 MAX_FEATURES = 768            # features kept per text
 PASSAGE_CHARS = 600
 MAX_FILE_BYTES = 1 << 20      # a trace dump's first megabyte is plenty
@@ -290,23 +290,49 @@ def models_dir(p4: str) -> str:
     return os.path.join(p4, "models")
 
 
+def replace_retrying(tmp: str, path: str, tries: int = 50) -> None:
+    """os.replace, retried: Windows refuses it while a reader (the server, a hook) holds the target open."""
+    for attempt in range(tries):
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError:
+            if attempt == tries - 1:
+                try:
+                    os.remove(tmp)
+                except OSError:
+                    pass
+                raise
+            time.sleep(min(0.002 * (attempt + 1), 0.05))
+
+
 def save_atomic(obj, path: str) -> None:
+    """Written whole or not at all: a temp file beside it, then the retried replace."""
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     tmp = f"{path}.{os.getpid()}.tmp"
     torch.save(obj, tmp)
-    os.replace(tmp, path)
+    replace_retrying(tmp, path)
+
+
+def write_text_atomic(text: str, path: str) -> None:
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    tmp = f"{path}.{os.getpid()}.tmp"
+    with open(tmp, "w", encoding="utf-8", newline="\n") as f:
+        f.write(text)
+    replace_retrying(tmp, path)
 
 
 def load(path: str) -> Tuple[Ranker, Dict]:
     ck = torch.load(path, map_location="cpu", weights_only=False)
     model = Ranker(ck["meta"]["nb"], ck["meta"]["dim"])
-    model.load_state_dict(ck["state"])
+    model.load_state_dict({k: v.float() for k, v in ck["state"].items()})
     model.eval()
     return model, ck["meta"]
 
 
 def save(model: Ranker, meta: Dict, path: str) -> None:
-    save_atomic({"state": model.state_dict(), "meta": meta}, path)
+    """The weights at fp16, half the bytes in git LFS; load() trains and scores in fp32."""
+    save_atomic({"state": {k: v.half() for k, v in model.state_dict().items()}, "meta": meta}, path)
 
 
 # ─── commands ──────────────────────────────────────────────────────────────────────────────────────────
@@ -358,14 +384,18 @@ def cmd_train(args) -> int:
     meta = {"nb": NB, "dim": DIM, "stage": "finetuned", "round": rnd, "threshold": t, "per_file": PER_FILE,
             "trained": args.now, "pools": [p["id"] for p in pools], "corpus_bytes": base.get("corpus_bytes", 0)}
     save(model, meta, path)
+    # the sidecar the plugin's hooks read without torch: what this checkpoint has trained on
+    write_text_atomic(json.dumps({k: meta[k] for k in ("round", "threshold", "trained", "pools", "per_file")},
+                                 indent=1) + "\n", os.path.join(models_dir(args.p4), "ranker.json"))
     line = f"train — round {rnd}: {len(pools)} pools, threshold {t:.2f} → {path}"
     if old:
         from phi_prune.delta import delta_stats, encode_delta, save_delta
-        header, payload = encode_delta(old["state"], model.state_dict(), keep=args.keep)
+        header, payload = encode_delta({k: v.float() for k, v in old["state"].items()}, model.state_dict(),
+                                       keep=args.keep)
         dpath = os.path.join(models_dir(args.p4), f"ranker.r{rnd:02d}.phid")
         tmp = f"{dpath}.{os.getpid()}.tmp"
         save_delta(tmp, header, payload)
-        os.replace(tmp, dpath)
+        replace_retrying(tmp, dpath)
         line += f"; delta {delta_stats(header, payload)['kept']:,} weights → {dpath}"
     print(line)
     return 0
@@ -413,7 +443,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         p.add_argument("--epochs", type=int, default=30)
         p.add_argument("--now", default="")
         if name == "train":
-            p.add_argument("--keep", type=float, default=0.1, help="fraction of each tensor's change in the delta")
+            p.add_argument("--keep", type=float, default=0.01, help="fraction of each tensor's change in the delta")
         else:
             p.add_argument("--folds", type=int, default=5)
     args = ap.parse_args(argv)

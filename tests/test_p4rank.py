@@ -1,0 +1,105 @@
+"""Tests for phi_prune.p4rank and phi_prune.p4serve: the .pt ranker trained on a store, served live, reloaded."""
+
+import json
+import os
+import subprocess
+import threading
+import time
+import urllib.request
+
+import pytest
+import torch
+
+from phi_prune import p4rank
+from phi_prune.p4serve import serve
+
+TOPICS = ["ring buffer drain", "midi transport playhead", "toolbar latency readout", "crash dump symbols",
+          "plan document decisions", "render thread priority"]
+
+
+def make_store(root):
+    """A git repository with text per topic, a binary capture beside it, and pairs: pool k's task names topic k."""
+    sess = root / "sessions" / "s1" / "vlds"
+    sess.mkdir(parents=True)
+    for i, t in enumerate(TOPICS):
+        (sess / f"notes-{i}.md").write_text("\n".join(f"- ruling: the {t} rule number {j}\n  detail: {t} detail {j}"
+                                                      for j in range(30)), encoding="utf-8")
+    (root / "scratchpad").mkdir()
+    (root / "scratchpad" / "take.wav").write_bytes(b"RIFF\0\0\0\0WAVE")
+    (root / "scratchpad" / "run.log").write_text("ring buffer drained in 3 ms\n", encoding="utf-8")
+    (root / ".gitignore").write_text("*.wav\nmodels/.*\nmodels/*.log\n", encoding="utf-8")
+    if subprocess.run(["git", "init", "-q", str(root)]).returncode != 0:
+        pytest.skip("git is not available")
+    pairs = root / "pairs.jsonl"
+    with open(pairs, "w", encoding="utf-8") as f:
+        for k, t in enumerate(TOPICS):
+            for i, u in enumerate(TOPICS):
+                for j in range(3):
+                    f.write(json.dumps({"pool_id": f"p{k}", "task": f"a plan about the {t}", "file": f"notes-{i}.md",
+                                        "text": f"the {u} rule number {j}", "label": int(i == k)}) + "\n")
+    return pairs
+
+
+def test_corpus_follows_git(tmp_path):
+    make_store(tmp_path)
+    files = [os.path.relpath(p, tmp_path) for p in p4rank.text_files(str(tmp_path))]
+    assert "scratchpad/run.log" in files and "scratchpad/take.wav" not in files
+    assert all(not f.startswith("models") for f in files)
+
+
+def test_train_eval_and_live_reload(tmp_path):
+    pairs = make_store(tmp_path)
+    args = ["--p4", str(tmp_path), "--pairs", str(pairs), "--minutes", "0.05", "--epochs", "8", "--now", "2026-10-27"]
+    assert p4rank.main(["train"] + args) == 0
+    mdir = tmp_path / "models"
+    side = json.loads((mdir / "ranker.json").read_text())
+    assert side["round"] == 0 and len(side["pools"]) == len(TOPICS)
+    model, meta = p4rank.load(str(mdir / "ranker.pt"))
+    assert next(iter(torch.load(mdir / "ranker.pt", weights_only=False)["state"].values())).dtype == torch.float16
+    # it learned the topics: each task ranks its own rules first
+    for k, t in enumerate(TOPICS):
+        texts = [f"the {u} rule number 0" for u in TOPICS]
+        sc = p4rank.score_pool(model, f"a plan about the {t}", texts)
+        assert max(range(len(sc)), key=sc.__getitem__) == k, (t, sc)
+    assert p4rank.main(["eval", "--folds", "3"] + args) == 0
+
+    ready = threading.Event()
+    holder = {}
+
+    def run():
+        holder["server"] = None
+        serve(str(tmp_path), 0, idle_hours=1, ready=ready)
+    th = threading.Thread(target=run, daemon=True)
+    th.start()
+    assert ready.wait(30)
+    info = json.loads((mdir / "ranker.server.json").read_text())
+
+    def call(path, body=None):
+        req = urllib.request.Request(f"http://127.0.0.1:{info['port']}{path}",
+                                     data=json.dumps(body).encode() if body else None,
+                                     headers={"Content-Type": "application/json"}, method="POST" if body else "GET")
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return json.loads(r.read())
+    assert call("/health") == {"ok": True, "round": 0, "threshold": meta["threshold"]}
+    out = call("/score", {"task": "a plan about the toolbar latency readout",
+                          "texts": ["the toolbar latency readout rule number 1", "the crash dump symbols rule number 1"]})
+    assert out["round"] == 0 and out["scores"][0] > out["scores"][1]
+
+    # a retrain swaps the checkpoint: the running server answers from round 1 at its next request, no restart
+    time.sleep(1.1)
+    assert p4rank.main(["train"] + args) == 0
+    assert (mdir / "ranker.r01.phid").exists()
+    assert call("/health")["round"] == 1
+
+
+def test_bad_request(tmp_path):
+    pairs = make_store(tmp_path)
+    p4rank.main(["train", "--p4", str(tmp_path), "--pairs", str(pairs), "--minutes", "0", "--epochs", "1"])
+    ready = threading.Event()
+    threading.Thread(target=lambda: serve(str(tmp_path), 0, 1, ready), daemon=True).start()
+    assert ready.wait(30)
+    port = json.loads((tmp_path / "models" / "ranker.server.json").read_text())["port"]
+    req = urllib.request.Request(f"http://127.0.0.1:{port}/score", data=b"{}", method="POST")
+    with pytest.raises(urllib.error.HTTPError) as e:
+        urllib.request.urlopen(req, timeout=10)
+    assert e.value.code == 400
