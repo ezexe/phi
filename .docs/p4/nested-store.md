@@ -161,6 +161,34 @@ The measurement says what that tree needs.
   - on AudioPlugin-p4 today, one small model scores 0.200 and the JSON ranker 0.380
 - **Self-delimiting holds for this design**, with the comma bit (section 2). A stream of model addresses in such a tree parses with no headers, at the cost section 3 measures.
 
+### Stage 1 measured: equal parameters, equal pretraining time
+
+`scripts/session/nested_vs_one.py` ran on AudioPlugin-p4 (`d59a5f3`):
+- **Data.** 91 MB of the store's tracked text, cut by when git first added each file into 4 shards of about 23 MB (oldest deepest), and its 22 labelled pools.
+- **Arms.** One large ranker (2^15 × 64, 8 minutes over all the text) against a chain of 4 small ones (2^13 × 64 each, 2 minutes each on its own shard, each node starting from the previous node's weights).
+- **Scoring.** 4-fold held-out r-precision, 15 fine-tuning epochs, 2 seeds.
+
+The owner's framing is one model sifting 8 GB against 8 nodes of 1 GB each, at equal parameters and time. This run is that, scaled to 91 MB and 4 nodes. It differs in three ways:
+- the chain's nodes hand their weights on
+- every arm scores the same candidates (no routing)
+- shards are cut by time, not topic
+
+| Arm | Seed 0 | Seed 1 | Mean |
+|---|---|---|---|
+| one large (2^15 × 64) | 0.213 | 0.195 | **0.204** |
+| ensemble of the 4 nodes (same total parameters) | 0.199 | 0.202 | **0.200** |
+| chain root (one 2^13 × 64 node that has seen every shard in turn) | 0.190 | 0.185 | 0.187 |
+| one small node on all the text (2^13 × 64, 2 minutes) | 0.167 | 0.150 | 0.158 |
+
+**Verdict on ranking quality: a tie, not a win.**
+- **The ensemble ties the one large model.** The large model's two seeds differ by 0.018, more than the 0.004 between the two means.
+- **The chain root is 0.017 below.**
+- **Nesting is what rescues a small model.** A single small node is 0.046 below. The chain root, one small node that inherited the shards below it, is 0.029 above that small node on its own.
+- **Neither nested arm beats the large model** on held-out r-precision at equal size and time.
+- **Every arm is far below the store's JSON ranker (0.380)**, so this compares `.pt` models with each other, not with the ranker the store uses.
+
+"Outperform" on the other axes the owner names (fresh data absorbed, update messages between agents, forgetting) is stage 2: `scripts/session/nested_realtime.py`.
+
 ### The realtime loop through the same stream
 
 The owner adds that such a tree also allows one continuous realtime training loop through the same Fibonacci stream the p4 models already retrain on.
@@ -238,4 +266,5 @@ The owner's point, 2026-10-27:
   - "Binary cannot express it." Binary expresses the same nesting, with a fixed width or a length field, or open-ended with Elias-gamma. What binary cannot do is delimit and verify with one rule and no agreement in advance.
   - "Zero logic." Fibonacci makes one test per bit. What it lacks is any other logic.
   - The binary-search contrast is an analogy: a binary tree also keeps both children.
-- **Untested.** That many nested small models outperform one large one, and the single realtime stream of every node's rounds. The experiment and the numbers above would decide them.
+- **Measured, stage 1.** At equal parameters and pretraining time, the nested ensemble ties one large model on held-out r-precision (0.200 against 0.204, inside the seed spread) and the chain root trails (0.187). On ranking quality alone, nesting does not outperform.
+- **Untested.** Stage 2's axes (freshness, forgetting, update time, message bytes, query time), independent nodes with no handoff, queries routed to the node that owns their data, and the single realtime stream of every node's rounds.
