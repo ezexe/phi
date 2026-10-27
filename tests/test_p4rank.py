@@ -178,3 +178,36 @@ def test_bad_request(tmp_path):
         urllib.request.urlopen(req, timeout=10)
     if isinstance(e.value, urllib.error.HTTPError):
         assert e.value.code == 413
+
+
+def test_shared_base_seeds_a_store_without_one(tmp_path):
+    """`phi_rank shared` pretrains on a marketplace's public text (legacy/ left out); a store with no base of its
+    own starts from it and continues on its own text; a git LFS pointer in its place is ignored."""
+    market = tmp_path / "market"
+    (market / "Ibiza" / "plugins" / "vlds").mkdir(parents=True)
+    (market / "Ibiza" / "plugins" / "legacy").mkdir(parents=True)
+    (market / "Ibiza" / "plugins" / "vlds" / "operator.md").write_text(
+        "\n".join(f"the operator pours the cold entry {j} through the barrier" for j in range(200)), encoding="utf-8")
+    (market / "Ibiza" / "plugins" / "legacy" / "old.md").write_text("a retired contract\n" * 50, encoding="utf-8")
+    if subprocess.run(["git", "init", "-q", str(market)]).returncode != 0:
+        pytest.skip("git is not available")
+    assert p4rank.text_files(str(market), p4rank.DEFAULT_SHARED_EXCLUDE) == [
+        str(market / "Ibiza" / "plugins" / "vlds" / "operator.md")]
+    out = tmp_path / "p4-base.pt"
+    assert p4rank.main(["shared", "--corpus", str(market), "--out", str(out), "--minutes", "0.02", "--buckets", "4096",
+                        "--dim", "16"]) == 0
+    _m, smeta = p4rank.load(str(out))
+    assert smeta["stage"] == "shared" and smeta["exclude"] == list(p4rank.DEFAULT_SHARED_EXCLUDE)
+
+    store = tmp_path / "store"
+    pairs = make_store(store)
+    _base, meta = p4rank.base_model(str(store), 0.02, "2026-10-27", shared=str(out))
+    assert meta["from_shared"]["steps"] == smeta["steps"] and (meta["nb"], meta["dim"]) == (4096, 16)
+    assert meta["steps"] >= smeta["steps"]
+    # a clone without git-lfs holds a pointer: no shared base, the store starts from nothing as before
+    pointer = tmp_path / "pointer.pt"
+    pointer.write_text("version https://git-lfs.github.com/spec/v1\noid sha256:00\nsize 1\n")
+    other = tmp_path / "other"
+    make_store(other)
+    _b, meta2 = p4rank.base_model(str(other), 0, "2026-10-27", shared=str(pointer))
+    assert "from_shared" not in meta2 and meta2["nb"] == p4rank.NB

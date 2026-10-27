@@ -85,7 +85,9 @@ def test_checkpoint_routine(tmp_path, capsys):
         assert p4model.main(["init"] + args + ["--minutes", "0.02"]) == 0
         rep = p4model.check(p4, PLUGIN)
         assert rep["mode"] == "shadow" and rep["owed"] == [] and rep["lfs"] and rep["gitignore"], rep
-        assert rep["pick_model"]["round"] == 0 and rep["ranker"]["round"] == 0 and rep["ranker"]["checkpoint"]
+        # the .pt round wrote out-of-fold scores, and the JSON ranker retrained against them: its round 1
+        assert rep["pick_model"]["round"] == 1 and rep["ranker"]["round"] == 0 and rep["ranker"]["checkpoint"]
+        assert os.path.exists(os.path.join(p4, "models", "ranker-oof.json"))
         # a session meets a failure: one notice; the checkpoint owes the model it names, retrains, answers it
         pm, _dm = p4model.plugin_modules(PLUGIN)
         assert pm.notify_retrain(stores["aaaa1111"], "ranker server", ValueError("bad scores"), "s1")

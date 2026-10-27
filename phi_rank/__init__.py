@@ -100,22 +100,22 @@ def words(text: str) -> List[str]:
     return out
 
 
-def featurize(text: str) -> List[int]:
+def featurize(text: str, nb: int = NB) -> List[int]:
     """Hashed features of a text: words, neighbouring word pairs, and each word's character trigrams."""
     ws = words(text)
     feats = [f"w:{w}" for w in ws] + [f"b:{a}_{b}" for a, b in zip(ws, ws[1:])]
     for w in set(ws):
         padded = f"<{w}>"
         feats += [f"c:{padded[i:i + 3]}" for i in range(len(padded) - 2)]
-    ids = [zlib.crc32(f.encode("utf-8")) % NB for f in feats[:MAX_FEATURES * 2]]
+    ids = [zlib.crc32(f.encode("utf-8")) % nb for f in feats[:MAX_FEATURES * 2]]   # the model's own buckets
     return ids[:MAX_FEATURES] or [0]
 
 
-def batch_features(texts: Sequence[str]) -> Tuple[torch.Tensor, torch.Tensor]:
+def batch_features(texts: Sequence[str], nb: int = NB) -> Tuple[torch.Tensor, torch.Tensor]:
     flat, offsets = [], []
     for t in texts:
         offsets.append(len(flat))
-        flat += featurize(t)
+        flat += featurize(t, nb)
     return torch.tensor(flat, dtype=torch.long), torch.tensor(offsets, dtype=torch.long)
 
 
@@ -128,7 +128,7 @@ class Ranker(nn.Module):
         self.entry_head = nn.Linear(dim, dim)
 
     def encode(self, texts: Sequence[str], side: str) -> torch.Tensor:
-        flat, offsets = batch_features(texts)
+        flat, offsets = batch_features(texts, self.bag.num_embeddings)
         h = self.bag(flat, offsets)
         h = h + self.body(h)
         h = (self.task_head if side == "task" else self.entry_head)(h)
@@ -170,11 +170,13 @@ def candidate_files(root: str) -> List[str]:
     return out
 
 
-def text_files(root: str) -> List[str]:
+def text_files(root: str, exclude: Sequence[str] = ()) -> List[str]:
     """candidate_files(), less anything binary that slipped through: a skipped extension, or a NUL in its first
-    4 KB."""
+    4 KB; and less every path under one of `exclude` (prefixes relative to root)."""
     out = []
     for p in candidate_files(root):
+        if exclude and os.path.relpath(p, root).replace(os.sep, "/").startswith(tuple(exclude)):
+            continue
         if os.path.splitext(p)[1].lower() in SKIP_EXT or not os.path.isfile(p):
             continue
         try:
@@ -205,10 +207,10 @@ def passages(path: str) -> List[str]:
     return out
 
 
-def corpus_pairs(root: str) -> Tuple[List[Tuple[str, str]], int]:
+def corpus_pairs(root: str, exclude: Sequence[str] = ()) -> Tuple[List[Tuple[str, str]], int]:
     """(neighbouring passage pairs across the repository's text, bytes read)."""
     pairs, total = [], 0
-    for p in text_files(root):
+    for p in text_files(root, exclude):
         ps = passages(p)
         total += sum(len(x) for x in ps)
         rel = os.path.relpath(p, root)
@@ -501,8 +503,17 @@ def cmd_pretrain(args) -> int:
     return 0
 
 
+def is_checkpoint(path: str) -> bool:
+    """A checkpoint on disk, not missing and not a git LFS pointer left by a clone without git-lfs."""
+    try:
+        with open(path, "rb") as f:
+            return not f.read(64).startswith(b"version https://git-lfs")
+    except OSError:
+        return False
+
+
 def base_model(p4: str, minutes: float, now: str, repretrain: float = 1.25, write: bool = True, nb: int = NB,
-               dim: int = DIM) -> Tuple[Ranker, Dict]:
+               dim: int = DIM, shared: str = "") -> Tuple[Ranker, Dict]:
     """The pretrained base: models/ranker-base.pt. Built when absent, or when it has fewer than MIN_PRETRAIN_STEPS
     (built with no or a tiny budget) and a budget is given now; when the repository's text has grown by `repretrain`
     times since, it continues pretraining from the base it has, so the base keeps learning what the store adds.
@@ -520,15 +531,26 @@ def base_model(p4: str, minutes: float, now: str, repretrain: float = 1.25, writ
             prior = meta.get("steps", 0)
     torch.manual_seed(0)
     pairs, total = corpus_pairs(p4)
+    from_shared = None
+    if model is None and shared and is_checkpoint(shared):
+        # a store with no base of its own starts from the shared p4 base: the contracts' vocabulary every store's
+        # entries are written in, then continues on the store's own text
+        model, smeta = load(shared)
+        from_shared = {"steps": smeta.get("steps", 0), "corpus_bytes": smeta.get("corpus_bytes", 0),
+                       "trained": smeta.get("trained", "")}
+        prior = smeta.get("steps", 0)
     model = model or Ranker(nb, dim)       # a base keeps the size it was built at; nb/dim size a new one
     steps = pretrain(model, pairs, minutes) if minutes > 0 else 0
     nb, dim = model.bag.weight.shape
     meta = {"nb": nb, "dim": dim, "stage": "pretrained", "corpus_bytes": total, "steps": prior + steps, "trained": now}
-    if prior:
+    if from_shared:
+        meta["from_shared"] = from_shared
+    elif prior:
         meta["continued_from_steps"] = prior
     if write:
         save(model, meta, path)
-    print(f"pretrain — {steps} steps over {total / 1e6:.1f} MB of text" + (f", continuing {prior}" if prior else "")
+    print(f"pretrain — {steps} steps over {total / 1e6:.1f} MB of text"
+          + (f", from the shared p4 base ({prior} steps)" if from_shared else f", continuing {prior}" if prior else "")
           + (f" → {path}" if write else " (not saved)"))
     return model, meta
 
@@ -578,7 +600,7 @@ def cmd_train(args) -> int:
         print("train — no labelled pool in the pairs; nothing written")
         return 1
     mdir = models_dir(args.p4)
-    base, bmeta = base_model(args.p4, args.minutes, args.now, nb=args.buckets, dim=args.dim)
+    base, bmeta = base_model(args.p4, args.minutes, args.now, nb=args.buckets, dim=args.dim, shared=args.shared_base)
     base_state = {k: v.clone() for k, v in base.state_dict().items()}
     side = read_sidecar(args.p4)
     adopted = adopt_legacy(args.p4, side)
@@ -671,7 +693,8 @@ def cmd_eval(args) -> int:
     if len(pools) < 3:
         print(f"eval — {len(pools)} labelled pools; at least 3 are needed")
         return 1
-    base, _meta = base_model(args.p4, args.minutes, args.now or "", write=False, nb=args.buckets, dim=args.dim)
+    base, _meta = base_model(args.p4, args.minutes, args.now or "", write=False, nb=args.buckets, dim=args.dim,
+                             shared=args.shared_base)
     base_state = {k: v.clone() for k, v in base.state_dict().items()}
     folds = [pools[i::args.folds] for i in range(args.folds)]
     got = []
@@ -693,6 +716,30 @@ def cmd_eval(args) -> int:
     return 0
 
 
+DEFAULT_SHARED_EXCLUDE = ("Ibiza/plugins/legacy/",)   # superseded contracts: their retired terms never teach
+
+
+def cmd_shared(args) -> int:
+    """The shared p4 base: pretrained on the p4 marketplace's own prose and code (its contracts, the operator's and
+    roboto's briefs, the flight checklists), the vocabulary every store's entries are written in. Public text only:
+    no store's private text ever goes in, so it can ship with the plugin and seed every store."""
+    torch.manual_seed(0)
+    pairs, total, sources = [], 0, []
+    for root in args.corpus:
+        p, t = corpus_pairs(root, args.exclude)
+        pairs += p
+        total += t
+        sources.append({"root": os.path.basename(os.path.abspath(root)), "pairs": len(p), "bytes": t})
+    print(f"shared — {len(pairs):,} passage pairs from {total / 1e6:.2f} MB of text "
+          f"({', '.join(x['root'] for x in sources)}; excluding {', '.join(args.exclude) or 'nothing'})")
+    model = Ranker(args.buckets, args.dim)
+    steps = pretrain(model, pairs, args.minutes)
+    save(model, {"nb": args.buckets, "dim": args.dim, "stage": "shared", "corpus_bytes": total, "steps": steps,
+                 "sources": sources, "exclude": list(args.exclude), "trained": args.now}, args.out)
+    print(f"shared — {steps} steps → {args.out} ({os.path.getsize(args.out) / 1e6:.1f} MB)")
+    return 0
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     ap = argparse.ArgumentParser(prog="python -m phi_rank")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -709,12 +756,24 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         p.add_argument("--minutes", type=float, default=5, help="pretraining budget when the base is (re)built")
         p.add_argument("--buckets", type=int, default=NB, help="hashed feature buckets of a new base")
         p.add_argument("--dim", type=int, default=DIM, help="embedding width of a new base")
+        p.add_argument("--shared-base", default=os.environ.get("PHI_SHARED_BASE", ""),
+                       help="the shared p4 base a store with no base starts from (the plugin passes its own)")
         p.add_argument("--epochs", type=int, default=30)
         p.add_argument("--now", default="")
         if name == "eval":
             p.add_argument("--folds", type=int, default=5)
+    p = sub.add_parser("shared", help="pretrain the shared p4 base on the p4 marketplace's own text")
+    p.add_argument("--corpus", action="append", required=True, help="a repository to read (repeatable)")
+    p.add_argument("--exclude", action="append", default=None, help="a path prefix to leave out (repeatable)")
+    p.add_argument("--out", required=True)
+    p.add_argument("--minutes", type=float, default=5)
+    p.add_argument("--now", default="")
+    p.add_argument("--buckets", type=int, default=NB)
+    p.add_argument("--dim", type=int, default=DIM)
     args = ap.parse_args(argv)
-    return {"pretrain": cmd_pretrain, "train": cmd_train, "eval": cmd_eval}[args.cmd](args)
+    if args.cmd == "shared" and args.exclude is None:
+        args.exclude = list(DEFAULT_SHARED_EXCLUDE)
+    return {"pretrain": cmd_pretrain, "train": cmd_train, "eval": cmd_eval, "shared": cmd_shared}[args.cmd](args)
 
 
 if __name__ == "__main__":
