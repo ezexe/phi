@@ -187,6 +187,41 @@ The counts and shapes can be Fibonacci-coded the same way. The scales cannot, so
 - its bits per kept weight against today's per-node `.phid` files (10.6 bits per kept entry on AudioPlugin-p4's round 1)
 - the cost of the address codewords, which section 3 puts at 2*n* bits for a node at depth *n*
 
+## 5. Agreed in advance against logic-free flow
+
+The owner's point, 2026-10-27:
+- A boundary "agreed in advance" (a fixed width, a length field) is a wall for continual retraining. It has to be renegotiated when the tree or the model outgrows it.
+- A boundary that just happens, because the code never contains `11`, lets each node hand the stream on with no per-item if/else.
+- The Cassini check is the same scan: finding where a codeword ends and catching a corrupt one are one comparison, not a separate validation step.
+
+`scripts/session/stream_logic.py` measures this on 2,000 random Zeckendorf store addresses of up to 12 digits (the 144 addresses run Z grows), with every flip sampled from 1,500 single-bit flips per code. Decisions are counted by instrumenting each decoder: every comparison it makes to know where it is.
+
+| Code | Bits/item | Decisions/item | Flips caught by the code's own structure | …with a table of every valid address | Items lost per flip (sequences aligned) | Parses after the tree grows to 17 digits |
+|---|---|---|---|---|---|---|
+| **Fibonacci** (the comma is the forbidden `11`) | **11.34** | 12.34 | **46.3%** | (no table needed) | **1.22** | **yes** |
+| Elias-gamma (universal, no width agreed) | 14.21 | 9.61 | 0% | 81.1% | 2.56 | yes |
+| fixed 9-bit (width agreed from the largest address then known) | 9.00 | 0 | 0% | 65.3% | 1.00 | **no** |
+| 4-bit length field, then the digits | 14.34 | 4.00 | 74.1%* | (no table) | **169.3** | **no** |
+
+\* only because its decoder also checks each address's digits for `11`: the Zeckendorf rule doing the catching, not the length field.
+
+**What holds**
+
+- **Agreed in advance is a wall.** When the tree grew past the agreement (addresses of up to 17 digits), the fixed width and the length field could not carry the new addresses at all. Fibonacci and Elias-gamma parsed them unchanged: neither agrees a width in advance. For a model that retrains continually and a tree that keeps nesting, that rules out the fixed codes. It does not rule out binary as such: Elias-gamma is binary and grows too.
+- **One scan does both jobs.** The Fibonacci decoder's only rule, "`11` ends a codeword", is also its integrity check. It caught 46% of single-bit flips with no table, no parity and no second pass, the README's 41–52% for weights. Elias-gamma and fixed width caught none on their own. They caught 81% and 65% only by looking every value up in a table of all valid addresses, which is one more thing agreed in advance and one more check per item.
+- **It falls back into step on its own.** After a flip, Fibonacci lost 1.22 items on average and then resynchronised at the next `11`. Elias-gamma lost 2.56. A flip in a length field derailed 169 items, because nothing in the data marks where the next item starts.
+- **It is smaller than the open-ended binary code.** 11.34 bits an address against Elias-gamma's 14.21 and the length field's 14.34. Fixed width is smallest (9.0) but cannot grow and catches nothing on its own.
+
+**What does not hold**
+
+- **"Zero logic" is not what was measured.** Fibonacci's decoder makes one comparison per bit, 12.34 per address, more than Elias-gamma (9.61), and fixed width makes none. What it does not have is any other kind of logic:
+  - no width or length to agree on, no header to read
+  - no mode switch between reading a length and reading data
+  - no table to check against
+  - no separate validation pass
+
+  It is one uniform test, repeated, that both delimits and verifies. "100 fires with no if/else" is right in that sense, one rule at every fire, but every fire still makes that one test.
+
 ## Verdicts
 
 - **Holds.**
@@ -198,7 +233,9 @@ The counts and shapes can be Fibonacci-coded the same way. The scales cannot, so
   - The φ ratio is in store counts. Bytes follow it only while stores hold about the same content.
   - A single chain (runs A and B) is the degenerate case. Its language is `(10)*1`, its depth reads as F(2n+1) − 1, and only row 1 of `M` holds, with l/r linear in depth.
   - The bit cost in section 3 was measured on the chain. There the tree code (9.0 bits) beats binary carrying the same digits with length fields (12.0), but not a code of the depth itself (about 4.3).
+- **Holds (section 5).** For a stream that keeps growing, only codes with no agreed width parse what comes later: Fibonacci and Elias-gamma did, fixed width and length fields did not. Fibonacci's one rule both delimits and catches 46% of flips with no table, falls back into step after 1.2 items, and costs fewer bits than Elias-gamma (11.3 against 14.2).
 - **Fails.**
-  - "Binary cannot express it." Binary expresses the same nesting, with a fixed width or a length field.
+  - "Binary cannot express it." Binary expresses the same nesting, with a fixed width or a length field, or open-ended with Elias-gamma. What binary cannot do is delimit and verify with one rule and no agreement in advance.
+  - "Zero logic." Fibonacci makes one test per bit. What it lacks is any other logic.
   - The binary-search contrast is an analogy: a binary tree also keeps both children.
 - **Untested.** That many nested small models outperform one large one, and the single realtime stream of every node's rounds. The experiment and the numbers above would decide them.
