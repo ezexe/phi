@@ -1,8 +1,8 @@
-"""Tests for phi_prune.p4: a .claude/p4 store read as training records."""
+"""Tests for phi_store: a .claude/p4 store read as training records."""
 
 import json
 
-from phi_prune.p4 import dispatch_rows, mind_reader_scores, pick_pairs, read_p4, session_id, split
+from phi_store import dispatch_rows, mind_reader_scores, pick_pairs, read_p4, session_id, split
 
 
 def write(path, text):

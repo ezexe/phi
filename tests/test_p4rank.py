@@ -1,4 +1,4 @@
-"""Tests for phi_prune.p4rank and phi_prune.p4serve: the .pt ranker trained on a store, served live, reloaded."""
+"""Tests for phi_rank and phi_serve: the .pt ranker trained on a store in φ-delta rounds, served live, reloaded."""
 
 import json
 import os
@@ -10,8 +10,8 @@ import urllib.request
 import pytest
 import torch
 
-from phi_prune import p4rank
-from phi_prune.p4serve import serve
+import phi_rank as p4rank
+from phi_serve import serve
 
 TOPICS = ["ring buffer drain", "midi transport playhead", "toolbar latency readout", "crash dump symbols",
           "plan document decisions", "render thread priority"]
@@ -59,8 +59,13 @@ def test_train_eval_and_live_reload(tmp_path):
     side = json.loads((mdir / "ranker.json").read_text())
     assert side["round"] == 0 and len(side["pools"]) == len(TOPICS)
     model, meta = p4rank.load(str(mdir / "ranker.pt"))
-    assert next(iter(torch.load(mdir / "ranker.pt", weights_only=True)["state"].values())).dtype == torch.float16
-    assert side["threshold_from"].startswith("held-out")
+    # git keeps the anchor at fp16; ranker.pt is the local fp32 build a next round continues from
+    assert next(iter(torch.load(mdir / "ranker-anchor.pt", weights_only=True)["state"].values())).dtype == torch.float16
+    assert next(iter(torch.load(mdir / "ranker.pt", weights_only=True)["state"].values())).dtype == torch.float32
+    assert side["anchor_round"] == 0 and side["chain"] == []
+    assert side["threshold_from"].startswith("held-out") and 0 <= side["heldout_rprecision"] <= 1
+    oof = json.loads((mdir / "ranker-oof.json").read_text())
+    assert set(oof["pools"]) == {f"p{k}" for k in range(len(TOPICS))}
     # it learned the topics: each task ranks its own rules first
     for k, t in enumerate(TOPICS):
         texts = [f"the {u} rule number 0" for u in TOPICS]
@@ -114,6 +119,48 @@ def test_train_eval_and_live_reload(tmp_path):
     assert call("/health")["round"] == 1 and json.loads((mdir / "ranker.json").read_text())["round"] == 1
 
 
+def test_rounds_ship_as_phi_deltas_and_rebuild(tmp_path, monkeypatch):
+    """A round after the anchor ships only its change; a clone without ranker.pt rebuilds the same model from the
+    chain, and the server serves that rebuild."""
+    monkeypatch.setattr(p4rank, "REBASE_GAP", 1.0)        # keep the cut, whatever it costs on a toy store
+    pairs = make_store(tmp_path)
+    args = ["--p4", str(tmp_path), "--pairs", str(pairs), "--minutes", "0", "--epochs", "6", "--now", "2026-10-27"]
+    assert p4rank.main(["train"] + args) == 0
+    assert p4rank.main(["train"] + args) == 0
+    mdir = tmp_path / "models"
+    side = json.loads((mdir / "ranker.json").read_text())
+    assert side["round"] == 1 and side["anchor_round"] == 0 and side["chain"] == ["ranker.r001.phid"]
+    raw = (mdir / "ranker.r001.phid").read_bytes()
+    header = json.loads(raw.split(b"\n", 1)[0])
+    assert header["packed_bits"] > 0 and header["changed_only"] and header["round"] == 1 and header["parent"] == [0]
+    built, meta = p4rank.load(str(mdir / "ranker.pt"))
+    assert meta["chain_key"] == [0, "ranker.r001.phid"]
+    (mdir / "ranker.pt").unlink()
+    rebuilt, meta2 = p4rank.load_current(str(tmp_path))
+    assert meta2["round"] == 1 and (mdir / "ranker.pt").exists()
+    for k, v in built.state_dict().items():
+        assert torch.equal(v, rebuilt.state_dict()[k]), k
+    # the threshold folds were reused (the pools did not grow): no second refold
+    assert side["threshold_pools"] == len(TOPICS)
+
+
+def test_legacy_checkpoint_becomes_the_anchor(tmp_path, monkeypatch):
+    monkeypatch.setattr(p4rank, "REBASE_GAP", 1.0)
+    pairs = make_store(tmp_path)
+    args = ["--p4", str(tmp_path), "--pairs", str(pairs), "--minutes", "0", "--epochs", "4", "--now", "2026-10-27"]
+    assert p4rank.main(["train"] + args) == 0
+    mdir = tmp_path / "models"
+    # a store from before the chain: a whole fp16 ranker.pt and a sidecar with no anchor
+    (mdir / "ranker-anchor.pt").replace(mdir / "ranker.pt")
+    side = json.loads((mdir / "ranker.json").read_text())
+    for k in ("anchor_round", "chain", "anchor_base", "heldout_rprecision"):
+        side.pop(k, None)
+    (mdir / "ranker.json").write_text(json.dumps(side))
+    assert p4rank.main(["train"] + args) == 0
+    side = json.loads((mdir / "ranker.json").read_text())
+    assert (mdir / "ranker-anchor.pt").exists() and side["anchor_round"] == 0 and side["chain"] == ["ranker.r001.phid"]
+
+
 def test_bad_request(tmp_path):
     pairs = make_store(tmp_path)
     p4rank.main(["train", "--p4", str(tmp_path), "--pairs", str(pairs), "--minutes", "0", "--epochs", "1"])
@@ -131,3 +178,36 @@ def test_bad_request(tmp_path):
         urllib.request.urlopen(req, timeout=10)
     if isinstance(e.value, urllib.error.HTTPError):
         assert e.value.code == 413
+
+
+def test_shared_base_seeds_a_store_without_one(tmp_path):
+    """`phi_rank shared` pretrains on a marketplace's public text (legacy/ left out); a store with no base of its
+    own starts from it and continues on its own text; a git LFS pointer in its place is ignored."""
+    market = tmp_path / "market"
+    (market / "lbiza" / "plugins" / "vlds").mkdir(parents=True)
+    (market / "lbiza" / "plugins" / "legacy").mkdir(parents=True)
+    (market / "lbiza" / "plugins" / "vlds" / "operator.md").write_text(
+        "\n".join(f"the operator pours the cold entry {j} through the barrier" for j in range(200)), encoding="utf-8")
+    (market / "lbiza" / "plugins" / "legacy" / "old.md").write_text("a retired contract\n" * 50, encoding="utf-8")
+    if subprocess.run(["git", "init", "-q", str(market)]).returncode != 0:
+        pytest.skip("git is not available")
+    assert p4rank.text_files(str(market), p4rank.DEFAULT_SHARED_EXCLUDE) == [
+        str(market / "lbiza" / "plugins" / "vlds" / "operator.md")]
+    out = tmp_path / "p4-base.pt"
+    assert p4rank.main(["shared", "--corpus", str(market), "--out", str(out), "--minutes", "0.02", "--buckets", "4096",
+                        "--dim", "16"]) == 0
+    _m, smeta = p4rank.load(str(out))
+    assert smeta["stage"] == "shared" and smeta["exclude"] == list(p4rank.DEFAULT_SHARED_EXCLUDE)
+
+    store = tmp_path / "store"
+    pairs = make_store(store)
+    _base, meta = p4rank.base_model(str(store), 0.02, "2026-10-27", shared=str(out))
+    assert meta["from_shared"]["steps"] == smeta["steps"] and (meta["nb"], meta["dim"]) == (4096, 16)
+    assert meta["steps"] >= smeta["steps"]
+    # a clone without git-lfs holds a pointer: no shared base, the store starts from nothing as before
+    pointer = tmp_path / "pointer.pt"
+    pointer.write_text("version https://git-lfs.github.com/spec/v1\noid sha256:00\nsize 1\n")
+    other = tmp_path / "other"
+    make_store(other)
+    _b, meta2 = p4rank.base_model(str(other), 0, "2026-10-27", shared=str(pointer))
+    assert "from_shared" not in meta2 and meta2["nb"] == p4rank.NB

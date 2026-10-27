@@ -20,6 +20,7 @@ dev = ["pytest>=7.0", "pytest-cov"]
 
 [project.scripts]
 phi-prune = "phi_prune.cli:main"
+phi-model = "phi_model:main"
 
 [tool.setuptools.packages.find]
-include = ["phi_prune*"]
+include = ["phi_prune*", "phi_store*", "phi_rank*", "phi_serve*", "phi_model*"]

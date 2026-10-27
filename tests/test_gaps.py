@@ -1,5 +1,7 @@
 """Tests for phi_prune.gaps and phi_prune.delta: Fibonacci gap codes and sparse checkpoint deltas."""
 
+import os
+
 import numpy as np
 import pytest
 import torch
@@ -130,3 +132,38 @@ class TestPluginDelta:
         scale = header["tensors"][0]["scale"]
         for k, v in zip(pos, vals):
             assert abs(old.get(int(k), 0) + v - new.get(int(k), 0)) <= scale / 2 + 1e-12
+
+
+class TestLiveRoundFormat:
+    """The options a live model's rounds ship with: keep over the entries that moved, and packed bits."""
+
+    def test_changed_only_skips_the_still_entries(self):
+        base = {"emb": torch.zeros(100, 4), "head": torch.zeros(3)}
+        new = {"emb": base["emb"].clone(), "head": base["head"].clone()}
+        new["emb"][7] = torch.tensor([1.0, -2.0, 3.0, -4.0])          # one row of a sparse table moved
+        header, payload = encode_delta(base, new, keep=0.5, changed_only=True)
+        assert header["unchanged"] == ["head"]
+        (t,) = header["tensors"]
+        assert t["n_kept"] == 2                                        # half of the 4 that moved, not of 400
+        pos, _vals = decode_delta(header, payload)["emb"]
+        assert set(pos) == {30, 31}                                    # -4.0 and 3.0, the largest moves
+
+    def test_packed_round_trip(self, tmp_path):
+        torch.manual_seed(0)
+        base = {"w": torch.randn(64, 64)}
+        new = {"w": base["w"] + 0.1 * torch.randn(64, 64)}
+        header, payload = encode_delta(base, new, keep=0.1)
+        text = save_delta(str(tmp_path / "t.phid"), header, payload)
+        packed = save_delta(str(tmp_path / "p.phid"), header, payload, packed=True)
+        assert os.path.getsize(packed) * 4 < os.path.getsize(text)
+        h2, p2 = load_delta(packed)
+        assert h2 == header and p2 == payload
+        assert load_delta(text) == (header, payload)
+
+    def test_packed_truncation_refused(self, tmp_path):
+        header, payload = encode_delta({"w": torch.zeros(8)}, {"w": torch.arange(8.0)}, keep=1.0)
+        path = save_delta(str(tmp_path / "p.phid"), header, payload, packed=True)
+        data = open(path, "rb").read()
+        open(path, "wb").write(data[:-1])
+        with pytest.raises(ValueError):
+            load_delta(path)
