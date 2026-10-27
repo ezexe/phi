@@ -110,3 +110,23 @@ class TestDelta:
         with pytest.raises(ValueError):
             apply_delta(state, header, payload)
         assert torch.equal(state["a.weight"], base["a.weight"])
+
+
+class TestPluginDelta:
+    """A round delta written by the vlds plugin's scripts/pick_model.py (standard library only) reads back here."""
+
+    def test_reads_the_plugins_round(self):
+        import json
+        from pathlib import Path
+
+        here = Path(__file__).parent / "fixtures"
+        header, payload = load_delta(str(here / "pick-model.r01.phid"))
+        expect = json.loads((here / "pick-model.r01.json").read_text())
+        old = {int(k): v for k, v in expect["old"].items()}
+        new = {int(k): v for k, v in expect["new"].items()}
+        pos, vals = decode_delta(header, payload)["w"]
+        changed = sorted(k for k in set(old) | set(new) if new.get(k, 0) != old.get(k, 0))
+        assert pos.tolist() == changed
+        scale = header["tensors"][0]["scale"]
+        for k, v in zip(pos, vals):
+            assert abs(old.get(int(k), 0) + v - new.get(int(k), 0)) <= scale / 2 + 1e-12

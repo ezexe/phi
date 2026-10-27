@@ -121,6 +121,34 @@ def read_p4(root: str) -> Iterator[Record]:
             yield pair
 
 
+def pick_pairs(jsonl: str) -> List[dict]:
+    """The pool pick pairs the vlds plugin writes (`scripts/pick_model.py pairs --jsonl`): one row per candidate
+    barrier row of each labelled pool, with its task, file, kind, state, distilled text and 0/1 label. The plugin
+    builds them because it owns the barrier; a ranker trained here reads the same pairs."""
+    with open(jsonl, encoding="utf-8") as f:
+        return [json.loads(line) for line in f if line.strip()]
+
+
+def dispatch_rows(root: str) -> Iterator[dict]:
+    """Every session's dispatch rows: the message fingerprint, its time, the barrier's state (FRESH, ECHO or
+    SUPERSEDED), the match the operator gave and what was addressed. Labels for an open-moment classifier; on
+    AudioPlugin-p4 as of 2026-10-27 they are 3,449 FRESH against 35 ECHO and 10 SUPERSEDED, too few repeats to train on."""
+    p4 = Path(root)
+    for path in sorted(p4.glob("sessions/*/vlds/dispatch.md")):
+        text = _read(path)
+        body = text.split("\n---\n", 1)[1] if "\n---\n" in text else ""
+        for block in re.split(r"\n(?=- fingerprint:)", body):
+            if not block.startswith("- fingerprint:"):
+                continue
+            fields = dict(re.findall(r"^\s*-?\s*([a-z-]+):\s*(.*)$", block, re.M))
+            state = fields.get("state", "").split()[0] if fields.get("state") else ""
+            if state not in ("FRESH", "ECHO", "SUPERSEDED"):
+                continue
+            yield {"session": session_id(path.parent.parent.name), "time": fields.get("time", ""),
+                   "fingerprint": fields.get("fingerprint", "").strip('"'), "state": state,
+                   "match": fields.get("match", ""), "addressed": fields.get("addressed", "")}
+
+
 def split(records: List[Record], cutoff: str) -> Tuple[List[Record], List[Record]]:
     """Records timed before cutoff train; timed at or after it are held out; untimed ones train."""
     train = [r for r in records if not r.time or r.time < cutoff]
@@ -136,3 +164,4 @@ if __name__ == "__main__":
     kinds = Counter(r.kind for r in recs)
     chars = sum(len(r.text) + len(r.target) for r in recs)
     print(f"{len(recs)} records {dict(kinds)}, {chars / 1e6:.1f} M characters")
+    print("dispatch rows:", dict(Counter(d["state"] for d in dispatch_rows(sys.argv[1]))))
