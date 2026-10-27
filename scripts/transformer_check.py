@@ -82,6 +82,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from phi_prune.gaps import gap_bits, pooled_gaps
 from phi_prune.masks import adjacency_dp, adjacency_dp_density
 from phi_prune.register import BINARY, PHI, from_int
 
@@ -317,33 +318,6 @@ def magnitude_digits(mags):
     return {"binary": binary[mags].mean(), "zeckendorf": zeck[mags].mean(), "csd": csd[mags].mean()}
 
 
-def gap_bits(gaps, n_positions):
-    """Mean bits per kept position for each gap code; gaps are >= 1."""
-    fib_len = {g: len(from_int(int(g), PHI)) + 1 for g in np.unique(gaps)}  # digits + the closing 1
-    lg = np.floor(np.log2(gaps))
-    _, counts = np.unique(gaps, return_counts=True)
-    p = counts / counts.sum()
-    return {
-        "fibonacci": float(np.mean([fib_len[g] for g in gaps])),
-        "elias-gamma": float(np.mean(2 * lg + 1)),
-        "elias-delta": float(np.mean(lg + 2 * np.floor(np.log2(lg + 1)) + 1)),
-        "fixed-width": float(math.ceil(math.log2(n_positions))),
-        "entropy": float(-(p * np.log2(p)).sum()),  # floor for any code of these gaps, one gap at a time
-    }
-
-
-def update_gaps(deltas, keep):
-    """Gaps between the positions of each tensor's largest keep fraction of entries, pooled."""
-    gaps, n_max = [], 1
-    for d in deltas:
-        flat = d.abs().flatten()
-        k = max(1, round(keep * flat.numel()))
-        pos = np.sort(torch.topk(flat, k).indices.numpy())
-        gaps.append(np.diff(pos, prepend=-1))
-        n_max = max(n_max, flat.numel())
-    return np.concatenate(gaps), n_max
-
-
 def run_delta(args):
     pre = read_files(lambda i: i % 10 not in (0, 1))
     tune = read_files(lambda i: i % 10 == 1)
@@ -378,7 +352,7 @@ def run_delta(args):
                 print(f"  {L} levels, {name:<7}: 1 digits per weight binary {d['binary']:.3f}, Zeckendorf "
                       f"{d['zeckendorf']:.3f}, CSD {d['csd']:.3f}; Zeckendorf saves {d['saving_vs_csd']:+.1%} vs CSD")
         for keep in (0.10, 0.01):
-            gaps, n = update_gaps(deltas, keep)
+            gaps, n = pooled_gaps(deltas, keep)
             r["gaps"][keep] = gap_bits(gaps, n)
             print(f"  update, {keep:.0%} kept: bits per position " +
                   ", ".join(f"{k} {v:.2f}" for k, v in r["gaps"][keep].items()))
