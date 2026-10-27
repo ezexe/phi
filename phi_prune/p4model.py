@@ -292,10 +292,13 @@ def train(p4: str, plugin: str, only: List[str], now: str, minutes: float) -> Di
     for name in only:
         r = run(steps[name], env=env)
         text = (r.stdout + r.stderr).strip()
-        # the dispatch model's "nothing to learn" is no failure: a store with no judged repeat has no model yet
-        ok = r.returncode == 0 or (name == "dispatch" and "no ECHO or SUPERSEDED" in text)
-        out[name] = {"ok": ok, "code": r.returncode, "output": text.splitlines()[-4:]}
-        print(f"train {name}: {'ok' if ok else 'FAILED'} — " + (text.splitlines()[-1] if text else ""))
+        # "nothing to learn yet" is no failure: a fresh store has no labelled pool and no judged repeat, and the
+        # turn close trains each model by itself once its bootstrap count lands
+        empty = ("no labelled pool" in text) or (name == "dispatch" and "no ECHO or SUPERSEDED" in text)
+        ok = r.returncode == 0 or empty
+        out[name] = {"ok": ok, "code": r.returncode, "output": text.splitlines()[-4:], "empty": empty}
+        print(f"train {name}: {'nothing to learn yet' if empty else 'ok' if ok else 'FAILED'} — "
+              + (text.splitlines()[-1] if text else ""))
     return out
 
 
@@ -305,7 +308,7 @@ def resolve_notices(p4: str, plugin: str, trained: Dict[str, Dict], now: str) ->
     path = os.path.join(p4, "models", pm.NOTICES)
     if not os.path.exists(path):
         return 0
-    ok = {k for k, v in trained.items() if v["ok"]}
+    ok = {k for k, v in trained.items() if v["ok"] and not v.get("empty")}
 
     def answered(component: str) -> bool:
         kind = "ranker" if "ranker" in component else "dispatch" if "dispatch" in component else "json"

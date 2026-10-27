@@ -86,3 +86,20 @@ def test_checkpoint_routine(tmp_path, capsys):
     finally:
         import shutil
         shutil.rmtree(root, ignore_errors=True)
+
+
+@pytest.mark.skipif(not os.path.exists(os.path.join(PLUGIN, "scripts", "pick_model.py")),
+                    reason="VLDS_PLUGIN_ROOT does not name the vlds plugin")
+def test_fresh_store_is_no_failure(tmp_path):
+    """A store with no labelled pool and no judged repeat: init sets the mode, trains nothing, reports nothing to
+    learn, leaves no retrain notice, and check owes nothing — the turn close bootstraps the models later."""
+    store = tmp_path / ".claude" / "p4" / "sessions" / "f1e5a7a0" / "vlds"
+    store.mkdir(parents=True)
+    (store / "dispatch.md").write_text("# dispatch\n\n---\n", encoding="utf-8")
+    args = ["--project", str(tmp_path), "--plugin", PLUGIN, "--now", "2026-10-27 10:00"]
+    assert p4model.main(["init"] + args + ["--minutes", "0"]) == 0
+    p4 = str(tmp_path / ".claude" / "p4")
+    rep = p4model.check(p4, PLUGIN)
+    assert rep["mode"] == "shadow" and rep["owed"] == [] and rep["notices"] == [], rep
+    assert not os.path.exists(os.path.join(p4, "models", "retrain-needed.tsv"))
+    assert p4model.main(["check"] + args) == 0
