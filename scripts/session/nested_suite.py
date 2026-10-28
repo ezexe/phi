@@ -42,7 +42,8 @@ Axes, per arm:
   pretrain_s    pretraining seconds, sequential sum and parallel (independent nodes only: the longest one)
 
 Run (2026-10-27):
-  python scripts/session/nested_suite.py --p4 <store> --pairs <pairs.jsonl> --plugin <vlds> --k 4 --minutes 6 --seeds 0 1
+  python scripts/session/nested_suite.py --p4 <store> --pairs <pairs.jsonl> --plugin <vlds> --k 4 --minutes 6 --seeds 0 1 \
+      --cache <dir>     # resumable: an interrupted run picks up from the last saved model, fold set or arm
 """
 
 import argparse
@@ -182,6 +183,11 @@ def build_models(args, shard_pairs, all_pairs, seed):
         trained[a] = state(m)
     M["zeck"] = [trained[a] for a in order]                      # index K-1 is the root ("1")
     M["zeck_addresses"] = order
+    return M, times
+
+
+def prune_families(M):
+    """The zeck nodes pruned by phi_mask and by 2:4, their masks, and the row norms the matrix routes by."""
     for fam, maker in (("zeckq", lambda w: phi_mask(w, axis=0, density=0.5)), ("zeck24", lambda w: two_four_mask(w, axis=0))):
         M[fam], MASKS[fam], ROWNORM[fam] = [], [], []
         for st in M["zeck"]:
@@ -192,7 +198,23 @@ def build_models(args, shard_pairs, all_pairs, seed):
             M[fam].append(st2)
             MASKS[fam].append(mask)
             ROWNORM[fam].append(st2["bag.weight"].norm(dim=1))
-    return M, times
+    return M
+
+
+def cached(path, make, kind="json"):
+    """Resume: what an earlier, interrupted run saved at path, or make() now and save it (written whole)."""
+    if path and os.path.exists(path):
+        return torch.load(path, weights_only=False) if kind == "pt" else json.load(open(path))
+    got = make()
+    if path:
+        tmp = path + ".tmp"
+        if kind == "pt":
+            torch.save(got, tmp)
+        else:
+            with open(tmp, "w") as f:
+                json.dump(got, f)
+        os.replace(tmp, path)
+    return got
 
 
 MASKS, ROWNORM = {}, {}
@@ -247,13 +269,17 @@ def rp(pool, scores):
 
 # ─── the axes ──────────────────────────────────────────────────────────────────────────────────────────
 
-def quality(M, pools, args, seed, spans):
+def quality(M, pools, args, seed, spans, tag=""):
     """Held-out r-precision per arm, the out-of-fold score lists per arm (for the deployed axis), and drop-one."""
     folds = args.folds
     per_model = {}                                     # (family, i) -> {pool id: scores}, out of fold
     pr.featurize = CACHED
     for fam in ("big", "small", "chain", "indep", "zeck", "grown", "zeckq", "zeck24"):
         for i, st in enumerate(M[fam]):
+            path = tag and f"{tag}-oof-{fam}-{i}.json"
+            if path and os.path.exists(path):
+                per_model[(fam, i)] = json.load(open(path))
+                continue
             got = {}
             for f in range(folds):
                 train = [p for j, p in enumerate(pools) if j % folds != f]
@@ -264,7 +290,7 @@ def quality(M, pools, args, seed, spans):
                 for j, p in enumerate(pools):
                     if j % folds == f:
                         got[p["id"]] = pr.score_pool(m, p["task"], [r["text"] for r in p["rows"]])
-            per_model[(fam, i)] = got
+            per_model[(fam, i)] = cached(path, lambda: got)
     pr.featurize = RAW
     out, oof = {}, {}
     for arm, (fam, which, how) in ARMS.items():
@@ -314,12 +340,16 @@ def delta_bytes(before, after):
     return n
 
 
-def stream(M, pools, args, spans):
+def stream(M, pools, args, spans, tag=""):
     """Prequential replay in date order: score each pool, then learn it. Per arm."""
     out = {}
     warm = args.warm
     pr.featurize = CACHED
     for arm, (fam, which, how) in ARMS.items():
+        path = tag and f"{tag}-stream-{arm}.json"
+        if path and os.path.exists(path):
+            out[arm] = json.load(open(path))
+            continue
         idx = list(range(len(M[fam]))) if which == "all" else [len(M[fam]) - 1]
         models = [load(M[fam][i]) for i in idx]
         addr_bits = [2 * (i + 1) for i in idx]
@@ -362,9 +392,10 @@ def stream(M, pools, args, spans):
         early1 = sum(score(p)[0] for p in pools[:warm]) / warm
         params = sum(p.numel() for m in models for p in m.parameters())
         mean = lambda xs: sum(xs) / len(xs)  # noqa: E731
-        out[arm] = {"fresh": round(mean(fresh), 4), "forget": round(early0 - early1, 4), "update_s": round(mean(upd), 2),
-                    "msg_bytes": round(mean(msg)), "query_ms": round(mean(q), 1), "params": params,
-                    "mb": round(params * 2 / 1e6, 2)}
+        out[arm] = cached(path, lambda: {"fresh": round(mean(fresh), 4), "forget": round(early0 - early1, 4),
+                                         "update_s": round(mean(upd), 2), "msg_bytes": round(mean(msg)),
+                                         "query_ms": round(mean(q), 1), "params": params,
+                                         "mb": round(params * 2 / 1e6, 2)})
     pr.featurize = RAW
     return out
 
@@ -383,7 +414,10 @@ def main(argv=None):
     ap.add_argument("--warm", type=int, default=8)
     ap.add_argument("--seeds", type=int, nargs="+", default=[0])
     ap.add_argument("--out", default="")
+    ap.add_argument("--cache", default="", help="a directory: every stage saved there, and a rerun resumes from it")
     args = ap.parse_args(argv)
+    if args.cache:
+        os.makedirs(args.cache, exist_ok=True)
     torch.set_num_threads(max(1, os.cpu_count() or 1))
     pools = load_pools(args.pairs)
     shard_files = shards(args.p4, args.k)
@@ -397,14 +431,17 @@ def main(argv=None):
     print(json.dumps(report), flush=True)
     for seed in args.seeds:
         t0 = time.time()
-        M, times = build_models(args, shard_pairs, all_pairs, seed)
+        tag = args.cache and os.path.join(args.cache, f"k{args.k}-s{seed}")
+        M, times = cached(tag and tag + "-models.pt", lambda: build_models(args, shard_pairs, all_pairs, seed), "pt")
+        M = prune_families(M)
         run = {"seed": seed, "zeck_addresses": M["zeck_addresses"],
                "pretrain_s": {k: {"sequential": round(sum(v)), "parallel": round(max(v))} for k, v in times.items()}}
-        run["quality"], oof = quality(M, pools, args, seed, spans)
+        run["quality"], oof = quality(M, pools, args, seed, spans, tag)
         print(json.dumps({"seed": seed, "quality": run["quality"]}), flush=True)
-        run["deployed"] = deployed(oof, pools, os.path.join(args.plugin, "scripts"), store)
+        run["deployed"] = cached(tag and tag + "-deployed.json",
+                                 lambda: deployed(oof, pools, os.path.join(args.plugin, "scripts"), store))
         print(json.dumps({"seed": seed, "deployed": run["deployed"]}), flush=True)
-        run["stream"] = stream(M, pools, args, spans)
+        run["stream"] = stream(M, pools, args, spans, tag)
         run["seconds"] = round(time.time() - t0)
         print(json.dumps({"seed": seed, "stream": run["stream"], "pretrain_s": run["pretrain_s"],
                           "seconds": run["seconds"]}), flush=True)
