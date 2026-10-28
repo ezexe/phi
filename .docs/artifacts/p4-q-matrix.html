@@ -1,0 +1,194 @@
+<title>The p4 Q Matrix</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* layout: one reading column of four plates, each a diagram with its caption; digits in mono, p4 = ochre 1, .claude = blue 0 */
+:root {
+  --bg: #f2f4f7; --panel: #ffffff; --ink: #172033; --muted: #5a6477; --line: #cdd4df;
+  --one: #a8661a; --zero: #2f679f; --bad: #b3373a; --wash1: #f6ecdd; --wash0: #e3edf7;
+  --display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --body: "Instrument Sans", "Segoe UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0e131b; --panel: #151c27; --ink: #e3e8ef; --muted: #9aa5b7; --line: #2c3748;
+  --one: #e2a556; --zero: #7eaee0; --bad: #ec7072; --wash1: #2d2416; --wash0: #16253a; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #0e131b; --panel: #151c27; --ink: #e3e8ef; --muted: #9aa5b7; --line: #2c3748;
+  --one: #e2a556; --zero: #7eaee0; --bad: #ec7072; --wash1: #2d2416; --wash0: #16253a; color-scheme: dark }
+body { background: var(--bg); color: var(--ink); font: 16px/1.6 var(--body); }
+.wrap { max-width: 860px; margin: 0 auto; padding-block: 40px 64px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: grid; gap: 28px; }
+h1, h2 { font-family: var(--display); text-wrap: balance; margin: 0; letter-spacing: -0.01em; }
+h1 { font-size: clamp(2rem, 5vw, 2.8rem); line-height: 1.1; }
+h2 { font-size: 1.35rem; }
+p { margin: 0; max-width: 66ch; }
+.lede { color: var(--muted); font-size: 1.05rem; }
+.mono, code { font-family: var(--mono); font-size: 0.92em; }
+.one { color: var(--one); } .zero { color: var(--zero); } .bad { color: var(--bad); }
+.plate { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 24px; display: grid; gap: 16px; min-width: 0; }
+.tag { font: 600 0.72rem/1 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.note { border-left: 3px solid var(--line); padding: 4px 0 4px 14px; color: var(--muted); }
+.row { display: flex; flex-wrap: wrap; gap: 24px; align-items: center; }
+.row > * { min-width: 0; }
+.fig { overflow-x: auto; }
+svg { display: block; max-width: 100%; height: auto; }
+svg text { font-family: var(--mono); fill: var(--ink); }
+svg .lbl { font-size: 13px; fill: var(--muted); }
+svg .big { font-size: 26px; font-weight: 600; }
+svg .s-ink { stroke: var(--ink); fill: none; stroke-width: 1.6; }
+svg .s-one { stroke: var(--one); fill: var(--wash1); stroke-width: 2; }
+svg .s-zero { stroke: var(--zero); fill: var(--wash0); stroke-width: 2; }
+svg .s-bad { stroke: var(--bad); fill: none; stroke-width: 1.6; stroke-dasharray: 5 4; }
+svg .t-one { fill: var(--one); } svg .t-zero { fill: var(--zero); } svg .t-bad { fill: var(--bad); }
+svg .head { fill: var(--ink); } svg .head-bad { fill: var(--bad); }
+svg .edge { stroke: var(--line); stroke-width: 1.6; fill: none; }
+svg .ghost { stroke: var(--line); fill: none; stroke-width: 1.6; stroke-dasharray: 4 4; }
+.matrix { display: inline-grid; grid-template-columns: auto auto auto; gap: 6px 18px; font-family: var(--mono); align-items: center; }
+.matrix .h { color: var(--muted); font-size: 0.78rem; }
+.matrix .c { font-size: 1.6rem; font-weight: 600; text-align: center; }
+.bars { display: grid; grid-template-columns: 4.5rem 2rem 1fr; gap: 6px 12px; align-items: center; font-variant-numeric: tabular-nums; }
+.bars .n { font-family: var(--mono); color: var(--muted); font-size: 0.85rem; }
+.bars .k { font-family: var(--mono); font-weight: 600; text-align: right; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.chip { font-family: var(--mono); font-size: 0.85rem; padding: 2px 8px; border-radius: 4px; background: var(--wash1); white-space: nowrap; }
+.chip small { color: var(--muted); font-size: 0.75rem; }
+.chip.none { background: transparent; color: var(--muted); border: 1px dashed var(--line); }
+.flow { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; }
+.step { flex: 1 1 150px; border: 1px solid var(--line); border-radius: 4px; padding: 10px 12px; font-size: 0.92rem; min-width: 0; }
+.step b { display: block; font-family: var(--mono); font-size: 0.8rem; color: var(--muted); font-weight: 600; margin-bottom: 2px; }
+table { border-collapse: collapse; width: 100%; font-size: 0.93rem; }
+th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font: 600 0.75rem/1.3 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+td.num { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tbl { overflow-x: auto; }
+@media (max-width: 520px) { .plate { padding: 18px; } }
+</style>
+
+<div class="wrap">
+  <header style="display:grid;gap:12px">
+    <span class="tag">phi · p4 · Zeckendorf</span>
+    <h1>One matrix, M = [[1,1],[1,0]], runs the whole store</h1>
+    <p class="lede">Nest stores with a <span class="one">p4 = 1</span> and a <span class="zero">.claude = 0</span>. Never put a p4 directly in a p4. The rules that are left are exactly the Fibonacci Q matrix. The same matrix numbers the model nodes, prunes them, and routes a task to one of them.</p>
+    <p class="note">There is no quantum part. The Q in “Q matrix” is Charles King’s 1960 name for M. Nothing in phi or p4 runs on qubits. The only quantum link in phi is a citation in <code>.docs/phi/Q.md</code> to Q-matrix key generation (Lai et al., 2017).</p>
+  </header>
+
+  <section class="plate">
+    <span class="tag">1 · the nesting rule is the matrix</span>
+    <h2>Two states, three moves, one forbidden</h2>
+    <div class="row">
+      <div class="fig" style="flex:1 1 380px">
+        <svg viewBox="0 0 520 230" role="img" aria-label="State machine: after a .claude you may add a .claude or a p4; after a p4 you may only add a .claude; p4 directly in p4 is forbidden">
+          <defs>
+            <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="head" d="M0,0 L10,5 L0,10 z"/></marker>
+            <marker id="ahb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="head-bad" d="M0,0 L10,5 L0,10 z"/></marker>
+          </defs>
+          <path class="s-ink" d="M111,74 C92,22 168,22 149,74" marker-end="url(#ah)"/>
+          <text class="lbl" x="130" y="18" text-anchor="middle">.claude in .claude</text>
+          <path class="s-ink" d="M172,96 Q260,46 348,96" marker-end="url(#ah)"/>
+          <text class="lbl" x="260" y="58" text-anchor="middle">p4 in .claude</text>
+          <path class="s-ink" d="M348,126 Q260,176 172,126" marker-end="url(#ah)"/>
+          <text class="lbl" x="260" y="180" text-anchor="middle">.claude in p4</text>
+          <path class="s-bad" d="M371,74 C352,22 428,22 409,74" marker-end="url(#ahb)"/>
+          <text class="lbl t-bad" x="390" y="18" text-anchor="middle">p4 in p4 — never (11)</text>
+          <circle class="s-zero" cx="130" cy="111" r="42"/>
+          <text class="big t-zero" x="130" y="120" text-anchor="middle">0</text>
+          <circle class="s-one" cx="390" cy="111" r="42"/>
+          <text class="big t-one" x="390" y="120" text-anchor="middle">1</text>
+          <text class="lbl" x="130" y="214" text-anchor="middle">after a .claude</text>
+          <text class="lbl" x="390" y="214" text-anchor="middle">after a p4</text>
+        </svg>
+      </div>
+      <div style="display:grid;gap:10px;flex:0 1 220px">
+        <div class="matrix" aria-label="Transition matrix">
+          <span></span><span class="h">→ 0</span><span class="h">→ 1</span>
+          <span class="h">from 0</span><span class="c">1</span><span class="c">1</span>
+          <span class="h">from 1</span><span class="c">1</span><span class="c bad">0</span>
+        </div>
+        <p style="font-size:.9rem;color:var(--muted)">Count the allowed moves between the two states and you get M. The <span class="bad">0</span> is the forbidden p4-in-p4.</p>
+      </div>
+    </div>
+    <p>Powers of M count the paths: M<sup>n</sup> = [[F(n+1), F(n)], [F(n), F(n−1)]]. So the number of legal stores of each depth is a Fibonacci number. The <span class="mono">11</span> the store never makes also works as the comma in a stream of addresses: no length field and no lookup table needed.</p>
+  </section>
+
+  <section class="plate">
+    <span class="tag">2 · every address is a Zeckendorf number</span>
+    <h2>Store addresses by length</h2>
+    <p>An address starts and ends with a p4 and has no <span class="mono">11</span>. Read with Fibonacci weights 1, 2, 3, 5, 8… from the right, each address is a different integer.</p>
+    <div class="bars">
+      <span class="n">length 1</span><span class="k">1</span><div class="chips"><span class="chip">1 <small>= 1</small></span></div>
+      <span class="n">length 2</span><span class="k">0</span><div class="chips"><span class="chip none">11 is forbidden</span></div>
+      <span class="n">length 3</span><span class="k">1</span><div class="chips"><span class="chip">101 <small>= 4</small></span></div>
+      <span class="n">length 4</span><span class="k">1</span><div class="chips"><span class="chip">1001 <small>= 6</small></span></div>
+      <span class="n">length 5</span><span class="k">2</span><div class="chips"><span class="chip">10001 <small>= 9</small></span><span class="chip">10101 <small>= 12</small></span></div>
+      <span class="n">length 6</span><span class="k">3</span><div class="chips"><span class="chip">100001 <small>= 14</small></span><span class="chip">100101 <small>= 17</small></span><span class="chip">101001 <small>= 19</small></span></div>
+      <span class="n">length 7</span><span class="k">5</span><div class="chips"><span class="chip">1000001</span><span class="chip">1000101</span><span class="chip">1001001</span><span class="chip">1010001</span><span class="chip">1010101</span></div>
+    </div>
+    <p style="color:var(--muted);font-size:.9rem">The counts are 1, 0, 1, 1, 2, 3, 5, the Fibonacci sequence after the empty length 2. Computed by <code>scripts/session/stream_logic.py</code>.</p>
+  </section>
+
+  <section class="plate">
+    <span class="tag">3 · the model tree at k = 4</span>
+    <h2>Four nodes, oldest history deepest</h2>
+    <div class="row">
+      <div class="fig" style="flex:1 1 400px">
+        <svg viewBox="0 0 520 250" role="img" aria-label="Tree: root 1 with children 101, 1001 and 10001; a fifth node 10101 would grow under 101">
+          <path class="edge" d="M260,62 L100,150"/>
+          <path class="edge" d="M260,62 L260,150"/>
+          <path class="edge" d="M260,62 L420,150"/>
+          <path class="ghost" d="M100,174 L100,212"/>
+          <rect class="s-one" x="222" y="28" width="76" height="34" rx="4"/>
+          <text x="260" y="51" text-anchor="middle" font-size="16" font-weight="600">1</text>
+          <text class="lbl" x="310" y="40">root · newest shard</text>
+          <text class="lbl" x="310" y="56">starts from its children’s mean</text>
+          <rect class="s-one" x="58" y="150" width="84" height="26" rx="4"/>
+          <text x="100" y="168" text-anchor="middle" font-size="15">101</text>
+          <rect class="s-one" x="214" y="150" width="92" height="26" rx="4"/>
+          <text x="260" y="168" text-anchor="middle" font-size="15">1001</text>
+          <rect class="s-one" x="370" y="150" width="100" height="26" rx="4"/>
+          <text x="420" y="168" text-anchor="middle" font-size="15">10001</text>
+          <text class="lbl" x="100" y="196" text-anchor="middle">shard 3</text>
+          <text class="lbl" x="260" y="196" text-anchor="middle">shard 2</text>
+          <text class="lbl" x="420" y="196" text-anchor="middle">shard 1 · oldest</text>
+          <rect class="ghost" x="54" y="212" width="92" height="26" rx="4"/>
+          <text class="lbl" x="100" y="230" text-anchor="middle">10101 (k=5)</text>
+        </svg>
+      </div>
+      <div style="display:grid;gap:10px;flex:0 1 200px">
+        <span class="tag">the owner’s reading</span>
+        <div class="matrix">
+          <span></span><span></span><span></span>
+          <span></span><span class="c one" style="font-size:1rem">1</span><span class="c one" style="font-size:1rem">101</span>
+          <span></span><span class="c one" style="font-size:1rem">1001</span><span class="c one" style="font-size:1rem">10001</span>
+        </div>
+        <p style="font-size:.9rem;color:var(--muted)">The 4 nodes as the 4 cells of [[n1, n2], [n3, n4]]. Untested: k = 2, 3, 5 and 6 would show whether the k = 4 win comes from this shape or from the shard size.</p>
+      </div>
+    </div>
+    <p>A node’s parent is its address with the last p4 and the .claude’s before it removed (<code>phi_rank.tree.parent</code>), so the first four addresses all hang off the root. Leaves start from scratch: a node is 2<sup>13</sup> rows and the shared base 2<sup>15</sup>, so the base doesn’t fit. Each node is pruned by <code>phi_mask</code>, which never keeps two adjacent rows. That is the same no-<span class="mono">11</span> rule, applied to the weights.</p>
+  </section>
+
+  <section class="plate">
+    <span class="tag">4 · the matrix that pruned a node routes to it</span>
+    <h2>From task to answer, by effort</h2>
+    <div class="flow">
+      <div class="step"><b>task</b>hashed into feature rows</div>
+      <div class="step"><b>each node</b>sums its kept rows’ weight at those features</div>
+      <div class="step"><b>route</b>the heaviest node wins (argmax)</div>
+      <div class="step"><b>answer</b>that node scores the candidates</div>
+    </div>
+    <div class="tbl">
+      <table>
+        <thead><tr><th>Effort</th><th>Who answers</th><th>Measured</th></tr></thead>
+        <tbody>
+          <tr><td class="num">low</td><td>JSON ranker alone; no <code>.pt</code> server</td><td class="num">0.380</td></tr>
+          <tr><td class="num">medium</td><td>the one routed node (<code>tree:medium:&lt;address&gt;</code>)</td><td>best node 50% of pools at k = 4 (chance 25%); alone 0.190</td></tr>
+          <tr><td class="num">high</td><td>all 4 nodes, z-scored and averaged (<code>tree:high:4</code>)</td><td>0.235 against one large model’s 0.220, both seeds</td></tr>
+          <tr><td class="num">background</td><td>the grown tree, retrained off the hot path</td><td>0.258 at k = 8; not built yet</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p style="color:var(--muted);font-size:.9rem">Held-out r-precision on phi’s own store, from <code>.docs/p4/nested-store.md</code>. The 0.380 is the deployed JSON ranker’s figure. A store chooses its tier with <code>pool-effort:</code> (vlds 0.0.74).</p>
+  </section>
+</div>
