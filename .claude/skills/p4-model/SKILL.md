@@ -50,6 +50,41 @@ When asked to update, or when a session reports open notices:
 4. `test` when a model changed materially (a new base, a mode change, a fix). Report the held-out numbers against the previous ones and against term overlap. `test` writes nothing the store serves: the `.pt` evaluation never saves the pretrained base (a missing one is built in memory, up to `--minutes`), and its server check runs under its own port file beside any live server.
 5. In the store's repository, commit `models/` (the anchor and the ranker's `.phid` deltas go through git LFS by the store's `.gitattributes`; check `git lfs ls-files` shows them; `models/ranker.pt` is ignored, and `check` asks to untrack it where an older store tracked it) and the recall config if the mode changed, and push. In a store repository attached to a session, that is a branch and a pull request, merged when the user has asked for merges.
 
+## The balanced model: what the measurements settle
+
+This section turns phi's measurements into one configuration. Every figure is from `.docs/p4/nested-store.md` (AudioPlugin-p4, 22 labelled pools, held-out r-precision; k = 4 over 2 seeds, k = 8 over 1). Re-derive a figure before relying on it: rerun `scripts/session/nested_suite.py` on the store it is about, since the stores keep growing.
+
+**What picks.** The JSON ranker (`pick-model.json`) picks. It scored 0.380, and no `.pt` arm comes close on its own (0.15–0.26). The `.pt` models feed it a feature, and only when that feature raises its leave-one-out r-precision. The plugin already enforces that.
+
+**Effort tiers.** The answer's cost is chosen by how much the task asks:
+
+| Effort | Who answers | Measured | Built |
+|---|---|---|---|
+| low | the JSON ranker alone | 0.380; no `.pt` server needed | yes |
+| medium | the JSON ranker + one node's score, the node chosen by the φ pruning mask (the Q-matrix route) | picks the best node in 50% of pools at k = 4 and 32% at k = 8 (chance: 25% and 12.5%); as a feature 0.392 at k = 4 (mean), 0.357 at k = 8; one node answers in about 9 ms | no |
+| high | the JSON ranker + the Zeckendorf tree's k = 4 ensemble | 0.235 held-out against one large model's 0.220, on both seeds; about 33 ms | no |
+| background | the grown tree (every node full size, k× the parameters), retrained off the hot path; its root feeds the JSON ranker | 0.258 held-out at k = 8; as a feature 0.387 and 0.397, the only `.pt` that helped the JSON ranker at both sizes | no |
+
+**Updates.** A new pool goes to one node, never to the whole tree. Either the newest node takes it (time-routed) or the node the mask routes to does (matrix-routed).
+- Forgetting: time-routed lost 0.000 on the oldest pools, matrix-routed φ 0.267 and 0.173, against 0.356 and 0.204 for one large model updated on everything.
+- Message size: one node's φ-delta is 23–73 KB, against 133 KB for one large model, and the address adds 2n bits.
+- Merging back: the tree is merged back (a node with two children starts from their mean) at the slower rebase cadence: 8 rounds, or a new base.
+
+**Pretraining.** Each node starts from the plugin's shared p4 base, which scored 0.227 against 0.206 from scratch. The nodes pretrain in parallel, each on its own shard: 90 s at k = 4 and 45 s at k = 8, against 361 s for one large model on the same budget.
+
+**Size: 4 nodes.** k = 4 is the only size at which the Zeckendorf ensemble beat one large model on both seeds. At k = 8 it fell behind (0.207 against 0.222). The owner reads 4 nodes as the 4 positions of the Q matrix [[n1, n2], [n3, n4]]. Whether the win comes from that shape or from the shard size is not settled. Testing k = 2, 3, 5 and 6 on the same store would tell.
+
+**The corpus.** The store's run logs stay in pretraining, on the owner's ruling. They lowered the standalone `.pt` ranker from 0.227 to 0.200. Weighting the store's decisions over its logs is parked until the store has grown.
+
+**Not yet true, so not yet claimed.**
+- A routed node alone ranks below every ensemble (0.190 against 0.235 at k = 4). Medium effort trades quality for speed and small updates, so it is never the default for a high-effort task.
+- The φ adjacency rule means nothing about the data in this ranker: hashing scatters features over the table's rows at random. The routing works because the masks keep each node's heaviest rows.
+
+None of the tree is in `phi_rank` or the plugin yet. Today's `.pt` ranker is one small model in a φ-delta chain. Building the tiers means three things:
+- node shards and a node index in `phi_rank`
+- `phi_serve` answering per tier
+- the plugin passing the task's effort level to `/score`
+
 ## Rules
 
 - A notice is cleared only by a training that succeeded for its component. Never delete `retrain-needed.tsv` by hand.
