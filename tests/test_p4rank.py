@@ -232,6 +232,14 @@ def test_node_tree_answers_by_effort(tmp_path):
         assert not bool((kept[1:] & kept[:-1]).any()), n["address"]     # no two adjacent rows kept
     t = tree.Tree(str(tmp_path))
     assert 0 <= t.route("a plan about the ring buffer drain") < 4
+    # the JSON ranker's .pt weight for the tree is fitted on these: every pool, each effort, out of fold
+    oof = json.loads((mdir / tree.TREE_OOF).read_text())
+    assert set(oof["efforts"]) == {"medium", "high"} and set(oof["heldout"]) == {"medium", "high"}
+    for effort in ("medium", "high"):
+        assert set(oof["efforts"][effort]) == {p["id"] for p in pools}
+        for p in pools:
+            assert set(oof["efforts"][effort][p["id"]]) == {p4rank.text_key(r["text"]) for r in p["rows"]}
+    assert meta["heldout"] == oof["heldout"]
     assert p4rank.main(["train", "--p4", str(tmp_path), "--pairs", str(pairs), "--minutes", "0", "--epochs", "2"]) == 0
     ready = threading.Event()
     threading.Thread(target=lambda: serve(str(tmp_path), 0, 1, ready), daemon=True).start()

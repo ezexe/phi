@@ -83,7 +83,8 @@ This section turns phi's measurements into one configuration. Every figure is fr
 **Where the tiers live.**
 - `python -m phi_rank.tree train --p4 <store> --pairs <pairs.jsonl> --k 4 --minutes 6` builds the tree: `models/tree/<address>.pt` and `models/tree.json`.
 - `phi_serve` answers `/score` by the request's `effort`: `medium` is the routed node (`source: tree:medium:<address>`), `high` is the ensemble (`source: tree:high:4`). Any other effort, or no tree on disk, is the single ranker (`source: ranker`). The server reloads the tree when `tree.json` changes.
-- The JSON ranker's `pt` feature is learned from the single ranker's out-of-fold scores. A tree's scores reach it through the same z-score, but they are not what it was fitted on, so re-check the held-out figure after a store switches tiers.
+- The tree's training also writes `models/tree-oof.json`: every labelled pool scored at medium and at high by fold trees that never fine-tuned on it, and each effort's held-out r-precision.
+- The JSON ranker fits its `pt` weight on the out-of-fold scores of the source the store's `pool-effort:` names: `tree-oof.json` for medium or high, `ranker-oof.json` otherwise (vlds 0.0.75). It keeps the weight only when it raises the leave-one-out r-precision, and asks `/score` at the effort it was fitted on. A change of `pool-effort:` takes effect at the JSON ranker's next `train`.
 - The background tier (the grown tree) is not built.
 
 ## Rules

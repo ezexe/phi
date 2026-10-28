@@ -16,8 +16,10 @@ How it answers (phi_serve, by the request's effort):
   high    every node, each node's scores z-scored and averaged
 Any other effort, or no tree on disk, is the store's single ranker (phi_rank.load_current), as before.
 
-Files, in the store's models/: tree/<address>.pt (fp16, git LFS) and tree.json (the addresses, the shards' time spans,
-when it was trained).
+Files, in the store's models/: tree/<address>.pt (fp16, git LFS), tree.json (the addresses, the shards' time spans,
+when it was trained) and tree-oof.json: every labelled pool scored at medium and at high by fold trees that never
+fine-tuned on it, with each effort's held-out r-precision. The JSON ranker fits its .pt weight on those scores when
+the store's pool-effort names the tree, as it fits it on ranker-oof.json for the single ranker.
 
     python -m phi_rank.tree train --p4 <p4 root> --pairs pairs.jsonl --k 4 --minutes 6 --now "2026-10-28 12:00"
 """
@@ -39,6 +41,8 @@ from phi_prune.masks import phi_mask
 
 TREE_DIR = "tree"
 TREE_JSON = "tree.json"
+TREE_OOF = "tree-oof.json"
+FOLDS = 4
 EFFORTS = ("medium", "high")
 
 
@@ -107,6 +111,34 @@ def parent(a: str) -> Optional[str]:
 
 # ─── build ─────────────────────────────────────────────────────────────────────────────────────────────
 
+def node_rows(models: Sequence[pr.Ranker]) -> List[torch.Tensor]:
+    """Each node's row weights, the route's matrix: zero on every row its mask pruned."""
+    return [m.bag.weight.detach().norm(dim=1) for m in models]
+
+
+def route(rows: Sequence[torch.Tensor], task: str) -> int:
+    """The node whose kept rows carry the most weight on the task's features."""
+    ids = torch.tensor(pr.featurize(task, rows[0].shape[0]))
+    return int(torch.stack([r[ids].sum() for r in rows]).argmax())
+
+
+@torch.no_grad()
+def answer(models: Sequence[pr.Ranker], rows: Sequence[torch.Tensor], task: str, texts: Sequence[str],
+           effort: str) -> Tuple[List[float], int]:
+    """(scores, the routed node at medium or -1 at high)."""
+    if effort == "medium":
+        i = route(rows, task)
+        return pr.score_pool(models[i], task, texts), i
+    total = None
+    for m in models:
+        sc = pr.score_pool(m, task, texts)
+        mu = sum(sc) / len(sc)
+        sd = math.sqrt(sum((x - mu) ** 2 for x in sc) / len(sc)) or 1.0
+        z = [(x - mu) / sd for x in sc]
+        total = z if total is None else [a + b for a, b in zip(total, z)]
+    return [x / len(models) for x in total], -1
+
+
 def mask_rows(m: pr.Ranker) -> torch.Tensor:
     """phi_prune's adjacency mask over the node's feature rows, applied in place; the mask is returned."""
     mask = phi_mask(m.bag.weight.detach(), axis=0, density=0.5)
@@ -123,7 +155,7 @@ def build(p4: str, pools: Sequence[Dict], k: int = 4, minutes: float = 6, epochs
     trained: Dict[str, Dict] = {}
     out_dir = os.path.join(pr.models_dir(p4), TREE_DIR)
     os.makedirs(out_dir, exist_ok=True)
-    nodes = []
+    nodes, pre = [], []
     for i, a in enumerate(order):
         m = pr.Ranker(nb, dim)
         kids = [trained[c] for c in trained if parent(c) == a]
@@ -133,14 +165,51 @@ def build(p4: str, pools: Sequence[Dict], k: int = 4, minutes: float = 6, epochs
         t0 = time.time()
         steps = pr.pretrain(m, shard_pairs(p4, files[i]), minutes / k, seed=i, log=lambda *_: None)
         trained[a] = {key: v.clone() for key, v in m.state_dict().items()}   # what a parent starts from
+        pre.append(trained[a])
         pr.finetune(m, pools, epochs=epochs, seed=i)
         mask_rows(m)
         pr.save(m, {"nb": nb, "dim": dim, "stage": "tree", "address": a, "trained": now}, os.path.join(out_dir, f"{a}.pt"))
         nodes.append({"address": a, "shard": i, "files": len(files[i]), "span": list(spans[i]), "steps": steps})
-        log(f"tree — node {a}: shard {i + 1}/{k}, {len(files[i])} files, {steps} steps, {time.time() - t0:.0f} s")
+        log(f"tree - node {a}: shard {i + 1}/{k}, {len(files[i])} files, {steps} steps, {time.time() - t0:.0f} s")
     meta = {"k": k, "nb": nb, "dim": dim, "trained": now, "nodes": nodes, "pools": [p["id"] for p in pools]}
     pr.write_text_atomic(json.dumps(meta, indent=1) + "\n", os.path.join(pr.models_dir(p4), TREE_JSON))
+    oof = out_of_fold(pre, pools, epochs, now)
+    if oof:
+        pr.write_text_atomic(json.dumps(oof, separators=(",", ":")) + "\n", os.path.join(pr.models_dir(p4), TREE_OOF))
+        meta["heldout"] = oof["heldout"]
+        log(f"tree - held out over {oof['folds']} folds: medium {oof['heldout']['medium']:.3f}, "
+            f"high {oof['heldout']['high']:.3f}")
     return meta
+
+
+def out_of_fold(pre: Sequence[Dict], pools: Sequence[Dict], epochs: int, now: str) -> Optional[Dict]:
+    """Every pool scored at medium and at high by a fold tree that never fine-tuned on it: each fold fine-tunes
+    every node from its pretrained state on the other folds' pools and masks it, as build does. None with too few
+    pools to fold."""
+    if len(pools) < FOLDS:
+        return None
+    scores: Dict[str, Dict[str, Dict[str, float]]] = {"medium": {}, "high": {}}
+    rprec: Dict[str, List[float]] = {"medium": [], "high": []}
+    for f in range(FOLDS):
+        held = pools[f::FOLDS]
+        train = [p for j, p in enumerate(pools) if j % FOLDS != f]
+        models = []
+        for i, state in enumerate(pre):
+            m = pr.ranker_like(state)
+            m.load_state_dict(state)
+            torch.manual_seed(f * 100 + i)
+            pr.finetune(m, train, epochs=epochs, seed=f * 100 + i)
+            mask_rows(m)
+            models.append(m)
+        rows = node_rows(models)
+        for p in held:
+            texts = [r["text"] for r in p["rows"]]
+            for effort in scores:
+                sc, _ = answer(models, rows, p["task"], texts, effort)
+                scores[effort][p["id"]] = {pr.text_key(t): round(x, 5) for t, x in zip(texts, sc)}
+                rprec[effort].append(pr.pool_metrics([r["label"] for r in p["rows"]], sc, [])["r-precision"])
+    return {"trained": now, "k": len(pre), "folds": FOLDS,
+            "heldout": {e: round(sum(v) / len(v), 4) for e, v in rprec.items()}, "efforts": scores}
 
 
 # ─── answer ────────────────────────────────────────────────────────────────────────────────────────────
@@ -154,25 +223,14 @@ class Tree:
             self.meta = json.load(f)
         self.addresses = [n["address"] for n in self.meta["nodes"]]
         self.models = [pr.load(os.path.join(mdir, TREE_DIR, f"{a}.pt"))[0] for a in self.addresses]
-        self.rows = [m.bag.weight.detach().norm(dim=1) for m in self.models]
+        self.rows = node_rows(self.models)
 
     def route(self, task: str) -> int:
-        ids = torch.tensor(pr.featurize(task, self.rows[0].shape[0]))
-        return int(torch.stack([r[ids].sum() for r in self.rows]).argmax())
+        return route(self.rows, task)
 
-    @torch.no_grad()
     def score(self, task: str, texts: Sequence[str], effort: str) -> Tuple[List[float], str]:
-        if effort == "medium":
-            i = self.route(task)
-            return pr.score_pool(self.models[i], task, texts), f"tree:medium:{self.addresses[i]}"
-        total = None
-        for m in self.models:
-            sc = pr.score_pool(m, task, texts)
-            mu = sum(sc) / len(sc)
-            sd = math.sqrt(sum((x - mu) ** 2 for x in sc) / len(sc)) or 1.0
-            z = [(x - mu) / sd for x in sc]
-            total = z if total is None else [a + b for a, b in zip(total, z)]
-        return [x / len(self.models) for x in total], f"tree:high:{len(self.models)}"
+        sc, i = answer(self.models, self.rows, task, texts, effort)
+        return sc, (f"tree:medium:{self.addresses[i]}" if i >= 0 else f"tree:high:{len(self.models)}")
 
 
 def main(argv=None) -> int:
@@ -186,12 +244,18 @@ def main(argv=None) -> int:
     p.add_argument("--epochs", type=int, default=10)
     p.add_argument("--now", default="")
     args = ap.parse_args(argv)
+    try:
+        sys.stdout.reconfigure(errors="replace")   # a redirected stdout on Windows is cp1252
+    except (AttributeError, ValueError):
+        pass
     pools = pr.read_pools(args.pairs)
     if not pools:
         print("tree — no labelled pool in the pairs; nothing written")
         return 1
     meta = build(args.p4, pools, args.k, args.minutes, args.epochs, now=args.now)
-    print(f"tree — {meta['k']} nodes ({', '.join(n['address'] for n in meta['nodes'])}) → models/{TREE_DIR}/")
+    held = meta.get("heldout")
+    print(f"tree - {meta['k']} nodes ({', '.join(n['address'] for n in meta['nodes'])}) -> models/{TREE_DIR}/"
+          + (f"; held out: medium {held['medium']:.3f}, high {held['high']:.3f}" if held else ""))
     return 0
 
 
