@@ -14,7 +14,11 @@ It writes <p4>/models/ranker.server.json — {"port", "pid", "round"} — when i
 (after --idle-hours without a request). Endpoints, JSON in and out, bound to 127.0.0.1 only:
 
     GET  /health                          → {"ok": true, "round": N, "threshold": t}
-    POST /score {"task", "texts": [...]}   → {"scores": [...], "round": N, "threshold": t, "per_file": 6}
+    POST /score {"task", "texts": [...], "effort"?}
+                                          → {"scores": [...], "round": N, "threshold": t, "per_file": 6, "source"}
+
+"effort" picks the answer: "medium" is the one node of the store's node tree (phi_rank.tree) its pruning mask routes
+the task to, "high" every node of the tree averaged; anything else, or no tree in models/, is the single ranker.
 """
 
 import argparse
@@ -29,6 +33,7 @@ from typing import Dict, Optional
 
 import torch
 
+import phi_rank.tree as tree_mod
 from phi_rank import ANCHOR, CURRENT, SIDECAR, load_current, models_dir, write_text_atomic
 
 CACHE_MAX = 50_000            # entry embeddings kept between requests, by text
@@ -47,6 +52,25 @@ class Holder:
         self.sig = None
         self.cache: Dict[str, torch.Tensor] = {}
         self.last = time.time()
+        self.tree_path = os.path.join(models_dir(p4), tree_mod.TREE_JSON)
+        self.tree = None
+        self.tree_sig = None
+
+    def current_tree(self):
+        """The node tree the effort tiers answer from, reloaded when tree.json changes; None when there is none."""
+        try:
+            sig = os.path.getmtime(self.tree_path)
+        except OSError:
+            return None
+        if sig != self.tree_sig:
+            with self.lock:
+                if sig != self.tree_sig:
+                    try:
+                        self.tree = tree_mod.Tree(self.p4)
+                    except Exception:  # noqa: BLE001 — a tree mid-write or broken: keep the old one
+                        return self.tree
+                    self.tree_sig = sig
+        return self.tree
 
     def signature(self):
         out = []
@@ -129,16 +153,23 @@ def make_handler(holder: Holder):
             try:
                 req = json.loads(self.rfile.read(size))
                 task, texts = str(req["task"]), [str(t) for t in req["texts"]]
+                effort = str(req.get("effort") or "")
             except (ValueError, KeyError, TypeError) as e:
                 return self.reply(400, {"error": f"{type(e).__name__}: {e}"})
             try:
+                tree = holder.current_tree() if effort in tree_mod.EFFORTS else None
+                if tree is not None:
+                    # the effort tiers: medium = the node the pruning matrix routes to, high = every node
+                    scores, source = tree.score(task, texts, effort)
+                    return self.reply(200, {"scores": scores, "round": tree.meta.get("trained"), "threshold": 0.0,
+                                            "per_file": 6, "source": source})
                 scores, meta = holder.score(task, texts)
             except Exception as e:  # noqa: BLE001 — the model failed: say so, and keep serving
                 return self.reply(500, {"error": f"{type(e).__name__}: {e}"})
             if scores is None:
                 return self.reply(503, {"error": "no checkpoint loaded"})
             self.reply(200, {"scores": scores, "round": meta.get("round"), "threshold": meta.get("threshold"),
-                             "per_file": meta.get("per_file", 6)})
+                             "per_file": meta.get("per_file", 6), "source": "ranker"})
 
     return Handler
 
