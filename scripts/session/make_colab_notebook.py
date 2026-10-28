@@ -76,7 +76,7 @@ WARM = 8
 TREE_K = 4                            # the effort tiers' tree
 TREE_MINUTES = 6.0
 
-DEVICE = "auto"                       # auto: the GPU when the runtime has one; "cpu" forces the CPU
+DEVICE = "auto"                       # auto: the GPU when the runtime has one; "cuda" requires it; "cpu" forces the CPU
 
 PUSH_RESULTS = False                  # True: commit the results into ezexe/phi on PUSH_BRANCH (a PR is yours to open)
 PUSH_BRANCH = "colab/q-matrix-results"
@@ -207,6 +207,8 @@ sys.path.insert(0, str(PHI))
 import torch
 import phi_rank as pr
 want = "cpu" if DEVICE == "cpu" else ("cuda" if torch.cuda.is_available() else "cpu")
+if DEVICE == "cuda" and want != "cuda":
+    raise RuntimeError("DEVICE = 'cuda' but this runtime has no GPU: Runtime -> Change runtime type -> T4 GPU, then Run all")
 if want == "cuda":
     try:
         os.environ["PHI_DEVICE"] = "cuda"
@@ -216,7 +218,9 @@ if want == "cuda":
         pr.finetune(m, [{"task": "the ring buffer", "rows": [{"text": t, "label": int(i < 3)}
                                                                for i, t in enumerate(texts)]}], epochs=1)
         assert next(m.parameters()).device.type == "cpu"
-    except Exception as e:                 # a broken CUDA path must not stop the run: the CPU still measures
+    except Exception as e:                 # under auto a broken CUDA path must not stop the run: the CPU still measures
+        if DEVICE == "cuda":
+            raise RuntimeError(f"GPU self-check failed: {type(e).__name__}: {e}") from e
         print(f"GPU self-check failed ({type(e).__name__}: {e}); training on the CPU")
         want = "cpu"
 os.environ["PHI_DEVICE"] = want
@@ -519,15 +523,33 @@ cells.append(code('''if PUSH_RESULTS and not done("push"):
     mark("push", branch=PUSH_BRANCH)
     print(f"pushed to {PUSH_BRANCH}: open a pull request on https://github.com/ezexe/phi/compare/{PUSH_BRANCH}")
 else:
-    print("push:", "done earlier" if done("push") else "off (DEVICE = "auto"                       # auto: the GPU when the runtime has one; "cpu" forces the CPU
-
-PUSH_RESULTS = False)")
+    print("push:", "done earlier" if done("push") else "off (PUSH_RESULTS = False)")
 '''))
 
-nb = nbf.v4.new_notebook()
-nb["cells"] = cells
-nb["metadata"] = {"kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
-                  "language_info": {"name": "python"}, "colab": {"provenance": []}}
-out = Path(__file__).resolve().parents[2] / ".docs" / "p4" / "q_matrix_colab.ipynb"
-nbf.write(nb, out)
-print("wrote", out)
+T4_NOTE = """**This is the T4 copy.** It opens on a T4 GPU runtime, keeps its results in its own Drive folder (`RUN = "q-matrix-t4"`), and stops with an error rather than fall back to the CPU (`DEVICE = "cuda"`), so it can run beside a CPU run of the main notebook without the two touching each other. If the runtime opens without a GPU: Runtime → Change runtime type → T4 GPU, then Run all."""
+
+
+def notebook(name, t4=False):
+    import copy
+    cs = copy.deepcopy(cells)
+    if t4:
+        cs[0].source = cs[0].source.replace("blob/main/.docs/p4/q_matrix_colab.ipynb", f"blob/main/.docs/p4/{name}")
+        cs.insert(1, md(T4_NOTE))
+        settings = cs[3]
+        for a, b in (('RUN = "q-matrix-1"', 'RUN = "q-matrix-t4"'), ('DEVICE = "auto" ', 'DEVICE = "cuda" ')):
+            assert settings.source.count(a) == 1, a
+            settings.source = settings.source.replace(a, b)
+    nb = nbf.v4.new_notebook()
+    nb["cells"] = cs
+    colab = {"provenance": []}
+    if t4:
+        colab["gpuType"] = "T4"                # Colab opens the notebook on a T4 runtime
+    nb["metadata"] = {"kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
+                      "language_info": {"name": "python"}, "colab": colab, **({"accelerator": "GPU"} if t4 else {})}
+    out = Path(__file__).resolve().parents[2] / ".docs" / "p4" / name
+    nbf.write(nb, out)
+    print("wrote", out)
+
+
+notebook("q_matrix_colab.ipynb")
+notebook("q_matrix_colab_t4.ipynb", t4=True)

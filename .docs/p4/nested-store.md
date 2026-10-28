@@ -445,7 +445,7 @@ The owner's point, 2026-10-27:
 
 ## Reproduce on Colab
 
-[`q_matrix_colab.ipynb`](q_matrix_colab.ipynb) ([open in Colab](https://colab.research.google.com/github/ezexe/phi/blob/main/.docs/p4/q_matrix_colab.ipynb)) re-runs this note's checks on Google Colab:
+[`q_matrix_colab.ipynb`](q_matrix_colab.ipynb) ([open in Colab](https://colab.research.google.com/github/ezexe/phi/blob/main/.docs/p4/q_matrix_colab.ipynb)) re-runs this note's checks on Google Colab. [`q_matrix_colab_t4.ipynb`](q_matrix_colab_t4.ipynb) ([open in Colab](https://colab.research.google.com/github/ezexe/phi/blob/main/.docs/p4/q_matrix_colab_t4.ipynb)) is the same notebook set to train on a T4 GPU, in its own Drive folder. Either one runs:
 - the exact claims of sections 1–5, proved for every case up to a bound
 - stage 3's suite at k = 2, 3, 4, 5, 6 and 8 on two seeds, which tests whether the k = 4 win comes from the Q matrix's shape or from shard size
 - the effort tiers on the store, with the tree's held-out figures and whether the JSON ranker keeps its `.pt` weight
