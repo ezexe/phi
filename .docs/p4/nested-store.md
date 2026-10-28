@@ -189,6 +189,171 @@ The owner's framing is one model sifting 8 GB against 8 nodes of 1 GB each, at e
 
 "Outperform" on the other axes the owner names (fresh data absorbed, update messages between agents, forgetting) is stage 2: `scripts/session/nested_realtime.py`.
 
+### Stage 3 measured: every angle (`scripts/session/nested_suite.py`)
+
+The owner asked for every angle, not only held-out quality. This includes:
+- the matrix angle: the matrix that pruned and trained a node also defines the route to it, so a query searches one node instead of all of them
+- the 2:4 control that phi has been measured against
+
+Setup:
+- **Arms.** 14, pretrained once per seed and shared between the arms that use them.
+- **Data.** The same store and pools as stage 1. k = 4 shards of 23 MB and k = 8 shards of 11 MB, scaling the owner's "one model on 8 GB against 8 nodes of 1 GB".
+- **Training.** One large model gets 6 minutes of pretraining; each node gets 6/k.
+- **Measurement.** Everything below is measured, with 10 fine-tuning epochs. k = 4 ran twice (seeds 0 and 1) and k = 8 once.
+- **Seed spread.** Pretraining runs on a time budget, so step counts vary run to run, and some arms move by 0.05 between seeds. A difference smaller than an arm's own seed spread is not a result.
+
+The arms:
+- **Equal total parameters** (one 2^15 × 64, or k nodes of 2^15/k × 64):
+  - **one large** and **one small**
+  - **chain**: each node starts from the previous node's weights
+  - **independent**: no handoff
+  - **time-routed**: each candidate is scored only by the node whose era holds it
+  - **Zeckendorf**: nodes at the tree's real addresses; a node with two children starts from their average
+  - **φ-pruned** and **2:4-pruned**: the Zeckendorf nodes pruned along their feature rows
+  - **matrix-routed**: the pruning mask sends each query to one node, and only that node searches and learns
+- **grown**: every node full size, k× the parameters, the "many models outgrow one" angle.
+
+**Held-out quality** (r-precision, 4 folds, 22 pools)
+
+| Arm | k=4 s0 | k=4 s1 | k=4 mean | k=8 s0 |
+|---|---|---|---|---|
+| one large | 0.224 | 0.215 | **0.220** | 0.222 |
+| one small | 0.178 | 0.152 | **0.165** | 0.201 |
+| chain root | 0.203 | 0.202 | **0.202** | 0.191 |
+| chain ensemble | 0.203 | 0.209 | **0.206** | 0.210 |
+| independent ensemble | 0.224 | 0.186 | **0.205** | 0.202 |
+| time-routed | 0.210 | 0.240 | **0.225** | 0.174 |
+| Zeckendorf root | 0.206 | 0.212 | **0.209** | 0.218 |
+| Zeckendorf ensemble | 0.232 | 0.238 | **0.235** | 0.207 |
+| grown root (k× params) | 0.193 | 0.255 | **0.224** | 0.222 |
+| grown ensemble (k× params) | 0.183 | 0.248 | **0.215** | 0.258 |
+| φ-pruned ensemble | 0.204 | 0.262 | **0.233** | 0.208 |
+| matrix-routed, φ | 0.192 | 0.188 | **0.190** | 0.171 |
+| 2:4-pruned ensemble | 0.218 | 0.205 | **0.212** | 0.187 |
+| matrix-routed, 2:4 | 0.178 | 0.152 | **0.165** | 0.164 |
+
+**Deployed** (leave-one-out r-precision of the JSON ranker with the arm's out-of-fold score as its `.pt` feature; without any: 0.380)
+
+| Arm | k=4 s0 | k=4 s1 | k=4 mean | k=8 s0 |
+|---|---|---|---|---|
+| one large | 0.383 | 0.391 | **0.387** | 0.376 |
+| one small | 0.381 | 0.373 | **0.377** | 0.364 |
+| chain root | 0.352 | 0.384 | **0.368** | 0.390 |
+| chain ensemble | 0.387 | 0.390 | **0.389** | 0.379 |
+| independent ensemble | 0.366 | 0.373 | **0.369** | 0.371 |
+| time-routed | 0.384 | 0.375 | **0.380** | 0.377 |
+| Zeckendorf root | 0.377 | 0.388 | **0.383** | 0.384 |
+| Zeckendorf ensemble | 0.385 | 0.371 | **0.378** | 0.384 |
+| grown root (k× params) | 0.378 | 0.396 | **0.387** | 0.397 |
+| grown ensemble (k× params) | 0.373 | 0.399 | **0.386** | 0.391 |
+| φ-pruned ensemble | 0.378 | 0.388 | **0.383** | 0.377 |
+| matrix-routed, φ | 0.375 | 0.408 | **0.392** | 0.357 |
+| 2:4-pruned ensemble | 0.374 | 0.375 | **0.375** | 0.372 |
+| matrix-routed, 2:4 | 0.379 | 0.387 | **0.383** | 0.339 |
+
+**Fresh** (prequential: the 14 pools after the first 8, each scored before it is learned)
+
+| Arm | k=4 s0 | k=4 s1 | k=4 mean | k=8 s0 |
+|---|---|---|---|---|
+| one large | 0.151 | 0.131 | **0.141** | 0.141 |
+| one small | 0.129 | 0.134 | **0.132** | 0.117 |
+| chain root | 0.120 | 0.147 | **0.134** | 0.175 |
+| chain ensemble | 0.154 | 0.134 | **0.144** | 0.198 |
+| independent ensemble | 0.160 | 0.161 | **0.161** | 0.142 |
+| time-routed | 0.118 | 0.116 | **0.117** | 0.087 |
+| Zeckendorf root | 0.113 | 0.169 | **0.141** | 0.182 |
+| Zeckendorf ensemble | 0.144 | 0.136 | **0.140** | 0.147 |
+| grown root (k× params) | 0.115 | 0.129 | **0.122** | 0.136 |
+| grown ensemble (k× params) | 0.113 | 0.150 | **0.132** | 0.131 |
+| φ-pruned ensemble | 0.150 | 0.132 | **0.141** | 0.147 |
+| matrix-routed, φ | 0.120 | 0.094 | **0.107** | 0.141 |
+| 2:4-pruned ensemble | 0.136 | 0.098 | **0.117** | 0.142 |
+| matrix-routed, 2:4 | 0.102 | 0.108 | **0.105** | 0.129 |
+
+**Forgetting** (r-precision lost on the first 8 pools over the stream; lower is better)
+
+| Arm | k=4 s0 | k=4 s1 | k=4 mean | k=8 s0 |
+|---|---|---|---|---|
+| one large | 0.252 | 0.460 | **0.356** | 0.204 |
+| one small | 0.443 | 0.248 | **0.346** | 0.271 |
+| chain root | 0.244 | 0.462 | **0.353** | 0.245 |
+| chain ensemble | 0.245 | 0.430 | **0.338** | 0.255 |
+| independent ensemble | 0.195 | 0.191 | **0.193** | 0.134 |
+| time-routed | 0.000 | 0.000 | **0.000** | 0.000 |
+| Zeckendorf root | 0.458 | 0.453 | **0.455** | 0.320 |
+| Zeckendorf ensemble | 0.248 | 0.230 | **0.239** | 0.229 |
+| grown root (k× params) | 0.266 | 0.305 | **0.285** | 0.232 |
+| grown ensemble (k× params) | 0.285 | 0.221 | **0.253** | 0.232 |
+| φ-pruned ensemble | 0.262 | 0.224 | **0.243** | 0.223 |
+| matrix-routed, φ | 0.201 | 0.333 | **0.267** | 0.173 |
+| 2:4-pruned ensemble | 0.269 | 0.284 | **0.277** | 0.181 |
+| matrix-routed, 2:4 | 0.291 | 0.426 | **0.359** | 0.467 |
+
+**Cost per new pool, and size** (k=4 mean / k=8)
+
+| Arm | update s | message KB | query ms | params (fp16 MB) |
+|---|---|---|---|---|
+| one large | 1.63 / 1.75 | 133 / 133 | 9.2 / 11.0 | 4.23 / 4.23 |
+| one small | 1.56 / 1.76 | 72 / 42 | 8.5 / 8.8 | 1.08 / 0.56 |
+| chain root | 1.58 / 1.64 | 73 / 43 | 8.2 / 9.6 | 1.08 / 0.56 |
+| chain ensemble | 5.91 / 11.78 | 291 / 346 | 32.2 / 61.4 | 4.33 / 4.46 |
+| independent ensemble | 5.59 / 11.72 | 289 / 340 | 29.9 / 57.7 | 4.33 / 4.46 |
+| time-routed | 1.35 / 1.55 | 73 / 43 | 31.6 / 62.4 | 4.33 / 4.46 |
+| Zeckendorf root | 1.44 / 1.62 | 72 / 42 | 9.1 / 9.2 | 1.08 / 0.56 |
+| Zeckendorf ensemble | 5.93 / 12.36 | 289 / 340 | 32.7 / 57.9 | 4.33 / 4.46 |
+| grown root (k× params) | 1.64 / 1.67 | 133 / 133 | 8.9 / 9.3 | 4.23 / 4.23 |
+| grown ensemble (k× params) | 6.02 / 12.36 | 534 / 1063 | 32.1 / 63.1 | 16.91 / 33.82 |
+| φ-pruned ensemble | 5.62 / 11.73 | 152 / 183 | 30.4 / 61.1 | 4.33 / 4.46 |
+| matrix-routed, φ | 1.47 / 1.49 | 37 / 23 | 8.7 / 9.2 | 4.33 / 4.46 |
+| 2:4-pruned ensemble | 5.81 / 11.55 | 153 / 185 | 32.5 / 64.3 | 4.33 / 4.46 |
+| matrix-routed, 2:4 | 1.52 / 1.40 | 38 / 23 | 8.8 / 9.9 | 4.33 / 4.46 |
+
+**Fault tolerance and routing** (k=4 s0, s1 / k=8 s0)
+
+| Arm | quality | one node dropped | route finds the best node |
+|---|---|---|---|
+| chain ensemble | 0.203, 0.209 / 0.210 | 0.206, 0.210 / 0.203 | — |
+| independent ensemble | 0.224, 0.186 / 0.202 | 0.216, 0.190 / 0.206 | — |
+| Zeckendorf ensemble | 0.232, 0.238 / 0.207 | 0.233, 0.228 / 0.205 | — |
+| grown ensemble (k× params) | 0.183, 0.248 / 0.258 | 0.194, 0.244 / 0.266 | — |
+| φ-pruned ensemble | 0.204, 0.262 / 0.208 | 0.203, 0.214 / 0.206 | — |
+| 2:4-pruned ensemble | 0.218, 0.205 / 0.187 | 0.221, 0.202 / 0.191 | — |
+| matrix-routed, φ | 0.192, 0.188 / 0.171 | — | 0.455, 0.545 / 0.318 |
+| matrix-routed, 2:4 | 0.178, 0.152 / 0.164 | — | 0.455, 0.409 / 0.409 |
+
+**Pretraining wall time** (seconds, sequential / with the nodes in parallel): one large 361; k=4 nested 360 / 90; k=8 nested 361 / 45. Chain and Zeckendorf nodes hand weights on, so only independent nodes truly run in parallel; the chain's parallel figure is its per-node time.
+
+
+**Verdicts, stage 3**
+
+- **Held-out quality at equal parameters: no reliable win.**
+  - At k = 4, the Zeckendorf ensemble beat the one large model on both seeds: 0.232 and 0.238 against 0.224 and 0.215, a mean of 0.235 against 0.220.
+  - At k = 8 it fell below: 0.207 against 0.222.
+  - The φ-pruned ensemble's k = 4 mean (0.233) rests on one seed's 0.262.
+  - No arm at equal parameters beats one large model at both sizes.
+- **Outgrowing works.** With k× the parameters, the grown ensemble reached 0.258 at k = 8 against one large model's 0.222, its best result. At k = 4 its two seeds disagree (0.183 and 0.248).
+- **The deployed effect is mostly a wash.** As the JSON ranker's `.pt` feature, most arms land within ±0.01 of the JSON ranker alone (0.380). The best k = 4 mean is matrix-routed φ at 0.392 (0.375 and 0.408), but at k = 8 it drops to 0.357. The grown root helps at both sizes: 0.387 mean at k = 4, 0.397 at k = 8.
+- **Freshness: some nested arms win, not all.**
+  - At k = 8, the chain ensemble (0.198) and the Zeckendorf root (0.182) score fresh pools well above one large model (0.141).
+  - At k = 4, the independent ensemble leads (0.161 against 0.141) and the rest are level or below.
+  - Routing new data to one node does not help freshness. Time-routed scored 0.117 and 0.087.
+- **Forgetting: routing protects what is old.**
+  - Time-routed forgets nothing (0.000 everywhere), because new pools only ever reach the newest node. That's structural.
+  - The independent ensemble forgets about half as much as one large model: 0.193 against 0.356 at k = 4, and 0.134 against 0.204 at k = 8.
+  - Matrix-routed φ forgets less than one large model at both sizes (0.267 and 0.173). Matrix-routed 2:4 forgets the most of any arm at k = 8 (0.467).
+- **Update messages: much smaller, at both sizes.** A routed update ships one node's φ-delta: 37 KB at k = 4 and 23 KB at k = 8, against 133 KB for one large model, 3.6× and 5.8× smaller. Any single-node update is 72 KB and 42 KB. Ensembles that update every node ship more than one model does (289–346 KB).
+- **Update and query time: equal when one node acts, slower when all do.**
+  - One node updates in about 1.5 s and answers in about 9 ms, the same as one large model. At these sizes the time goes to hashing features, not to the table size.
+  - Ensembles take 4–7× longer to update and 3–6× longer to answer.
+- **Pretraining wall time.** Independent nodes run in parallel: 90 s at k = 4 and 45 s at k = 8, against 361 s for one large model on the same total budget.
+- **Fault tolerance.** Dropping any one node moves an ensemble by under 0.01 in 11 of 12 cases. The exception is the φ-pruned ensemble's best seed (0.262 to 0.214).
+- **The matrix as the route works as a pointer, not yet as an answer.**
+  - The node the pruning mask picks is the best node for the pool 50% of the time with φ at k = 4 (45.5% and 54.5%) and 32% at k = 8. Chance is 25% and 12.5%.
+  - 2:4 masks: 43% and 41%.
+  - The routed node alone ranks below every ensemble.
+  - φ routing ranks better than 2:4 routing at both sizes (0.190 against 0.165; 0.171 against 0.164), forgets less (0.267 against 0.359; 0.173 against 0.467), and deploys better (0.392 against 0.383; 0.357 against 0.339).
+  - The limit: the hashed features scatter meaning over rows at random, so "no two adjacent kept rows" carries no meaning of its own in this ranker. That routing still finds the right node at twice to two and a half times chance says the masks keep each node's heavy rows, which is where its data lives.
+
 ### The realtime loop through the same stream
 
 The owner adds that such a tree also allows one continuous realtime training loop through the same Fibonacci stream the p4 models already retrain on.
@@ -266,5 +431,14 @@ The owner's point, 2026-10-27:
   - "Binary cannot express it." Binary expresses the same nesting, with a fixed width or a length field, or open-ended with Elias-gamma. What binary cannot do is delimit and verify with one rule and no agreement in advance.
   - "Zero logic." Fibonacci makes one test per bit. What it lacks is any other logic.
   - The binary-search contrast is an analogy: a binary tree also keeps both children.
-- **Measured, stage 1.** At equal parameters and pretraining time, the nested ensemble ties one large model on held-out r-precision (0.200 against 0.204, inside the seed spread) and the chain root trails (0.187). On ranking quality alone, nesting does not outperform.
-- **Untested.** Stage 2's axes (freshness, forgetting, update time, message bytes, query time), independent nodes with no handoff, queries routed to the node that owns their data, and the single realtime stream of every node's rounds.
+- **Measured, stages 1 and 3.**
+  - On held-out ranking quality at equal parameters, nesting ties one large model: stage 1's ensemble 0.200 against 0.204. It does not reliably beat it: the Zeckendorf ensemble wins at k = 4 on both seeds and loses at k = 8.
+  - With more total parameters (grown), nesting beats it at k = 8 (0.258 against 0.222).
+  - On the realtime axes, nested and routed trees beat one large model:
+    - update messages 3.6–5.8× smaller
+    - pretraining 4–8× faster when the nodes run in parallel
+    - forgetting cut by half (independent nodes) or to zero (time-routed)
+    - fresh pools scored better by some arms at k = 8
+    - one node dropped costs under 0.01
+  - The pruning matrix routes to the best node at about twice chance or better, and φ routes better than 2:4 on every axis but route accuracy at k = 8.
+- **Untested.** The single realtime stream of every node's rounds; more seeds, which several arms need before their differences count; and a ranker whose features have an order, where φ's adjacency rule would mean something about the data.
