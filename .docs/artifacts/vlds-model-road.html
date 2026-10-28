@@ -1,0 +1,282 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>VLDS Model Road</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Sans+Condensed:wght@600&display=swap">
+<style>
+/* Layout: one reading column with wide tables and code that scroll on their own; a road diagram as wrapped steps. */
+:root {
+  --bg: #f5f7fa;
+  --surface: #ffffff;
+  --fg: #1a2130;
+  --muted: #586274;
+  --rule: #d9dfe8;
+  --accent: #2c6a8a;
+  --accent-soft: #e3eef4;
+  --code-bg: #edf1f5;
+  --good: #2f7a4f;
+  --warn: #9a6a12;
+  --display: "IBM Plex Sans Condensed", "Arial Narrow", "Helvetica Neue", Arial, sans-serif;
+  --body: "IBM Plex Sans", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #11151c; --surface: #171c25; --fg: #e2e7ee; --muted: #9aa5b5; --rule: #2a3241;
+    --accent: #7fb8d6; --accent-soft: #1d2b36; --code-bg: #1b212b; --good: #6fc394; --warn: #d9a84a;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #11151c; --surface: #171c25; --fg: #e2e7ee; --muted: #9aa5b5; --rule: #2a3241;
+  --accent: #7fb8d6; --accent-soft: #1d2b36; --code-bg: #1b212b; --good: #6fc394; --warn: #d9a84a;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--fg); font: 16px/1.6 var(--body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 40px 72px;
+}
+main { max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 40px; }
+section { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+h1, h2, h3 { font-family: var(--display); font-weight: 600; text-wrap: balance; margin: 0; line-height: 1.15; }
+h1 { font-size: 2.4rem; letter-spacing: -0.01em; }
+h2 { font-size: 1.55rem; padding-top: 8px; border-top: 1px solid var(--rule); padding-top: 22px; }
+h3 { font-size: 1.12rem; }
+p, ul, ol { margin: 0; max-width: 68ch; }
+ul, ol { padding-left: 1.25em; display: flex; flex-direction: column; gap: 6px; }
+a { color: var(--accent); }
+a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.eyebrow { font: 500 0.78rem/1 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); }
+.lede { font-size: 1.12rem; color: var(--fg); }
+.muted { color: var(--muted); }
+code, pre, .mono { font-family: var(--mono); font-size: 0.86em; }
+code { background: var(--code-bg); padding: 0.1em 0.35em; border-radius: 3px; }
+pre { background: var(--code-bg); margin: 0; padding: 14px 16px; border-radius: 6px; overflow-x: auto; line-height: 1.55; }
+pre code { background: none; padding: 0; font-size: 1em; }
+.scroll { overflow-x: auto; min-width: 0; }
+table { border-collapse: collapse; width: 100%; font-size: 0.93rem; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { font-weight: 600; color: var(--muted); font-size: 0.8rem; letter-spacing: 0.04em; text-transform: uppercase; }
+td.num { text-align: right; white-space: nowrap; }
+.callout { background: var(--accent-soft); border-radius: 6px; padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; }
+.roads { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; }
+.step { flex: 1 1 130px; min-width: 0; background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; }
+.step b { font-family: var(--mono); font-weight: 500; font-size: 0.82rem; color: var(--accent); }
+.step span { font-size: 0.88rem; color: var(--muted); line-height: 1.4; }
+.arrow { align-self: center; color: var(--muted); font-family: var(--mono); }
+.road-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; }
+.road { background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 14px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.road .pill { align-self: flex-start; font: 500 0.75rem/1 var(--mono); padding: 5px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); }
+.road.first .pill { background: var(--accent); color: var(--surface); }
+.road p { font-size: 0.92rem; }
+.verdict { font-weight: 600; }
+.good { color: var(--good); }
+.warn { color: var(--warn); }
+footer { color: var(--muted); font-size: 0.86rem; border-top: 1px solid var(--rule); padding-top: 18px; }
+@media (max-width: 480px) { h1 { font-size: 1.9rem; } .arrow { display: none; } }
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto; } }
+</style>
+
+<main>
+  <header style="display:flex;flex-direction:column;gap:12px">
+    <div class="eyebrow">vlds 0.0.65 · setup</div>
+    <h1>The pool's model road and the dispatch model</h1>
+    <p class="lede">On the default children road, each session's first prompt launches one Haiku pick-reader per store file to decide which entries bear on the task. The model road puts a small ranker in their seat. It's trained on the store's own earlier pools, picks from the same barrier rows, and writes the same picks file.</p>
+    <p class="muted">The prose stays the source of truth. The model only chooses which LIVE rows to surface, and every pick is a verbatim barrier line that the hot file still owns. SPENT, FREED and EXPIRED rows never reach it, and tombstones keep working.</p>
+  </header>
+
+  <div class="callout">
+    <p class="verdict good">Always on, always learning. On AudioPlugin-p4: <code>pool-road: model</code>, <code>pool-audit: 5</code>, <code>dispatch-model: on</code>.</p>
+    <ul>
+      <li><b>On by default once trained.</b> With no setting named, the road reads <code>model</code> once a pool ranker exists, and the dispatch model reads <code>on</code> once it exists.</li>
+      <li><b>Every session teaches it.</b> The operator, already launched for the pool, reviews the model's picks on a sheet with four runners-up per file, keeping, dropping or adding. Its reviewed picks are what the pool uses, and they become a label.</li>
+      <li><b>One session in five is audited.</b> The Haiku readers also run in the background. Their picks are kept as labels from readers that never saw the model's choices, a check on the operator agreeing with the model.</li>
+      <li><b>It updates itself.</b> The turn close trains the first model once the store holds enough (5 labelled pools, or 5 judged repeats), then retrains in the background whenever new labels land.</li>
+    </ul>
+    <p>Neither model learns from its own unreviewed output.</p>
+  </div>
+
+  <section>
+    <h2>Where it sits</h2>
+    <div class="roads" role="list">
+      <div class="step" role="listitem"><b>phi.py barrier</b><span>every row with its state; tombstones mask</span></div>
+      <div class="arrow" aria-hidden="true">→</div>
+      <div class="step" role="listitem"><b>pick_model.py picks</b><span>scores the LIVE rows against the task, at most six a file</span></div>
+      <div class="arrow" aria-hidden="true">→</div>
+      <div class="step" role="listitem"><b>pool-picks-&lt;s8&gt;.md</b><span>the same shape a child returns</span></div>
+      <div class="arrow" aria-hidden="true">→</div>
+      <div class="step" role="listitem"><b>phi.py pool --picks</b><span>folds, writes recall-pool.md, credits <code>model</code></span></div>
+    </div>
+    <pre><code>picks (model) — data-store.md, 1 of 369 entries bear on the task
+data-store.md:62 || bears: model 0.64; shares: toolbar, latency, start, page</code></pre>
+  </section>
+
+  <section>
+    <h2>What ships</h2>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Repository</th><th>Path</th><th>What it is</th></tr></thead>
+        <tbody>
+          <tr><td>prompty-prompter-pioneer-puppeteer</td><td class="mono">vlds/scripts/pick_model.py</td><td><code>pairs</code>, <code>eval</code>, <code>train</code>, <code>picks</code> and <code>shadow</code>, using only the standard library</td></tr>
+          <tr><td></td><td class="mono">vlds/scripts/test_pick_model.py</td><td>Acceptance tests run against a throwaway p4 layout</td></tr>
+          <tr><td></td><td class="mono">phi.py, vlds_hooks.py</td><td>The <code>model</code> and <code>model-shadow</code> roads accepted, and the <code>read:</code> line credits <code>model</code></td></tr>
+          <tr><td></td><td class="mono">hooks/pool-prompt.md</td><td>The two roads, step by step, for the operator</td></tr>
+          <tr><td></td><td class="mono">vlds/scripts/dispatch_model.py</td><td>The dispatch barrier's model: <code>rows</code>, <code>eval</code>, <code>train</code>, <code>judge</code>, <code>report</code></td></tr>
+          <tr><td></td><td class="mono">hooks/vlds_hooks.py</td><td><code>dispatch-model: off | shadow | on</code> at the prompt hook; the turn close retrains a model the store has outgrown</td></tr>
+          <tr><td></td><td class="mono">vlds/MODEL-ROAD.md</td><td>This guide, in the repository</td></tr>
+          <tr><td>phi</td><td class="mono">phi_prune/gaps.py, delta.py</td><td>Fibonacci gap codes and the <code>.phid</code> delta format that records a model round</td></tr>
+          <tr><td></td><td class="mono">phi_prune/p4.py</td><td>A store read as training records: <code>read_p4</code>, <code>split</code>, <code>dispatch_rows</code>, <code>pick_pairs</code></td></tr>
+          <tr><td></td><td class="mono">.docs/p4/continual_p4.ipynb</td><td>Continual training of a small text model on a store, in rounds</td></tr>
+          <tr><td>AudioPlugin-p4</td><td class="mono">models/pick-model.json, dispatch-model.json</td><td>The pool ranker (21 labelled pools) and the dispatch model (232 resembling rows)</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="muted">Merged into each repository's default branch: phi and prompty-prompter-pioneer-puppeteer on <code>main</code>, AudioPlugin-p4 on <code>master</code>.</p>
+  </section>
+
+  <section>
+    <h2>Set it up</h2>
+    <p>Run these from the project root. Any session's store works for <code>pairs</code>, <code>eval</code> and <code>train</code>, because the barrier reads every session.</p>
+<pre><code>PICK=&lt;plugin root&gt;/scripts/pick_model.py
+STORE=.claude/p4/sessions/&lt;s8&gt;/vlds
+
+# 1. What the store can teach: one line per labelled pool
+python $PICK --store $STORE pairs
+
+# 2. Measure first: leave-one-pool-out against term overlap alone
+python $PICK --store $STORE eval --verbose
+
+# 3. Train: writes .claude/p4/models/pick-model.json (and a round delta after the first)
+python $PICK --store $STORE train --now "&lt;the latest now:&gt;"
+
+# 4. Try a task, printed rather than written
+python $PICK --store $STORE picks --session &lt;s8&gt; --task "&lt;one-line task&gt;" --now "&lt;the latest now:&gt;"</code></pre>
+    <p>Then choose the road in the <code>## recall</code> section of <code>.claude/p4/vindex/phi-index.md</code>. An edit there is a ruling, so it's the owner's to make.</p>
+<pre><code>## recall
+
+pool-road: model-shadow</code></pre>
+  </section>
+
+  <section>
+    <h2>The three settings</h2>
+    <div class="road-grid">
+      <div class="road first">
+        <span class="pill">model-shadow</span>
+        <h3>Start here</h3>
+        <p>The children road runs unchanged. The model's picks are written beside the children's, and <code>pick_model.py shadow</code> appends one row to <code>models/shadow.tsv</code>. Only the children's picks are folded. Each shadow session also leaves a new labelled pool.</p>
+      </div>
+      <div class="road">
+        <span class="pill">model</span>
+        <h3>The default once trained</h3>
+        <p>The model proposes picks and a review sheet. The operator, running in the foreground, keeps, drops or adds picks, and its reviewed picks are what the pool uses. One session in five also runs the children as an audit. With no model trained, it falls back to the children road.</p>
+      </div>
+      <div class="road">
+        <span class="pill">children</span>
+        <h3>Roll back any time</h3>
+        <p>The default until a model is trained. The roads share everything below the picks file, so switching back changes nothing else.</p>
+      </div>
+    </div>
+<pre><code># models/shadow.tsv
+# time               session   children  model  both  recall  precision
+2026-10-28 09:14     4f2a91c0  14        12     6     0.429   0.500</code></pre>
+    <p class="muted">That row is an example of the format, not a measurement.</p>
+    <p><b>Switching is live.</b> Every reader looks up the road at each call, never caching it, so an edit to <code>vindex/phi-index.md</code>, or a model landing in or leaving <code>models/</code>, takes effect at the next prompt with no restart. <code>scripts/test_roads_live.py</code> walks one running store through children → model-shadow → model → children → model by default → children once the model is removed, and the dispatch model through on → off → shadow → on.</p>
+  </section>
+
+  <section>
+    <h2>Retraining at the turn's close</h2>
+    <p>Once a store opts in, the Stop hook retrains on its own. Under <code>pool-road: model</code> or <code>model-shadow</code>, it retrains the pool ranker when a labelled pool exists that the model hasn't seen. Under <code>dispatch-model: shadow</code> or <code>on</code>, it retrains the dispatch model once 20 more judged rows exist than it trained on.</p>
+    <p>Training runs detached in the background, so the turn close isn't held. Output goes to <code>models/train.log</code>, and a lock allows at most one start every 15 minutes. On the default settings nothing is trained.</p>
+  </section>
+
+  <section>
+    <h2>The dispatch model</h2>
+    <p>When an earlier message in the session reads like a new one, the prompt hook leaves the row open and the operator judges FRESH, ECHO or SUPERSEDED. That's one operator launch each time, though most such messages are fresh asks that only read alike. The dispatch model learns from rows the operator already judged and answers one question: is this message so plainly fresh that the operator doesn't need to be asked?</p>
+    <ul>
+      <li><b>It never proposes a repeat.</b> A wrong ECHO drops the owner's request, so the model only ever takes the safe side.</li>
+      <li><b>A rule sits over it.</b> FRESH is never written for a message identical to an earlier row, or while a resembling row is still open, whatever the model scores. The tests caught the case that needed this: an exact repeat of an open message, weeks later, scored as fresh.</li>
+      <li><b>Its threshold sits under every repeat it trained on</b>, at 0.4 of the lowest repeat's score.</li>
+    </ul>
+<pre><code>## recall
+
+dispatch-model: shadow     # off (default) | shadow | on</code></pre>
+    <ul>
+      <li><b>shadow</b>: the hook's line names the proposal and logs it to <code>models/dispatch-shadow.tsv</code>; the operator still judges every row. <code>dispatch_model.py report</code> joins the log to the operator's final states.</li>
+      <li><b>on</b>: the hook writes <code>state: FRESH</code> itself when the model is sure, and says so in one line. Everything else goes to the operator.</li>
+    </ul>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>AudioPlugin-p4, leave-one-session-out</th><th class="num">Rows</th><th class="num">Written FRESH by the model</th></tr></thead>
+        <tbody>
+          <tr><td>Fresh messages that resembled an earlier one</td><td class="num">207</td><td class="num good">28 (14%)</td></tr>
+          <tr><td>Real repeats (ECHO or SUPERSEDED)</td><td class="num">25</td><td class="num good">0</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="muted">Of 2,243 judged turn rows, 232 resembled an earlier row across 40 sessions; 89 of those fall under the rule. The model saves launches and never makes a judgment call.</p>
+  </section>
+
+  <section>
+    <h2>How it learns</h2>
+    <ol>
+      <li><b>Pairs.</b> For each session's <code>recall-pool.md</code>, the candidates are the barrier rows timed no later than its <code>pooled:</code> line, and the labels are the rows its steering section picked. Matching is on file, time and head, because picks-file line numbers move as sessions are added. On AudioPlugin-p4, 265 of 271 steering lines match, across 21 pools.</li>
+      <li><b>Features.</b> Term overlap between the task and the row, over the whole entry and over the head a child reads; the row's rank within its file; and its file, kind, state and age. Adding the rows' own words as features (<code>--tokens</code>) scored worse here.</li>
+      <li><b>Model.</b> Logistic regression with AdaGrad, positives weighted up, and a pick threshold chosen for mean F1. The model is a JSON file of hashed weights.</li>
+      <li><b>Rounds.</b> Each retrain writes <code>pick-model.rNN.phid</code>: the changed weights' positions as Fibonacci gap codes and their values as Fibonacci-coded levels. That's the <code>phi_prune.delta</code> format, and phi's decoder reads it back in its own tests.</li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>Measured on AudioPlugin-p4</h2>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Ranker</th><th class="num">R-precision</th><th class="num">Recall in top 20</th><th class="num">Picks: precision / recall</th></tr></thead>
+        <tbody>
+          <tr><td>Model, round 0</td><td class="num">0.391</td><td class="num">0.477</td><td class="num">0.308 / 0.388</td></tr>
+          <tr><td>Term overlap alone</td><td class="num">0.332</td><td class="num">0.408</td><td class="num">—</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Leave-one-pool-out over 21 pools, 2026-10-27. R-precision is the share of a pool's <i>n</i> picks found in the model's top <i>n</i>. The model averages 15.5 picks a pool against the children's 12.6.</p>
+    <div class="callout">
+      <p class="verdict warn">Better than plain overlap, but it recovers fewer than half of the children's picks.</p>
+      <p>The children are Haiku readers, not ground truth, and there's no measurement of how often two children agree with each other. That's why the road starts in shadow.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Limits</h2>
+    <ul>
+      <li><b>21 pools is small.</b> The model mainly learns overlap and file-rank weighting; it can't read meaning. A task phrased in words the entries don't use will miss.</li>
+      <li><b>The <code>bears:</code> clause is mechanical.</b> It names the score and the shared terms, not how the entry constrains the task. The main session still judges.</li>
+      <li><b>The dispatch model only saves launches.</b> With 25 repeats to learn from, it clears 14% of plainly fresh messages and leaves every judgment call to the operator. It can't find a repeat the hook's overlap rule missed.</li>
+      <li><b>Retraining is mechanical.</b> A retrain picks up new labels; nothing checks that the new model is better than the last. Run <code>eval</code> after a retrain to see.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>The phi side: continual training</h2>
+    <p><code>.docs/p4/continual_p4.ipynb</code> trains a small character-level GPT on a store in rounds and ships each round as a sparse <code>.phid</code> delta. Two smoke runs (300 base steps, 150 per round, held out from 2026-10-26), round 1, in bits per character:</p>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Kept</th><th class="num">Before</th><th class="num">Dense</th><th class="num">Dense, cut</th><th class="num">Sparse-trained</th><th class="num">Position bits: Fibonacci / Elias-gamma</th></tr></thead>
+        <tbody>
+          <tr><td>1%</td><td class="num">3.513</td><td class="num">3.282</td><td class="num">3.496</td><td class="num">3.501</td><td class="num">6.55 / 7.46</td></tr>
+          <tr><td>10%</td><td class="num">3.513</td><td class="num">3.282</td><td class="num">3.422</td><td class="num">3.461</td><td class="num">4.19 / 4.17</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <ul>
+      <li>Cutting an update to 10% or less loses most of what the round learned.</li>
+      <li>Training only the probed positions did no better than cutting a dense update, so the notebook ships dense-then-cut by default.</li>
+      <li>Fibonacci gap codes win at 1% kept and tie Elias-gamma at 10%.</li>
+    </ul>
+    <p class="muted">These are one seed and short runs. They show what the pipeline measures, not final sizes.</p>
+  </section>
+
+  <footer>Source: <span class="mono">Ibiza/plugins/vlds/MODEL-ROAD.md</span> in ezexe/prompty-prompter-pioneer-puppeteer, and <span class="mono">.docs/p4/</span> in ezexe/phi.</footer>
+</main>
+
+</body></html>

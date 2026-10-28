@@ -212,3 +212,4 @@ Cat03.jpg
 # The vlds store of this repository is its own private repository (ezexe/phi-p4), cloned here; never part of phi.
 .claude/p4/
 .claude/.p4-layout.lock/
+_site/

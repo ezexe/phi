@@ -2,6 +2,8 @@
 
 φ-pruning: structured sparsity from the φ-register's adjacency constraint, **no two adjacent weights active**.
 
+Docs site: every doc, notebook, interactive component and artifact, at [ezexe.github.io/phi](https://ezexe.github.io/phi/).
+
 One rule from one matrix (`M = [[1,1],[1,0]]`) gives you:
 - **Pruning** — About 50% structured sparsity; on ResNet-20/CIFAR-10 it lands 0.50 points behind a mask that keeps 2 of every 4 channels (a channel-level pattern, not NVIDIA's weight-level 2:4)
 - **Encoding** — Weights quantized to Fibonacci-coded levels, meant for shift-and-add multiplication (no such kernel yet; the 86% multiplier-area saving below is an estimate, not a measurement)
