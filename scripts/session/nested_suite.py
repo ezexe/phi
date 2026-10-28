@@ -138,9 +138,12 @@ def state(m):
     return {k: v.clone() for k, v in m.state_dict().items()}
 
 
-def pretrain_timed(m, pairs, minutes, seed):
+STEPS = {}   # pretraining steps per arm, this process's: a fixed time budget shows the hardware only in its steps
+
+
+def pretrain_timed(m, pairs, minutes, seed, arm=""):
     t0 = time.perf_counter()
-    pr.pretrain(m, pairs, minutes, seed=seed, log=lambda *_: None)
+    STEPS.setdefault(arm, []).append(pr.pretrain(m, pairs, minutes, seed=seed, log=lambda *_: None))
     return time.perf_counter() - t0
 
 
@@ -150,10 +153,11 @@ def build_models(args, shard_pairs, all_pairs, seed):
     M, times = {}, {}
     torch.manual_seed(seed)
     m = pr.Ranker(1 << B, D)
-    times["big"] = [pretrain_timed(m, all_pairs, T, seed)]
+    STEPS.clear()
+    times["big"] = [pretrain_timed(m, all_pairs, T, seed, "big")]
     M["big"] = [state(m)]
     m = pr.Ranker(1 << sb, D)
-    times["small"] = [pretrain_timed(m, all_pairs, T / K, seed)]
+    times["small"] = [pretrain_timed(m, all_pairs, T / K, seed, "small")]
     M["small"] = [state(m)]
     for name, bits in (("chain", sb), ("grown", B)):
         prev, M[name], times[name] = None, [], []
@@ -161,13 +165,13 @@ def build_models(args, shard_pairs, all_pairs, seed):
             m = pr.Ranker(1 << bits, D)
             if prev is not None:
                 m.load_state_dict(prev)
-            times[name].append(pretrain_timed(m, ps, T / K, seed * 10 + i))
+            times[name].append(pretrain_timed(m, ps, T / K, seed * 10 + i, name))
             prev = state(m)
             M[name].append(prev)
     M["indep"], times["indep"] = [], []
     for i, (ps, _b) in enumerate(shard_pairs):
         m = pr.Ranker(1 << sb, D)
-        times["indep"].append(pretrain_timed(m, ps, T / K, seed * 10 + i))
+        times["indep"].append(pretrain_timed(m, ps, T / K, seed * 10 + i, "indep"))
         M["indep"].append(state(m))
     # the Zeckendorf tree: deepest addresses train first on the oldest shards; a node starts from the mean of its
     # children's weights; the root is the newest
@@ -179,10 +183,12 @@ def build_models(args, shard_pairs, all_pairs, seed):
         kids = [trained[c] for c in trained if zeck_parent(c) == a]
         if kids:
             m.load_state_dict({k: sum(s[k] for s in kids) / len(kids) for k in kids[0]})
-        times["zeck"].append(pretrain_timed(m, shard_pairs[i][0], T / K, seed * 10 + i))
+        times["zeck"].append(pretrain_timed(m, shard_pairs[i][0], T / K, seed * 10 + i, "zeck"))
         trained[a] = state(m)
     M["zeck"] = [trained[a] for a in order]                      # index K-1 is the root ("1")
     M["zeck_addresses"] = order
+    times["_steps"] = {k: list(v) for k, v in STEPS.items()}
+    times["_device"] = str(pr.device()) + (f" {torch.cuda.get_device_name(0)}" if pr.device().type == "cuda" else "")
     return M, times
 
 
@@ -435,7 +441,14 @@ def main(argv=None):
         M, times = cached(tag and tag + "-models.pt", lambda: build_models(args, shard_pairs, all_pairs, seed), "pt")
         M = prune_families(M)
         run = {"seed": seed, "zeck_addresses": M["zeck_addresses"],
-               "pretrain_s": {k: {"sequential": round(sum(v)), "parallel": round(max(v))} for k, v in times.items()}}
+               "pretrain_s": {k: {"sequential": round(sum(v)), "parallel": round(max(v))} for k, v in times.items()
+                              if not k.startswith("_")},
+               # where the models were pretrained and how many steps fit the budget; a cache from before these were
+               # recorded has neither
+               "pretrained_on": times.get("_device"), "pretrain_steps": times.get("_steps"),
+               "finetuned_on": str(pr.device())}
+        print(json.dumps({"seed": seed, "pretrained_on": run["pretrained_on"], "pretrain_steps": run["pretrain_steps"],
+                          "finetuned_on": run["finetuned_on"]}), flush=True)
         run["quality"], oof = quality(M, pools, args, seed, spans, tag)
         print(json.dumps({"seed": seed, "quality": run["quality"]}), flush=True)
         run["deployed"] = cached(tag and tag + "-deployed.json",

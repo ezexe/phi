@@ -336,7 +336,8 @@ for i, (k, seed) in enumerate(plan, 1):
     if suite_done(k, seed):
         print(f"[{i}/{len(plan)}] k={k} seed={seed}: done")
         continue
-    print(f"[{i}/{len(plan)}] k={k} seed={seed}: running (resumes from Drive's cache)")
+    print(f"[{i}/{len(plan)}] k={k} seed={seed}: running on {os.environ.get('PHI_DEVICE', 'cpu')} "
+          "(resumes from Drive's cache; models pretrained in an earlier session keep the device they had)")
     t0 = time.time()
     run([sys.executable, str(SUITE), "--p4", str(STORE), "--pairs", str(PAIRS), "--plugin", str(PLUGIN),
          "--k", k, "--minutes", MINUTES, "--epochs", EPOCHS, "--folds", FOLDS, "--warm", WARM, "--seeds", seed,
@@ -421,6 +422,8 @@ for k in sorted(runs):
                  "qrouted": mean("qrouted"), "q24routed": mean("q24routed"),
                  "route_hit": mean("qrouted_route_hit"), "route_hit_24": mean("q24routed_route_hit"),
                  "chance": round(1 / k, 4),
+                 "pretrained_on": sorted({str(r.get("pretrained_on") or "not recorded") for r in runs[k]}),
+                 "big_steps": [((r.get("pretrain_steps") or {}).get("big") or [None])[0] for r in runs[k]],
                  "deployed_zeck_ens": round(statistics.mean(r["deployed"]["zeck_ens"] for r in runs[k]), 4),
                  "deployed_json": round(statistics.mean(r["deployed"]["json_without"] for r in runs[k]), 4)})
 
@@ -452,11 +455,12 @@ save_json(ROOT / "summary.json", summary)
 trained_on = sorted({d["device"] for d in summary["devices"] or []})
 lines = [f"# p4 Q matrix on Colab: {RUN}", "", f"Pinned commits: `{json.dumps(summary['pins'])}`",
          f"Trained on: {', '.join(trained_on)}", "",
-         "| k | seeds | one large | Zeckendorf ensemble | beats it every seed | φ-routed | 2:4-routed | route hit (φ / 2:4) | chance |",
-         "|---|---|---|---|---|---|---|---|---|"]
+         "| k | seeds | one large | Zeckendorf ensemble | beats it every seed | φ-routed | 2:4-routed | route hit (φ / 2:4) | chance | pretrained on | one large's steps |",
+         "|---|---|---|---|---|---|---|---|---|---|---|"]
 for r in rows:
     lines.append(f"| {r['k']} | {r['seeds']} | {r['big']:.3f} | {r['zeck_ens']:.3f} | {'yes' if r['zeck_wins_every_seed'] else 'no'} "
-                 f"| {r['qrouted']:.3f} | {r['q24routed']:.3f} | {r['route_hit']:.2f} / {r['route_hit_24']:.2f} | {r['chance']:.2f} |")
+                 f"| {r['qrouted']:.3f} | {r['q24routed']:.3f} | {r['route_hit']:.2f} / {r['route_hit_24']:.2f} | {r['chance']:.2f} "
+                 f"| {', '.join(r['pretrained_on'])} | {', '.join('—' if x is None else str(x) for x in r['big_steps'])} |")
 lines += ["", f"Tree (k = {TREE_K}) held out: medium {tree_oof['heldout']['medium']:.3f}, high {tree_oof['heldout']['high']:.3f}.", "",
           "| .pt source | with | without | kept |", "|---|---|---|---|"]
 for s, w in weights.items():
