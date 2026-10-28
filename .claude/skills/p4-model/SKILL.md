@@ -61,8 +61,8 @@ This section turns phi's measurements into one configuration. Every figure is fr
 | Effort | Who answers | Measured | Built |
 |---|---|---|---|
 | low | the JSON ranker alone | 0.380; no `.pt` server needed | yes |
-| medium | the JSON ranker + one node's score, the node chosen by the φ pruning mask (the Q-matrix route) | picks the best node in 50% of pools at k = 4 and 32% at k = 8 (chance: 25% and 12.5%); as a feature 0.392 at k = 4 (mean), 0.357 at k = 8; one node answers in about 9 ms | no |
-| high | the JSON ranker + the Zeckendorf tree's k = 4 ensemble | 0.235 held-out against one large model's 0.220, on both seeds; about 33 ms | no |
+| medium | the JSON ranker + one node's score, the node chosen by the φ pruning mask (the Q-matrix route) | picks the best node in 50% of pools at k = 4 and 32% at k = 8 (chance: 25% and 12.5%); as a feature 0.392 at k = 4 (mean), 0.357 at k = 8; one node answers in about 9 ms | yes: `effort: medium` |
+| high | the JSON ranker + the Zeckendorf tree's k = 4 ensemble | 0.235 held-out against one large model's 0.220, on both seeds; about 33 ms | yes: `effort: high` |
 | background | the grown tree (every node full size, k× the parameters), retrained off the hot path; its root feeds the JSON ranker | 0.258 held-out at k = 8; as a feature 0.387 and 0.397, the only `.pt` that helped the JSON ranker at both sizes | no |
 
 **Updates.** A new pool goes to one node, never to the whole tree. Either the newest node takes it (time-routed) or the node the mask routes to does (matrix-routed).
@@ -70,7 +70,7 @@ This section turns phi's measurements into one configuration. Every figure is fr
 - Message size: one node's φ-delta is 23–73 KB, against 133 KB for one large model, and the address adds 2n bits.
 - Merging back: the tree is merged back (a node with two children starts from their mean) at the slower rebase cadence: 8 rounds, or a new base.
 
-**Pretraining.** Each node starts from the plugin's shared p4 base, which scored 0.227 against 0.206 from scratch. The nodes pretrain in parallel, each on its own shard: 90 s at k = 4 and 45 s at k = 8, against 361 s for one large model on the same budget.
+**Pretraining.** The shared p4 base helps the single ranker (0.227 against 0.206 from scratch), but it does not fit a node: the base is 2^15 rows and a k = 4 node 2^13. So a leaf starts from scratch, and a node with children starts from their mean. The nodes pretrain in parallel, each on its own shard: 90 s at k = 4 and 45 s at k = 8, against 361 s for one large model on the same budget.
 
 **Size: 4 nodes.** k = 4 is the only size at which the Zeckendorf ensemble beat one large model on both seeds. At k = 8 it fell behind (0.207 against 0.222). The owner reads 4 nodes as the 4 positions of the Q matrix [[n1, n2], [n3, n4]]. Whether the win comes from that shape or from the shard size is not settled. Testing k = 2, 3, 5 and 6 on the same store would tell.
 
@@ -80,10 +80,11 @@ This section turns phi's measurements into one configuration. Every figure is fr
 - A routed node alone ranks below every ensemble (0.190 against 0.235 at k = 4). Medium effort trades quality for speed and small updates, so it is never the default for a high-effort task.
 - The φ adjacency rule means nothing about the data in this ranker: hashing scatters features over the table's rows at random. The routing works because the masks keep each node's heaviest rows.
 
-None of the tree is in `phi_rank` or the plugin yet. Today's `.pt` ranker is one small model in a φ-delta chain. Building the tiers means three things:
-- node shards and a node index in `phi_rank`
-- `phi_serve` answering per tier
-- the plugin passing the task's effort level to `/score`
+**Where the tiers live.**
+- `python -m phi_rank.tree train --p4 <store> --pairs <pairs.jsonl> --k 4 --minutes 6` builds the tree: `models/tree/<address>.pt` and `models/tree.json`.
+- `phi_serve` answers `/score` by the request's `effort`: `medium` is the routed node (`source: tree:medium:<address>`), `high` is the ensemble (`source: tree:high:4`). Any other effort, or no tree on disk, is the single ranker (`source: ranker`). The server reloads the tree when `tree.json` changes.
+- The JSON ranker's `pt` feature is learned from the single ranker's out-of-fold scores. A tree's scores reach it through the same z-score, but they are not what it was fitted on, so re-check the held-out figure after a store switches tiers.
+- The background tier (the grown tree) is not built.
 
 ## Rules
 
