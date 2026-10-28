@@ -46,10 +46,12 @@ This notebook checks what [`.docs/p4/nested-store.md`](https://github.com/ezexe/
   - The suite resumes from its last saved model, fold set or arm.
   - The repositories are re-cloned at the same pinned commits, so the numbers stay comparable across sessions.
 
-**Runtime.** The models run on the CPU, and a GPU adds nothing.
-- Each run pretrains for a fixed number of minutes, so a slower runtime trains fewer steps. Compare arms within this notebook's run, not against the figures in the doc.
-- One k = 4 seed took about 75 minutes on an 8-core machine; expect longer on Colab's CPU.
-- The full plan (6 node counts × 2 seeds) spans several Colab sessions, and the resume makes that safe.
+**Runtime: choose the T4 GPU** (Runtime → Change runtime type → T4 GPU).
+- `phi_rank` trains on a CUDA GPU when it finds one. Section 2 runs a short self-check on it first, and falls back to the CPU, saying so, if the check fails.
+- The TPU runtime gives no speedup here: the models are small embedding tables that need `torch_xla` to use a TPU at all. On a TPU runtime the notebook trains on its CPU.
+- Each run pretrains for a fixed number of minutes, so faster hardware trains more steps and every arm improves. Compare arms within this notebook's run, not against the figures in the doc, which came from an 8-core CPU.
+- Keep one runtime type for the whole plan. The notebook records the device each run used, and warns if a resumed session runs on a different one.
+- The full plan (6 node counts × 2 seeds) may span several Colab sessions; the resume makes that safe.
 
 **Secrets.** The store repository is private. Add a GitHub token as a Colab secret named `GITHUB_TOKEN` (🔑 in the left bar), with read access to the store repository, plus write access to ezexe/phi if you set `PUSH_RESULTS`. The token is read from Colab's secrets and never printed or saved.
 """))
@@ -73,6 +75,8 @@ WARM = 8
 
 TREE_K = 4                            # the effort tiers' tree
 TREE_MINUTES = 6.0
+
+DEVICE = "auto"                       # auto: the GPU when the runtime has one; "cpu" forces the CPU
 
 PUSH_RESULTS = False                  # True: commit the results into ezexe/phi on PUSH_BRANCH (a PR is yours to open)
 PUSH_BRANCH = "colab/q-matrix-results"
@@ -198,6 +202,34 @@ PICK = PLUGIN / "scripts" / "pick_model.py"
 SUITE = PHI / "scripts" / "session" / "nested_suite.py"
 run([sys.executable, "-m", "pip", "install", "-q", "--no-deps", "-e", str(PHI)], "setup")
 sys.path.insert(0, str(PHI))
+
+# the training device, checked once per runtime: a short pretrain and fine-tune on it, the CPU if that fails
+import torch
+import phi_rank as pr
+want = "cpu" if DEVICE == "cpu" else ("cuda" if torch.cuda.is_available() else "cpu")
+if want == "cuda":
+    try:
+        os.environ["PHI_DEVICE"] = "cuda"
+        m = pr.Ranker(1 << 13, 16)
+        texts = [f"the ring buffer drain rule {i}" for i in range(64)]
+        assert pr.pretrain(m, list(zip(texts, texts[1:])), 0.05, log=lambda *_: None) > 0
+        pr.finetune(m, [{"task": "the ring buffer", "rows": [{"text": t, "label": int(i < 3)}
+                                                               for i, t in enumerate(texts)]}], epochs=1)
+        assert next(m.parameters()).device.type == "cpu"
+    except Exception as e:                 # a broken CUDA path must not stop the run: the CPU still measures
+        print(f"GPU self-check failed ({type(e).__name__}: {e}); training on the CPU")
+        want = "cpu"
+os.environ["PHI_DEVICE"] = want
+gpu = torch.cuda.get_device_name(0) if want == "cuda" else ""
+print(f"training on: {want} {gpu}".strip(), f"| CPU cores: {os.cpu_count()}")
+st = load_state()
+devices = st.setdefault("devices", [])
+if devices and devices[-1]["device"] != (gpu or want):
+    print(f"note: earlier sessions of this run trained on {devices[-1]['device']}. Runs already on Drive keep "
+          "their models; new runs will differ in how many steps fit the time budget.")
+devices.append({"at": now(), "device": gpu or want, "cpus": os.cpu_count()})
+save_json(STATE, st)
+
 SESSION = next(p for p in sorted((STORE / "sessions").iterdir()) if (p / "vlds").is_dir()) / "vlds"
 print("pins:", json.dumps(pins))
 print("store:", STORE, "| a session store for the plugin:", SESSION.relative_to(STORE))
@@ -411,12 +443,15 @@ claims = {
     "the JSON ranker keeps the tree's .pt weight at high":
         verdict(bool(weights.get("high", {}).get("pt")), "high" in weights),
 }
-summary = {"run": RUN, "at": now(), "pins": load_state().get("pins"), "plan": {"k": K_LIST, "seeds": SEEDS,
+summary = {"run": RUN, "at": now(), "pins": load_state().get("pins"), "devices": load_state().get("devices"),
+           "plan": {"k": K_LIST, "seeds": SEEDS,
            "minutes": MINUTES, "epochs": EPOCHS}, "by_k": rows, "tree_heldout": tree_oof["heldout"],
            "pt_weights": weights, "claims": claims, "k_where_zeck_beats_big_every_seed": wins}
 save_json(ROOT / "summary.json", summary)
 
-lines = [f"# p4 Q matrix on Colab: {RUN}", "", f"Pinned commits: `{json.dumps(summary['pins'])}`", "",
+trained_on = sorted({d["device"] for d in summary["devices"] or []})
+lines = [f"# p4 Q matrix on Colab: {RUN}", "", f"Pinned commits: `{json.dumps(summary['pins'])}`",
+         f"Trained on: {', '.join(trained_on)}", "",
          "| k | seeds | one large | Zeckendorf ensemble | beats it every seed | φ-routed | 2:4-routed | route hit (φ / 2:4) | chance |",
          "|---|---|---|---|---|---|---|---|---|"]
 for r in rows:
@@ -480,7 +515,9 @@ cells.append(code('''if PUSH_RESULTS and not done("push"):
     mark("push", branch=PUSH_BRANCH)
     print(f"pushed to {PUSH_BRANCH}: open a pull request on https://github.com/ezexe/phi/compare/{PUSH_BRANCH}")
 else:
-    print("push:", "done earlier" if done("push") else "off (PUSH_RESULTS = False)")
+    print("push:", "done earlier" if done("push") else "off (DEVICE = "auto"                       # auto: the GPU when the runtime has one; "cpu" forces the CPU
+
+PUSH_RESULTS = False)")
 '''))
 
 nb = nbf.v4.new_notebook()

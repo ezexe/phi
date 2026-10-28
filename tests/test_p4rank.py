@@ -258,3 +258,25 @@ def test_node_tree_answers_by_effort(tmp_path):
     assert score("medium")["source"].startswith("tree:medium:")
     assert score("high")["source"] == "tree:high:4" and len(score("high")["scores"]) == 2
     assert score("")["source"] == "ranker" and score("low")["source"] == "ranker"
+
+
+def test_training_device_and_feature_cache(monkeypatch):
+    """Training runs on device() (PHI_DEVICE, else CUDA when present) and leaves the model on the CPU, where its
+    checkpoints and deltas are made; the feature cache gives the same features as hashing each time."""
+    import numpy as np
+    monkeypatch.setenv("PHI_DEVICE", "cpu")
+    assert p4rank.device().type == "cpu"
+    texts = [f"the ring buffer drain order rule {i} and the toolbar latency {i % 3}" for i in range(9)]
+    plain = p4rank.batch_features(texts, 1 << 13)
+    cache = p4rank.FeatureCache(1 << 13)
+    for _ in range(2):                                   # filled, then read back
+        got = p4rank.batch_features(texts, 1 << 13, cache)
+        assert torch.equal(plain[0], got[0]) and torch.equal(plain[1], got[1])
+    assert cache.dtype == np.uint16 and len(cache.got) == len(texts)
+    full = p4rank.FeatureCache(1 << 13, mb=0)            # no room: still right, just not kept
+    assert torch.equal(p4rank.batch_features(texts, 1 << 13, full)[0], plain[0]) and not full.got
+    m = p4rank.Ranker(1 << 13, 16)
+    assert p4rank.pretrain(m, list(zip(texts, texts[1:])), 0.005, log=lambda *_: None) > 0
+    pools = [{"task": "a plan about the ring buffer", "rows": [{"text": t, "label": int(i < 2)} for i, t in enumerate(texts)]}]
+    p4rank.finetune(m, pools, epochs=1)
+    assert all(p.device.type == "cpu" for p in m.parameters())

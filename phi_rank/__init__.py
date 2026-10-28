@@ -18,7 +18,11 @@ Two stages, one model:
 The encoder is a bag of hashed word, word-pair and character-trigram features
 (no vocabulary to download) through an EmbeddingBag and a small MLP, with one
 head for tasks and one for entries; a score is the cosine of the two. It trains
-on a CPU in minutes. phi_serve serves it.
+on a CPU in minutes, and on a CUDA GPU when one is present (PHI_DEVICE=cpu keeps
+it on the CPU): pretrain and finetune move the model to device() for the run
+and back to the CPU after, so a model at rest, its checkpoints and its deltas
+are always on the CPU. Each run keeps its texts' features in memory (up to
+FEATURE_CACHE_MB), so the GPU does not wait on hashing. phi_serve serves it.
 
 It learns continually, in rounds, and what git keeps of it is phi_prune's:
 
@@ -58,6 +62,7 @@ import time
 import zlib
 from typing import Dict, List, Optional, Sequence, Tuple
 
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -68,6 +73,7 @@ NB = 1 << 15                  # hashed feature buckets
 DIM = 64                      # 2^15 x 64 at fp16: a 4 MB checkpoint that pretrains in a few minutes on a CPU; a model
                               # keeps the size it was built at (its meta), and --buckets / --dim build another
 MAX_FEATURES = 768            # features kept per text
+FEATURE_CACHE_MB = int(os.environ.get("PHI_FEATURE_CACHE_MB", "512"))   # per training run; full, it stops adding
 PASSAGE_CHARS = 600
 MAX_FILE_BYTES = 1 << 20      # a trace dump's first megabyte is plenty
 PER_FILE = 6                  # the pool's cap per store file, as the children's
@@ -111,12 +117,43 @@ def featurize(text: str, nb: int = NB) -> List[int]:
     return ids[:MAX_FEATURES] or [0]
 
 
-def batch_features(texts: Sequence[str], nb: int = NB) -> Tuple[torch.Tensor, torch.Tensor]:
-    flat, offsets = [], []
-    for t in texts:
-        offsets.append(len(flat))
-        flat += featurize(t, nb)
-    return torch.tensor(flat, dtype=torch.long), torch.tensor(offsets, dtype=torch.long)
+class FeatureCache:
+    """One training run's features by text, as compact arrays, up to FEATURE_CACHE_MB: pretraining samples the same
+    passages over and over, and hashing them again each time is what a GPU step would otherwise wait on."""
+
+    def __init__(self, nb: int, mb: int = None):
+        self.nb, self.room = nb, (FEATURE_CACHE_MB if mb is None else mb) << 20
+        self.dtype = np.uint16 if nb <= 1 << 16 else np.int32
+        self.got: Dict[str, np.ndarray] = {}
+
+    def __call__(self, text: str) -> np.ndarray:
+        a = self.got.get(text)
+        if a is None:
+            a = np.asarray(featurize(text, self.nb), dtype=self.dtype)
+            if self.room >= a.nbytes:
+                self.got[text] = a
+                self.room -= a.nbytes
+        return a
+
+
+def batch_features(texts: Sequence[str], nb: int = NB, cache: Optional[FeatureCache] = None
+                   ) -> Tuple[torch.Tensor, torch.Tensor]:
+    if cache is None or cache.nb != nb:
+        flat, offsets = [], []
+        for t in texts:
+            offsets.append(len(flat))
+            flat += featurize(t, nb)
+        return torch.tensor(flat, dtype=torch.long), torch.tensor(offsets, dtype=torch.long)
+    parts = [cache(t) for t in texts]
+    offsets = np.zeros(len(parts), dtype=np.int64)
+    np.cumsum([len(a) for a in parts[:-1]], out=offsets[1:])
+    return torch.from_numpy(np.concatenate(parts).astype(np.int64)), torch.from_numpy(offsets)
+
+
+def device() -> torch.device:
+    """Where training runs: PHI_DEVICE when set (cpu, cuda, cuda:1), else a CUDA GPU when there is one."""
+    want = os.environ.get("PHI_DEVICE", "").strip() or ("cuda" if torch.cuda.is_available() else "cpu")
+    return torch.device(want)
 
 
 class Ranker(nn.Module):
@@ -127,9 +164,10 @@ class Ranker(nn.Module):
         self.task_head = nn.Linear(dim, dim)
         self.entry_head = nn.Linear(dim, dim)
 
-    def encode(self, texts: Sequence[str], side: str) -> torch.Tensor:
-        flat, offsets = batch_features(texts, self.bag.num_embeddings)
-        h = self.bag(flat, offsets)
+    def encode(self, texts: Sequence[str], side: str, cache: Optional[FeatureCache] = None) -> torch.Tensor:
+        flat, offsets = batch_features(texts, self.bag.num_embeddings, cache)
+        dev = self.bag.weight.device
+        h = self.bag(flat.to(dev, non_blocking=True), offsets.to(dev, non_blocking=True))
         h = h + self.body(h)
         h = (self.task_head if side == "task" else self.entry_head)(h)
         return F.normalize(h, dim=-1)
@@ -143,7 +181,7 @@ def ranker_like(state: Dict) -> "Ranker":
 
 def info_nce(a: torch.Tensor, b: torch.Tensor, temperature: float = 0.05) -> torch.Tensor:
     logits = a @ b.T / temperature
-    target = torch.arange(len(a))
+    target = torch.arange(len(a), device=a.device)
     return (F.cross_entropy(logits, target) + F.cross_entropy(logits.T, target)) / 2
 
 
@@ -306,18 +344,24 @@ def pretrain(model: Ranker, pairs: List[Tuple[str, str]], minutes: float, batch:
     if len(pairs) < 2:
         return 0
     rng = random.Random(seed)
-    opt = Optim(model, lr)
-    end, steps = time.time() + minutes * 60, 0
-    model.train()
-    while time.time() < end:
-        b = rng.sample(pairs, min(batch, len(pairs)))
-        loss = info_nce(model.encode([x for x, _ in b], "entry"), model.encode([y for _, y in b], "entry"))
-        opt.zero_grad()
-        loss.backward()
-        opt.step()
-        steps += 1
-        if steps % 200 == 0:
-            log(f"pretrain step {steps}: loss {loss.item():.3f}")
+    cache = FeatureCache(model.bag.num_embeddings)
+    model.to(device())
+    try:
+        opt = Optim(model, lr)
+        end, steps = time.time() + minutes * 60, 0
+        model.train()
+        while time.time() < end:
+            b = rng.sample(pairs, min(batch, len(pairs)))
+            loss = info_nce(model.encode([x for x, _ in b], "entry", cache),
+                            model.encode([y for _, y in b], "entry", cache))
+            opt.zero_grad()
+            loss.backward()
+            opt.step()
+            steps += 1
+            if steps % 200 == 0:
+                log(f"pretrain step {steps}: loss {loss.item():.3f}")
+    finally:
+        model.to("cpu")
     return steps
 
 
@@ -325,23 +369,30 @@ def finetune(model: Ranker, pools: Sequence[Dict], epochs: int = 30, negatives: 
              seed: int = 0) -> None:
     """Each picked entry against the task, its pool's unpicked candidates as the negatives (listwise softmax)."""
     rng = random.Random(seed)
-    opt = Optim(model, lr)
-    model.train()
-    for _ in range(epochs):
-        for p in rng.sample(list(pools), len(pools)):
-            pos = [r["text"] for r in p["rows"] if r["label"]]
-            neg = [r["text"] for r in p["rows"] if not r["label"]]
-            if not pos or not neg:
-                continue
-            q = model.encode([p["task"]], "task")
-            loss = 0.0
-            for t in pos:
-                cands = [t] + rng.sample(neg, min(negatives, len(neg)))
-                logits = (model.encode(cands, "entry") @ q.T).squeeze(1) / 0.05
-                loss = loss + F.cross_entropy(logits.unsqueeze(0), torch.zeros(1, dtype=torch.long))
-            opt.zero_grad()
-            (loss / len(pos)).backward()
-            opt.step()
+    cache = FeatureCache(model.bag.num_embeddings)
+    dev = device()
+    model.to(dev)
+    try:
+        opt = Optim(model, lr)
+        model.train()
+        zero = torch.zeros(1, dtype=torch.long, device=dev)
+        for _ in range(epochs):
+            for p in rng.sample(list(pools), len(pools)):
+                pos = [r["text"] for r in p["rows"] if r["label"]]
+                neg = [r["text"] for r in p["rows"] if not r["label"]]
+                if not pos or not neg:
+                    continue
+                q = model.encode([p["task"]], "task", cache)
+                loss = 0.0
+                for t in pos:
+                    cands = [t] + rng.sample(neg, min(negatives, len(neg)))
+                    logits = (model.encode(cands, "entry", cache) @ q.T).squeeze(1) / 0.05
+                    loss = loss + F.cross_entropy(logits.unsqueeze(0), zero)
+                opt.zero_grad()
+                (loss / len(pos)).backward()
+                opt.step()
+    finally:
+        model.to("cpu")
 
 
 # ─── checkpoints ───────────────────────────────────────────────────────────────────────────────────────
