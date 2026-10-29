@@ -571,17 +571,202 @@ else:
     print("push:", "done earlier" if done("push") else "off (PUSH_RESULTS = False)")
 '''))
 
-T4_NOTE = """**This is the T4 copy.** It opens on a T4 GPU runtime, keeps its results in its own Drive folder (`RUN = "q-matrix-t4"`), and stops with an error rather than fall back to the CPU (`DEVICE = "cuda"`), so it can run beside a CPU run of the main notebook without the two touching each other. If the runtime opens without a GPU: Runtime → Change runtime type → T4 GPU, then Run all."""
+T4_NOTE = """**This is the T4 copy.** It opens on a T4 GPU runtime, keeps its results in its own Drive folder (`RUN = "{run}"`), and stops with an error rather than fall back to the CPU (`DEVICE = "cuda"`), so it can run beside a CPU run of the main notebook without the two touching each other. If the runtime opens without a GPU: Runtime → Change runtime type → T4 GPU, then Run all."""
 
 
-def notebook(name, t4=False):
+def cell(cs, marker):
+    """The one cell whose source contains marker."""
+    found = [c for c in cs if marker in c.source]
+    assert len(found) == 1, marker
+    return found[0]
+
+
+# ─── the pathways notebook: the store's directory tree as a network's pathways, against its controls ──────────
+
+PW_HEADER = """# Neural pathways: the store's directories as a network
+
+[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/ezexe/phi/blob/main/.docs/p4/pathways_colab.ipynb)
+
+The p4 store grows as a directory tree: a `p4` holds `.claude` directories, and a `.claude` may hold a `p4`, never a `p4` directly in a `p4`. Read that tree as a network's pathways: one small model per directory node, each trained on its own era of the store's text, a parent built from its children. [`nested-store.md`](https://github.com/ezexe/phi/blob/main/.docs/p4/nested-store.md) measured that tree against one large model. This notebook runs the controls that settle *what the tree adds*: is it the φ structure, or only the splitting into small models?
+
+1. **Trees.** The same nodes, data shards and budget, three ways:
+   - **Zeckendorf tree**: nodes at the store's Zeckendorf addresses, the p4 nesting rule.
+   - **Binary tree**: the same number of nodes at power-of-2 heap addresses, no adjacency rule.
+   - **Flat**: independent nodes, no tree.
+
+   All three are compared against one large model.
+2. **Masks as routes.** The Zeckendorf nodes, pruned four ways (φ's adjacency mask, 2:4, a random half of the rows, the heaviest half). Each is used as an ensemble and as a route that sends the task to one node. If the heaviest-rows mask routes as well as φ, the adjacency rule adds nothing to routing.
+3. **Early stopping.** Every pretraining checks its ranking on held-back dev pools every `CHECK_S` seconds and keeps its best weights. Each model's curve shows whether longer pretraining helps or hurts; the T4 runs suggested it hurts. The dev pools are kept out of every score.
+
+Everything is saved to Google Drive as it is produced, and **Run all** after a disconnect resumes where Drive says it stopped (see the Q-matrix notebook for how). Secrets: `GITHUB_TOKEN` (read access to the store repository; write access to ezexe/phi only with `PUSH_RESULTS`).
+
+**Runtime:** the T4 GPU if you can get one (the T4 copy is `pathways_colab_t4.ipynb`); the CPU works, slower. Each seed pretrains four model families for `MINUTES` each, then fine-tunes about 120 small models: roughly an hour a seed on a T4.
+"""
+
+PW_SETTINGS = """DRIVE_DIR = "/content/drive/MyDrive/phi-colab"   # everything this notebook keeps lives under DRIVE_DIR/RUN
+RUN = "pathways-1"
+
+STORE_REPO = "ezexe/AudioPlugin-p4"   # the p4 store measured
+STORE_BRANCH = "master"
+STORE_PATH = ""                       # or a store already on disk/Drive; then STORE_REPO is not cloned
+PHI_REF = "main"
+P4_REF = "main"
+
+K_LIST = [4]                          # nodes per tree; k = 4 is where the Zeckendorf ensemble won before
+SEEDS = [0, 1, 2]                     # three seeds: the seed-to-seed noise was as large as most differences
+MINUTES = 6.0                         # pretraining budget per family (each node gets MINUTES / k)
+EPOCHS = 10
+FOLDS = 4
+CHECK_S = 30                          # early stopping: seconds between dev checks; 0 turns it off
+
+DEVICE = "auto"                       # auto: the GPU when the runtime has one; "cuda" requires it; "cpu" forces the CPU
+
+PUSH_RESULTS = False                  # True: commit the results into ezexe/phi on PUSH_BRANCH (a PR is yours to open)
+PUSH_BRANCH = "colab/pathways-results"
+"""
+
+PW_SUITE_MD = """## 5. The pathways suite
+One `pathways_suite.py` run per (k, seed). Its `--cache` folder on Drive keeps every pretrained family and every model's out-of-fold scores as they finish, so a run cut short continues from there. A finished run's JSON lands in `results/pathways-k<k>-s<seed>.json` and is never redone. Each stage prints a timestamped line, and a heartbeat follows any 2 minutes of silence."""
+
+PW_SUITE = """PATHWAYS = PHI / "scripts" / "session" / "pathways_suite.py"
+
+
+def pw_done(k, seed):
+    p = ROOT / "results" / f"pathways-k{k}-s{seed}.json"
+    try:
+        return len(json.loads(p.read_text())["runs"]) == 1
+    except (OSError, ValueError, KeyError):
+        return False
+
+
+plan = [(k, s) for k in K_LIST for s in SEEDS]
+for i, (k, seed) in enumerate(plan, 1):
+    if pw_done(k, seed):
+        print(f"[{i}/{len(plan)}] k={k} seed={seed}: done")
+        continue
+    print(f"[{i}/{len(plan)}] k={k} seed={seed}: running on {os.environ.get('PHI_DEVICE', 'cpu')} (resumes from Drive's cache)")
+    t0 = time.time()
+    run([sys.executable, str(PATHWAYS), "--p4", str(STORE), "--pairs", str(PAIRS), "--k", k, "--minutes", MINUTES,
+         "--epochs", EPOCHS, "--folds", FOLDS, "--check-s", CHECK_S, "--seeds", seed, "--cache", ROOT / "cache",
+         "--out", ROOT / "results" / f"pathways-k{k}-s{seed}.json"], f"pathways-k{k}-s{seed}")
+    mark(f"pathways-k{k}-s{seed}", seconds=round(time.time() - t0))
+print("pathways: every planned run is on Drive")
+"""
+
+PW_SUMMARY_MD = """## 6. Summary and verdicts
+Reads every pathways result on Drive and writes `summary.json`, `summary.md` and `summary.png`. A claim needs every seed of a k to agree before it is called, and one with no finished run reads `not measured`."""
+
+PW_SUMMARY = """import statistics
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+from IPython.display import Markdown, Image, display
+
+runs = {}
+for p in sorted((ROOT / "results").glob("pathways-k*-s*.json")):
+    d = json.loads(p.read_text())
+    for r in d["runs"]:
+        runs.setdefault(d["k"], []).append(r)
+
+
+def every(k, f):
+    return all(f(r["quality"]) for r in runs[k])
+
+
+def verdict(ok, measured):
+    return "not measured" if not measured else ("holds" if ok else "does not hold")
+
+
+ks = sorted(runs)
+done_k = [k for k in ks if len(runs[k]) >= 2]
+claims = {
+    "the Zeckendorf directory tree beats the binary directory tree (ensemble, every seed)":
+        verdict(all(every(k, lambda q: q["zeck_ens"] > q["btree_ens"]) for k in done_k), bool(done_k)),
+    "the Zeckendorf tree's root beats the binary tree's root (every seed)":
+        verdict(all(every(k, lambda q: q["zeck_root"] > q["btree_root"]) for k in done_k), bool(done_k)),
+    "the Zeckendorf tree beats flat independent nodes (ensemble, every seed)":
+        verdict(all(every(k, lambda q: q["zeck_ens"] > q["flat_ens"]) for k in done_k), bool(done_k)),
+    "the Zeckendorf tree beats one large model (ensemble, every seed)":
+        verdict(all(every(k, lambda q: q["zeck_ens"] > q["big"]) for k in done_k), bool(done_k)),
+    "the φ mask routes to the best node more often than the heaviest-rows mask (every seed)":
+        verdict(all(every(k, lambda q: q["phi_route_hit"] > q["heavy_route_hit"]) for k in done_k), bool(done_k)),
+    "φ routing ranks better than routing by a random half of the rows (every seed)":
+        verdict(all(every(k, lambda q: q["phi_routed"] > q["rand_routed"]) for k in done_k), bool(done_k)),
+    "φ routing ranks better than 2:4 routing (every seed)":
+        verdict(all(every(k, lambda q: q["phi_routed"] > q["24_routed"]) for k in done_k), bool(done_k)),
+    "the one large model's best dev ranking comes before its pretraining budget ends (every seed)":
+        verdict(all(r["early_stopping"]["big"].get("best_steps", 0) < r["early_stopping"]["big"].get("steps", 0)
+                    for k in done_k for r in runs[k]),
+                bool(done_k) and all("best_steps" in r["early_stopping"].get("big", {}) for k in done_k for r in runs[k])),
+}
+cols = ["big", "zeck_ens", "btree_ens", "flat_ens", "zeck_root", "btree_root", "phi_routed", "24_routed",
+        "rand_routed", "heavy_routed", "phi_route_hit", "24_route_hit", "rand_route_hit", "heavy_route_hit"]
+rows = [{"k": k, "seeds": len(runs[k]), **{c: round(statistics.mean(r["quality"][c] for r in runs[k]), 4) for c in cols}}
+        for k in ks]
+summary = {"run": RUN, "at": now(), "pins": load_state().get("pins"), "devices": load_state().get("devices"),
+           "plan": {"k": K_LIST, "seeds": SEEDS, "minutes": MINUTES, "epochs": EPOCHS, "check_s": CHECK_S},
+           "by_k": rows, "early_stopping": {k: [r["early_stopping"] for r in runs[k]] for k in ks}, "claims": claims}
+save_json(ROOT / "summary.json", summary)
+
+lines = [f"# Neural pathways on Colab: {RUN}", "", f"Pinned commits: `{json.dumps(summary['pins'])}`", "",
+         "Held-out r-precision, mean over seeds (dev pools excluded):", "",
+         "| k | seeds | one large | Zeckendorf tree | binary tree | flat | Zeck root | binary root |",
+         "|---|---|---|---|---|---|---|---|"]
+for r in rows:
+    lines.append(f"| {r['k']} | {r['seeds']} | {r['big']} | {r['zeck_ens']} | {r['btree_ens']} | {r['flat_ens']} "
+                 f"| {r['zeck_root']} | {r['btree_root']} |")
+lines += ["", "Routing by each mask (routed r-precision / how often the routed node is the best node):", "",
+          "| k | φ | 2:4 | random half | heaviest half |", "|---|---|---|---|---|"]
+for r in rows:
+    lines.append(f"| {r['k']} | {r['phi_routed']} / {r['phi_route_hit']} | {r['24_routed']} / {r['24_route_hit']} "
+                 f"| {r['rand_routed']} / {r['rand_route_hit']} | {r['heavy_routed']} / {r['heavy_route_hit']} |")
+lines += ["", "Early stopping, the one large model (best dev score at step, of steps run):", ""]
+for k in ks:
+    for r in runs[k]:
+        e = r["early_stopping"].get("big", {})
+        lines.append(f"- k = {k}, seed {r['seed']}: " + (f"best {e['best_score']} at step {e['best_steps']:,} of {e['steps']:,}"
+                                                            if "best_steps" in e else "early stopping was off"))
+lines += ["", "## Verdicts", ""] + [f"- {c}: **{v}**" for c, v in claims.items()]
+(ROOT / "summary.md").write_text("\\n".join(lines) + "\\n", encoding="utf-8")
+
+curves = [(k, r["seed"], r["curves"].get("big")) for k in ks for r in runs[k] if r.get("curves", {}).get("big")]
+if curves:
+    fig, ax = plt.subplots(figsize=(7, 4))
+    for k, seed, c in curves:
+        ax.plot([x for x, _ in c], [y for _, y in c], marker="o", ms=3, label=f"k={k} seed {seed}")
+    ax.set(xlabel="pretraining steps", ylabel="dev r-precision (zero-shot)",
+           title="one large model: does longer pretraining help?")
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(ROOT / "summary.png", dpi=140)
+display(Markdown((ROOT / "summary.md").read_text()))
+if curves:
+    display(Image(str(ROOT / "summary.png")))
+"""
+
+
+def pathways_cells():
     import copy
-    cs = copy.deepcopy(cells)
+    q = copy.deepcopy(cells)
+    push_md = cell(q, "Optional: commit the results into ezexe/phi")
+    push_md.source = push_md.source.replace("## 9.", "## 7.")
+    return [md(PW_HEADER), cell(q, "## 0. Settings"), code(PW_SETTINGS),
+            cell(q, "## 1. Drive, state and logging"), cell(q, "ROOT = pathlib.Path(DRIVE_DIR) / RUN"),
+            cell(q, "## 2. Repositories, pinned"), cell(q, "def checkout(repo, ref, dest, pin)"),
+            cell(q, "## 4. The store's labelled pairs"), cell(q, 'PAIRS = ROOT / "pairs" / "pairs.jsonl"'),
+            md(PW_SUITE_MD), code(PW_SUITE), md(PW_SUMMARY_MD), code(PW_SUMMARY),
+            push_md, cell(q, 'if PUSH_RESULTS and not done("push"):')]
+
+
+def notebook(name, cs, run, t4=False):
+    import copy
+    cs = copy.deepcopy(cs)
     if t4:
-        cs[0].source = cs[0].source.replace("blob/main/.docs/p4/q_matrix_colab.ipynb", f"blob/main/.docs/p4/{name}")
-        cs.insert(1, md(T4_NOTE))
-        settings = cs[3]
-        for a, b in (('RUN = "q-matrix-1"', 'RUN = "q-matrix-t4"'), ('DEVICE = "auto" ', 'DEVICE = "cuda" ')):
+        stem = name.replace("_t4.ipynb", ".ipynb")
+        cs[0].source = cs[0].source.replace(f"blob/main/.docs/p4/{stem}", f"blob/main/.docs/p4/{name}")
+        cs.insert(1, md(T4_NOTE.format(run=run + "-t4" if not run.endswith("-1") else run[:-2] + "-t4")))
+        settings = next(c for c in cs if c.cell_type == "code" and c.source.startswith("DRIVE_DIR = "))
+        for a, b in ((f'RUN = "{run}"', f'RUN = "{run[:-2]}-t4"'), ('DEVICE = "auto" ', 'DEVICE = "cuda" ')):
             assert settings.source.count(a) == 1, a
             settings.source = settings.source.replace(a, b)
     nb = nbf.v4.new_notebook()
@@ -596,5 +781,7 @@ def notebook(name, t4=False):
     print("wrote", out)
 
 
-notebook("q_matrix_colab.ipynb")
-notebook("q_matrix_colab_t4.ipynb", t4=True)
+notebook("q_matrix_colab.ipynb", cells, "q-matrix-1")
+notebook("q_matrix_colab_t4.ipynb", cells, "q-matrix-1", t4=True)
+notebook("pathways_colab.ipynb", pathways_cells(), "pathways-1")
+notebook("pathways_colab_t4.ipynb", pathways_cells(), "pathways-1", t4=True)

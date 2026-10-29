@@ -339,17 +339,37 @@ class Optim:
 
 
 def pretrain(model: Ranker, pairs: List[Tuple[str, str]], minutes: float, batch: int = 256, lr: float = 2e-3,
-             seed: int = 0, log=print) -> int:
-    """InfoNCE over neighbouring passages until the time budget runs out; returns the steps taken."""
+             seed: int = 0, log=print, select=None, select_every: float = 60.0,
+             info: Optional[Dict] = None) -> int:
+    """InfoNCE over neighbouring passages until the time budget runs out; returns the steps taken.
+
+    Early stopping: with `select` (model -> score, higher is better), the model is scored every `select_every`
+    seconds and once at the end, and the best-scoring weights are the ones it keeps. `info`, when given, receives
+    the curve [(steps, score)], the best score and the steps it was reached at."""
     if len(pairs) < 2:
         return 0
     rng = random.Random(seed)
     cache = FeatureCache(model.bag.num_embeddings)
+    curve, best, best_state = [], None, None
+
+    def check(steps):
+        nonlocal best, best_state
+        model.eval()
+        with torch.no_grad():
+            score = float(select(model))
+        model.train()
+        curve.append((steps, round(score, 5)))
+        if best is None or score > best[0]:
+            best = (score, steps)
+            best_state = {k: v.detach().to("cpu", copy=True) for k, v in model.state_dict().items()}
     model.to(device())
     try:
         opt = Optim(model, lr)
         end, steps = time.time() + minutes * 60, 0
+        next_check = time.time() + select_every
         model.train()
+        if select:
+            check(0)
         while time.time() < end:
             b = rng.sample(pairs, min(batch, len(pairs)))
             loss = info_nce(model.encode([x for x, _ in b], "entry", cache),
@@ -360,8 +380,16 @@ def pretrain(model: Ranker, pairs: List[Tuple[str, str]], minutes: float, batch:
             steps += 1
             if steps % 200 == 0:
                 log(f"pretrain step {steps}: loss {loss.item():.3f}")
+            if select and time.time() >= next_check:
+                check(steps)
+                next_check = time.time() + select_every
+        if select:
+            check(steps)
+            model.load_state_dict(best_state)
     finally:
         model.to("cpu")
+    if info is not None and select:
+        info.update({"curve": curve, "best_score": round(best[0], 5), "best_steps": best[1], "steps": steps})
     return steps
 
 
