@@ -1,0 +1,23 @@
+{
+ "ranker": {
+  "pt": false,
+  "pt_effort": null,
+  "without_pt": 0.3788,
+  "with_pt": 0.3751,
+  "pt_from": "ranker"
+ },
+ "medium": {
+  "pt": false,
+  "pt_effort": null,
+  "without_pt": 0.3788,
+  "with_pt": 0.3757,
+  "pt_from": "tree:medium"
+ },
+ "high": {
+  "pt": false,
+  "pt_effort": null,
+  "without_pt": 0.3788,
+  "with_pt": 0.3652,
+  "pt_from": "tree:high"
+ }
+}
