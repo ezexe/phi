@@ -163,6 +163,7 @@ def build(p4: str, pools: Sequence[Dict], k: int = 4, minutes: float = 6, epochs
             m.load_state_dict({key: sum(s[key] for s in kids) / len(kids) for key in kids[0]})
         torch.manual_seed(i)
         t0 = time.time()
+        log(f"tree - node {a} ({i + 1}/{k}): pretraining {minutes / k * 60:.0f} s on shard {i + 1}, then fine-tuning")
         steps = pr.pretrain(m, shard_pairs(p4, files[i]), minutes / k, seed=i, log=lambda *_: None)
         trained[a] = {key: v.clone() for key, v in m.state_dict().items()}   # what a parent starts from
         pre.append(trained[a])
@@ -173,7 +174,7 @@ def build(p4: str, pools: Sequence[Dict], k: int = 4, minutes: float = 6, epochs
         log(f"tree - node {a}: shard {i + 1}/{k}, {len(files[i])} files, {steps} steps, {time.time() - t0:.0f} s")
     meta = {"k": k, "nb": nb, "dim": dim, "trained": now, "nodes": nodes, "pools": [p["id"] for p in pools]}
     pr.write_text_atomic(json.dumps(meta, indent=1) + "\n", os.path.join(pr.models_dir(p4), TREE_JSON))
-    oof = out_of_fold(pre, pools, epochs, now)
+    oof = out_of_fold(pre, pools, epochs, now, log)
     if oof:
         pr.write_text_atomic(json.dumps(oof, separators=(",", ":")) + "\n", os.path.join(pr.models_dir(p4), TREE_OOF))
         meta["heldout"] = oof["heldout"]
@@ -182,7 +183,7 @@ def build(p4: str, pools: Sequence[Dict], k: int = 4, minutes: float = 6, epochs
     return meta
 
 
-def out_of_fold(pre: Sequence[Dict], pools: Sequence[Dict], epochs: int, now: str) -> Optional[Dict]:
+def out_of_fold(pre: Sequence[Dict], pools: Sequence[Dict], epochs: int, now: str, log=print) -> Optional[Dict]:
     """Every pool scored at medium and at high by a fold tree that never fine-tuned on it: each fold fine-tunes
     every node from its pretrained state on the other folds' pools and masks it, as build does. None with too few
     pools to fold."""
@@ -202,6 +203,7 @@ def out_of_fold(pre: Sequence[Dict], pools: Sequence[Dict], epochs: int, now: st
             mask_rows(m)
             models.append(m)
         rows = node_rows(models)
+        log(f"tree - out of fold: fold {f + 1}/{FOLDS}, {len(pre)} nodes fine-tuned on {len(train)} pools")
         for p in held:
             texts = [r["text"] for r in p["rows"]]
             for effort in scores:
