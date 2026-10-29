@@ -556,7 +556,8 @@ cells.append(code('''if PUSH_RESULTS and not done("push"):
     subprocess.run(["git", "-C", str(dest), "checkout", "-q", "-B", PUSH_BRANCH], check=True)
     out = dest / ".docs" / "p4" / "nested-store-results" / f"colab-{RUN}"
     out.mkdir(parents=True, exist_ok=True)
-    for p in list((ROOT / "results").glob("*.json")) + [ROOT / "summary.json", ROOT / "summary.md", ROOT / "summary.png"]:
+    for p in list((ROOT / "results").glob("*.json")) + [ROOT / "summary.json", ROOT / "summary.md", ROOT / "summary.png",
+              ROOT / "report.md"]:
         if p.exists():
             shutil.copy2(p, out / p.name)
     git = ["git", "-C", str(dest), "-c", "user.name=phi colab", "-c", "user.email=phi-colab@users.noreply.github.com"]
