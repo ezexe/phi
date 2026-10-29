@@ -965,7 +965,8 @@ claims = {
     "D1 the JSON ranker ranks better than plain word overlap (store's labels)":
         verdict(jr["store"]["json_ranker"] > jr["store"]["term_overlap"], "store" in jr),
     "D2 a shorter pretraining budget ranks better than the longest":
-        verdict(best_b is not None and best_b < max(budgets), bool(budgets)),
+        verdict(best_b is not None and best_b < max(budgets)
+                and mean_q(best_b, "store->store") > mean_q(max(budgets), "store->store"), bool(budgets)),
     "D2 some pretraining budget's .pt raises the JSON ranker on every seed":
         verdict(any(raises.values()), bool(budgets)),
     **{f"D3 {c}": verdict(v) for c, v in d3_claims.items()},
@@ -987,8 +988,11 @@ settings = {
     "pool-effort": "low or unnamed (the JSON ranker alone)" if not any(raises.values())
                    else f"medium or high, with the .pt pretrained {min(b for b in budgets if raises[b]):g} min",
     "pretraining budget": f"{best_b:g} min (best held-out ranking)" if best_b is not None else "not measured",
-    "labels": ("prefer the teachers': " + claims.get(f"D4 the {teachers[0]} labels are more learnable than the store's "
-               "(trained and scored on themselves, best budget)", "")) if teachers else "store only",
+    "labels": ("train on the teachers' labels: they are more learnable than the store's" if teachers and all(
+                   claims.get(f"D4 the {t} labels are more learnable than the store's (trained and scored on themselves, "
+                              "best budget)") == "holds" for t in teachers)
+               else "keep the store's labels: no teacher's were more learnable" if teachers
+               else "the store's labels (no teacher ran)"),
 }
 summary = {"run": RUN, "at": now(), "pins": load_state().get("pins"), "devices": load_state().get("devices"),
            "from_run": FROM_RUN, "pathways_run": PATHWAYS_RUN, "claims": claims, "implied_settings": settings,

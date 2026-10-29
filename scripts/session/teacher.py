@@ -23,7 +23,6 @@ import json
 import os
 import re
 import sys
-import time
 
 PRICES = {"claude-fable-5-1": (10.0, 50.0), "claude-opus-5-5": (4.0, 20.0), "claude-sonnet-5-5": (2.0, 10.0),
           "claude-haiku-5-5": (0.10, 0.50)}       # $ per million tokens in / out (claude-api model table, 2026-10-06)
@@ -96,16 +95,12 @@ def save_json(path, obj):
     os.replace(tmp, path)
 
 
-def stamp():
-    return time.strftime("%H:%M:%S")
-
-
 def cmd_label(a):
     pools = load_pools(a.pairs)
     os.makedirs(a.out_dir, exist_ok=True)
     todo = [pid for pid in sorted(pools) if not os.path.exists(os.path.join(a.out_dir, f"{safe(pid)}.json"))]
     if not todo:
-        print(f"{stamp()} teacher {a.model}: all {len(pools)} pools already labelled")
+        print(f"teacher {a.model}: all {len(pools)} pools already labelled")
         return 0
     c = client()
     tokens_in = sum(c.messages.count_tokens(model=a.model, system=SYSTEM,
@@ -113,7 +108,7 @@ def cmd_label(a):
                     for pid in todo)
     p_in, p_out = PRICES.get(a.model, (10.0, 50.0))
     est = tokens_in / 1e6 * p_in + len(todo) * a.out_tokens / 1e6 * p_out
-    print(f"{stamp()} teacher {a.model}: {len(todo)} of {len(pools)} pools to label at effort {a.effort}; "
+    print(f"teacher {a.model}: {len(todo)} of {len(pools)} pools to label at effort {a.effort}; "
           f"{tokens_in:,} input tokens; estimated ${est:.2f}", flush=True)
     if est > a.max_usd:
         print(f"teacher: estimated ${est:.2f} is above --max-usd {a.max_usd}; nothing spent")
@@ -133,7 +128,7 @@ def cmd_label(a):
             text = next(b.text for b in resp.content if b.type == "text")
             rec["picks"] = capped(json.loads(text)["picks"], p["rows"])
         save_json(os.path.join(a.out_dir, f"{safe(pid)}.json"), rec)
-        print(f"{stamp()} teacher {a.model} [{n}/{len(todo)}] {pid}: "
+        print(f"teacher {a.model} [{n}/{len(todo)}] {pid}: "
               + (f"{len(rec['picks'])} picks" if rec["picks"] is not None else f"declined ({rec.get('refusal')})"),
               flush=True)
     return 0
@@ -144,7 +139,7 @@ def cmd_report(a):
         summary = f.read()
     c = client()
     kw = {"betas": ["server-side-fallback-2026-07-01"], "fallbacks": "default"} if a.model in FALLBACK_MODELS else {}
-    print(f"{stamp()} report: asking {a.model} to write it from {os.path.basename(a.summary)}", flush=True)
+    print(f"report: asking {a.model} to write it from {os.path.basename(a.summary)}", flush=True)
     resp = c.beta.messages.create(
         model=a.model, max_tokens=16000, system=REPORT_SYSTEM, output_config={"effort": a.effort},
         messages=[{"role": "user", "content": f"The measurements, as JSON:\n\n{summary}\n\nWrite the results section."}],
@@ -156,7 +151,7 @@ def cmd_report(a):
     with open(a.out, "w", encoding="utf-8") as f:
         f.write(f"<!-- written by {resp.model} from {os.path.basename(a.summary)}; every number should be checked "
                 f"against that file -->\n\n{text}\n")
-    print(f"{stamp()} report: {resp.usage.output_tokens:,} output tokens -> {a.out}")
+    print(f"report: {resp.usage.output_tokens:,} output tokens -> {a.out}")
     return 0
 
 
