@@ -87,6 +87,12 @@ This section turns phi's measurements into one configuration. Every figure is fr
 - The JSON ranker fits its `pt` weight on the out-of-fold scores of the source the store's `pool-effort:` names: `tree-oof.json` for medium or high, `ranker-oof.json` otherwise (vlds 0.0.75). It keeps the weight only when it raises the leave-one-out r-precision, and asks `/score` at the effort it was fitted on. A change of `pool-effort:` takes effect at the JSON ranker's next `train`.
 - The background tier (the grown tree) is not built.
 
+**The teacher (vlds 0.0.76).** The tiers are partitioned the way Anthropic partitions its own family: one most capable model, and cheaper tiers below it, with effort as the dial within each.
+- **The teacher** is the `mister:roboto` agent, on `model: fable`, the alias that follows Anthropic's newest and most capable widely released model.
+- Named in the store's `pool-audit-via:`, roboto reads the 1 in N audited sessions in the Haiku children's seat. Its picks become the labels the ranker and the `.pt` tiers learn from.
+- **The students** are the tiers above, picked by `pool-effort:`: low takes the Haiku seat, medium the Sonnet seat, high the Opus seat. The unbuilt grown tree would be the Fable seat.
+- **Before claiming the teacher helps,** compare the store's held-out figures from before and after it switches readers. That comparison has not been run yet.
+
 ## Rules
 
 - A notice is cleared only by a training that succeeded for its component. Never delete `retrain-needed.tsv` by hand.
