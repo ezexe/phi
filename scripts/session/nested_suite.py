@@ -138,12 +138,23 @@ def state(m):
     return {k: v.clone() for k, v in m.state_dict().items()}
 
 
+T0 = time.time()
+
+
+def say(msg):
+    """One progress line, with the minutes since the run started: the notebook streams it as it is printed."""
+    print(f"  [{(time.time() - T0) / 60:5.1f} min] {msg}", flush=True)
+
+
 STEPS = {}   # pretraining steps per arm, this process's: a fixed time budget shows the hardware only in its steps
 
 
 def pretrain_timed(m, pairs, minutes, seed, arm=""):
     t0 = time.perf_counter()
+    n = len(STEPS.get(arm, []))
+    say(f"pretrain {arm} {n + 1}: {minutes * 60:.0f} s budget, {len(pairs):,} passage pairs, on {pr.device()}")
     STEPS.setdefault(arm, []).append(pr.pretrain(m, pairs, minutes, seed=seed, log=lambda *_: None))
+    say(f"pretrain {arm} {n + 1}: {STEPS[arm][-1]:,} steps")
     return time.perf_counter() - t0
 
 
@@ -280,11 +291,16 @@ def quality(M, pools, args, seed, spans, tag=""):
     folds = args.folds
     per_model = {}                                     # (family, i) -> {pool id: scores}, out of fold
     pr.featurize = CACHED
-    for fam in ("big", "small", "chain", "indep", "zeck", "grown", "zeckq", "zeck24"):
+    fams = ("big", "small", "chain", "indep", "zeck", "grown", "zeckq", "zeck24")
+    total = sum(len(M[f]) for f in fams)
+    n = 0
+    for fam in fams:
         for i, st in enumerate(M[fam]):
+            n += 1
             path = tag and f"{tag}-oof-{fam}-{i}.json"
             if path and os.path.exists(path):
                 per_model[(fam, i)] = json.load(open(path))
+                say(f"quality {n}/{total} {fam} {i + 1}: from the cache")
                 continue
             got = {}
             for f in range(folds):
@@ -296,6 +312,7 @@ def quality(M, pools, args, seed, spans, tag=""):
                 for j, p in enumerate(pools):
                     if j % folds == f:
                         got[p["id"]] = pr.score_pool(m, p["task"], [r["text"] for r in p["rows"]])
+                say(f"quality {n}/{total} {fam} {i + 1}: fold {f + 1}/{folds} fine-tuned and scored")
             per_model[(fam, i)] = cached(path, lambda: got)
     pr.featurize = RAW
     out, oof = {}, {}
@@ -328,11 +345,13 @@ def deployed(oof, pools, plugin_scripts, store):
     base = pm.loo_rprecision(jpools, feats, data)
     texts_of = {p["id"]: [r["text"] for r in p["rows"]] for p in pools}
     out = {"json_without": round(base, 4)}
+    say(f"deployed: the JSON ranker alone, {base:.4f}; now each of {len(oof)} arms as its .pt feature")
     for arm, scores in oof.items():
         as_oof = {pid: {pm.text_key(t): s for t, s in zip(texts_of[pid], sc)} for pid, sc in scores.items()}
         pts = [pm.pool_pt(p, data, as_oof) for p in jpools]
         with_pt = [(pm.add_pt([dict(x) for x in f[0]], sc), f[1], f[2]) if sc else f for f, sc in zip(feats, pts)]
         out[arm] = round(pm.loo_rprecision(jpools, with_pt, data), 4)
+        say(f"deployed {arm}: {out[arm]}")
     return out
 
 
@@ -351,11 +370,13 @@ def stream(M, pools, args, spans, tag=""):
     out = {}
     warm = args.warm
     pr.featurize = CACHED
-    for arm, (fam, which, how) in ARMS.items():
+    for n, (arm, (fam, which, how)) in enumerate(ARMS.items(), 1):
         path = tag and f"{tag}-stream-{arm}.json"
         if path and os.path.exists(path):
             out[arm] = json.load(open(path))
+            say(f"stream {n}/{len(ARMS)} {arm}: from the cache")
             continue
+        say(f"stream {n}/{len(ARMS)} {arm}: warm-up on {warm} pools, then {len(pools) - warm} pools scored and learned")
         idx = list(range(len(M[fam]))) if which == "all" else [len(M[fam]) - 1]
         models = [load(M[fam][i]) for i in idx]
         addr_bits = [2 * (i + 1) for i in idx]
@@ -402,6 +423,7 @@ def stream(M, pools, args, spans, tag=""):
                                          "update_s": round(mean(upd), 2), "msg_bytes": round(mean(msg)),
                                          "query_ms": round(mean(q), 1), "params": params,
                                          "mb": round(params * 2 / 1e6, 2)})
+        say(f"stream {n}/{len(ARMS)} {arm}: fresh {out[arm]['fresh']}, forget {out[arm]['forget']}")
     pr.featurize = RAW
     return out
 
@@ -438,6 +460,9 @@ def main(argv=None):
     for seed in args.seeds:
         t0 = time.time()
         tag = args.cache and os.path.join(args.cache, f"k{args.k}-s{seed}")
+        have = tag and os.path.exists(tag + "-models.pt")
+        say(f"seed {seed}: " + ("pretrained models from the cache" if have else
+                                f"pretraining 6 model families ({args.minutes:.0f} min budget each)"))
         M, times = cached(tag and tag + "-models.pt", lambda: build_models(args, shard_pairs, all_pairs, seed), "pt")
         M = prune_families(M)
         run = {"seed": seed, "zeck_addresses": M["zeck_addresses"],
@@ -449,11 +474,13 @@ def main(argv=None):
                "finetuned_on": str(pr.device())}
         print(json.dumps({"seed": seed, "pretrained_on": run["pretrained_on"], "pretrain_steps": run["pretrain_steps"],
                           "finetuned_on": run["finetuned_on"]}), flush=True)
+        say(f"seed {seed}: quality, {args.folds}-fold held out, every model")
         run["quality"], oof = quality(M, pools, args, seed, spans, tag)
         print(json.dumps({"seed": seed, "quality": run["quality"]}), flush=True)
         run["deployed"] = cached(tag and tag + "-deployed.json",
                                  lambda: deployed(oof, pools, os.path.join(args.plugin, "scripts"), store))
         print(json.dumps({"seed": seed, "deployed": run["deployed"]}), flush=True)
+        say(f"seed {seed}: stream replay, every arm")
         run["stream"] = stream(M, pools, args, spans, tag)
         run["seconds"] = round(time.time() - t0)
         print(json.dumps({"seed": seed, "stream": run["stream"], "pretrain_s": run["pretrain_s"],
