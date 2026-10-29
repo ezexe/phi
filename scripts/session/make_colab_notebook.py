@@ -758,6 +758,303 @@ def pathways_cells():
             push_md, cell(q, 'if PUSH_RESULTS and not done("push"):')]
 
 
+# ─── the directions notebook: every direction for the p4 models, measured, then one report ──────────────
+
+DIR_HEADER = """# The p4 models: directions, measured
+
+[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/ezexe/phi/blob/main/.docs/p4/directions_colab.ipynb)
+
+The runs so far ([`nested-store.md`](https://github.com/ezexe/phi/blob/main/.docs/p4/nested-store.md) and the Colab results under `.docs/p4/nested-store-results/`) point to five directions. This notebook measures each one and ends with a single report:
+
+| | Direction | What this notebook measures |
+|---|---|---|
+| D1 | Keep the JSON ranker as the default | its leave-one-pool-out ranking against plain word overlap, scored against the store's labels and each teacher's |
+| D2 | Fix pretraining before more architecture | the single `.pt` ranker at pretraining budgets from 30 s to 6 min, with early stopping on held-back pools: which budget ranks best, and whether any of them raises the JSON ranker |
+| D3 | Keep the tree for what it proves | update size, forgetting and query time per arm, from the Q-matrix suite already run |
+| D4 | Labels are the main lever | two teachers through the Anthropic API (Claude Fable 5.1 and Claude Opus 5.5) label every pool; models trained on each label set and scored against each; how far the label sets agree |
+| D5 | Settle whether the φ structure matters | the pathways notebook's verdicts, read from its run on Drive |
+
+**The Anthropic API** is used wherever it serves the work: the two teachers, and the closing written report, which Claude drafts from the measured JSON, with the numbers printed beside it. The run reuses an earlier run's teacher labels when the pairs match exactly, so nothing is labelled twice.
+
+**Drive.** As the other notebooks: everything is saved to Drive as it is produced, and **Run all** after a disconnect resumes where it stopped. To compare with the Q-matrix run, the store is pinned to the commit that run used, and its pairs file is reused (`FROM_RUN`).
+
+**Secrets:**
+- `GITHUB_TOKEN`
+- `ANTHROPIC_API_KEY`
+- `ANTHROPIC_WORKSPACE_ID`, if your key is not scoped to a workspace
+
+**Runtime:** the T4 if you can get it (`directions_colab_t4.ipynb`); the CPU works. D2 pretrains five budgets on two seeds, about 27 minutes of pretraining a seed, then fine-tunes for each label set.
+"""
+
+DIR_SETTINGS = """DRIVE_DIR = "/content/drive/MyDrive/phi-colab"   # everything this notebook keeps lives under DRIVE_DIR/RUN
+RUN = "directions-1"
+FROM_RUN = "q-matrix-t4"              # an earlier Q-matrix run: its store pin, pairs and teacher labels are reused
+PATHWAYS_RUN = "pathways-t4"          # the pathways run D5 reads its verdicts from
+
+STORE_REPO = "ezexe/AudioPlugin-p4"
+STORE_BRANCH = "master"
+STORE_PATH = ""
+PHI_REF = "main"
+P4_REF = "main"
+
+BUDGETS = [0.5, 1, 2, 4, 6]           # D2: pretraining minutes for the single .pt ranker
+SEEDS = [0, 1]
+EPOCHS = 10
+FOLDS = 4
+CHECK_S = 20                          # early stopping: seconds between dev checks
+
+TEACHERS = {"fable": "claude-fable-5-1", "opus": "claude-opus-5-5"}   # D4: name -> model, labelled through the API
+TEACHER_EFFORT = "high"
+TEACHER_MAX_USD = 25.0                # per teacher: nothing is spent when its estimate is above this
+REPORT_MODEL = "claude-fable-5-1"     # writes the closing report from the measured JSON
+
+DEVICE = "auto"                       # auto: the GPU when the runtime has one; "cuda" requires it; "cpu" forces the CPU
+
+PUSH_RESULTS = False                  # True: commit the results into ezexe/phi on PUSH_BRANCH (a PR is yours to open)
+PUSH_BRANCH = "colab/directions-results"
+"""
+
+DIR_FROM_MD = """## 1b. Reuse the earlier run
+The first session copies `FROM_RUN`'s store pin and pairs file into this run, so D4 can reuse that run's teacher labels and the numbers stay comparable. If `FROM_RUN` isn't on Drive, this run pins and exports its own."""
+
+DIR_FROM = """prior = pathlib.Path(DRIVE_DIR) / FROM_RUN
+st = load_state()
+if FROM_RUN and (prior / "state.json").exists() and "store" not in st.get("pins", {}):
+    pst = json.loads((prior / "state.json").read_text())
+    if pst.get("pins", {}).get("store"):
+        st.setdefault("pins", {})["store"] = pst["pins"]["store"]
+        save_json(STATE, st)
+        print(f"store pinned to {FROM_RUN}'s commit {pst['pins']['store'][:8]}")
+    if (prior / "pairs" / "pairs.jsonl").exists() and not (ROOT / "pairs" / "pairs.jsonl").exists():
+        shutil.copy2(prior / "pairs" / "pairs.jsonl", ROOT / "pairs" / "pairs.jsonl")
+        mark("pairs", from_run=FROM_RUN)
+        print(f"pairs copied from {FROM_RUN}")
+else:
+    print("from run:", "already applied" if "store" in st.get("pins", {}) else f"{FROM_RUN} not found on Drive; this run pins its own")
+"""
+
+DIR_API_MD = """## 4b. The Anthropic API
+Installs the SDK and reads `ANTHROPIC_API_KEY` and `ANTHROPIC_WORKSPACE_ID` from the environment or the Colab secrets into the environment the scripts run in. Neither is printed or saved."""
+
+DIR_API = """run([sys.executable, "-m", "pip", "install", "-q", "anthropic"], "setup")
+for name in ("ANTHROPIC_API_KEY", "ANTHROPIC_WORKSPACE_ID"):
+    if not os.environ.get(name) and IN_COLAB:
+        from google.colab import userdata
+        try:
+            os.environ[name] = userdata.get(name) or ""
+        except Exception:                  # no such secret, or notebook access not granted
+            pass
+API = bool(os.environ.get("ANTHROPIC_API_KEY"))
+TEACH_PY = PHI / "scripts" / "session" / "teacher.py"
+print("Anthropic API:", "ready" if API else "no ANTHROPIC_API_KEY: the teachers and the written report are skipped",
+      "| workspace header:", "set" if os.environ.get("ANTHROPIC_WORKSPACE_ID") else "not set")
+"""
+
+DIR_TEACH_MD = """## D4a. The teachers label every pool
+Each teacher in `TEACHERS` labels every pool through `teacher.py label`: the input is counted first, nothing is spent above `TEACHER_MAX_USD`, and each pool is saved to Drive as it lands. When `FROM_RUN` used the same pairs file, its Fable labels are copied instead of paid for again."""
+
+DIR_TEACH = """import hashlib
+
+
+def sha(path):
+    return hashlib.sha1(pathlib.Path(path).read_bytes()).hexdigest()
+
+
+TEACH_DIRS = {}
+for name, model in TEACHERS.items():
+    d = ROOT / "teacher" / name
+    d.mkdir(parents=True, exist_ok=True)
+    old = pathlib.Path(DRIVE_DIR) / FROM_RUN / "results" / "teacher"
+    same_pairs = (pathlib.Path(DRIVE_DIR) / FROM_RUN / "pairs" / "pairs.jsonl").exists() and \\
+        sha(pathlib.Path(DRIVE_DIR) / FROM_RUN / "pairs" / "pairs.jsonl") == sha(PAIRS)
+    if model == "claude-fable-5-1" and old.is_dir() and same_pairs and not any(d.iterdir()):
+        for f in old.glob("*.json"):
+            shutil.copy2(f, d / f.name)
+        print(f"teacher {name}: {len(list(d.glob('*.json')))} pools copied from {FROM_RUN}")
+    if API:
+        run([sys.executable, str(TEACH_PY), "label", "--pairs", PAIRS, "--out-dir", d, "--model", model,
+             "--effort", TEACHER_EFFORT, "--max-usd", TEACHER_MAX_USD], f"teacher-{name}", check=False)
+    if any(d.glob("*.json")):
+        TEACH_DIRS[name] = d
+print("label sets for D4:", ["store"] + list(TEACH_DIRS))
+"""
+
+DIR_SUITE_MD = """## D1, D2, D4. The measured legs
+One `directions_suite.py` run over every budget and seed, resumable through its cache on Drive. Every 6th pool is held back as the dev set early stopping reads, and kept out of every score."""
+
+DIR_SUITE = """DIRECTIONS = PHI / "scripts" / "session" / "directions_suite.py"
+out = ROOT / "results" / "directions.json"
+if not done("directions"):
+    cmd = [sys.executable, str(DIRECTIONS), "--p4", str(STORE), "--pairs", str(PAIRS), "--plugin", str(PLUGIN),
+           "--budgets", *BUDGETS, "--seeds", *SEEDS, "--epochs", EPOCHS, "--folds", FOLDS, "--check-s", CHECK_S,
+           "--cache", ROOT / "cache", "--out", out]
+    for name, d in TEACH_DIRS.items():
+        cmd += ["--teacher", f"{name}={d}"]
+    run(cmd, "directions")
+    mark("directions")
+directions = json.loads(out.read_text())
+print("agreement between label sets (F1):", directions["agreement_f1"])
+print("JSON ranker:", json.dumps(directions["json_ranker"]))
+"""
+
+DIR_D3_MD = """## D3. The tree's structural properties
+Read from the Q-matrix suite already run: `FROM_RUN` on Drive, or the copy committed to the repository."""
+
+DIR_D3 = """import glob, statistics
+src = sorted((pathlib.Path(DRIVE_DIR) / FROM_RUN / "results").glob("suite-k*-s*.json"))
+if not src:
+    src = sorted((PHI / ".docs" / "p4" / "nested-store-results").glob(f"colab-{FROM_RUN}/suite-k*-s*.json"))
+streams = [(json.loads(p.read_text())["k"], r["stream"]) for p in src for r in json.loads(p.read_text())["runs"]]
+d3 = {}
+if streams:
+    arms = sorted(streams[0][1])
+    for arm in arms:
+        d3[arm] = {m: round(statistics.mean(s[arm][m] for _k, s in streams), 4)
+                   for m in ("msg_bytes", "forget", "update_s", "query_ms")}
+    d3_claims = {
+        "time-routed nodes forget nothing (every run)": all(s["routed"]["forget"] == 0 for _k, s in streams),
+        "a routed update is smaller than one large model's (every run)":
+            all(s["qrouted"]["msg_bytes"] < s["big"]["msg_bytes"] for _k, s in streams),
+    }
+    print(f"D3 from {len(streams)} suite runs:")
+    for arm in ("big", "zeck_ens", "routed", "qrouted"):
+        print(f"  {arm:>10}: update {d3[arm]['msg_bytes']:,.0f} B, forget {d3[arm]['forget']}, query {d3[arm]['query_ms']} ms")
+    print(d3_claims)
+else:
+    d3_claims = {}
+    print(f"D3: no suite results for {FROM_RUN} on Drive or in the repository")
+"""
+
+DIR_D5_MD = """## D5. Does the φ structure matter?
+The pathways notebook's verdicts, read from `PATHWAYS_RUN` on Drive. If that run hasn't finished, D5 reads `not measured`: run the pathways notebook, then this cell again."""
+
+DIR_D5 = """pw = pathlib.Path(DRIVE_DIR) / PATHWAYS_RUN / "summary.json"
+d5 = json.loads(pw.read_text()) if pw.exists() else None
+if d5:
+    for c, v in d5["claims"].items():
+        print(f"  {v:>14}  {c}")
+else:
+    print(f"D5: {PATHWAYS_RUN} has no summary on Drive yet: not measured")
+"""
+
+DIR_REPORT_MD = """## The direction report
+One verdict per direction, the settings the verdicts imply, a plot of D2, and the written report Claude drafts from `summary.json`. The drafted report shows each number beside its source, so check them against the JSON."""
+
+DIR_REPORT = """import statistics
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+from IPython.display import Markdown, Image, display
+
+
+def verdict(ok, measured=True):
+    return "not measured" if not measured else ("holds" if ok else "does not hold")
+
+
+runs = directions["runs"]
+jr = directions["json_ranker"]
+budgets = sorted({r["budget_min"] for r in runs})
+by_budget = {b: [r for r in runs if r["budget_min"] == b] for b in budgets}
+mean_q = lambda b, key: round(statistics.mean(r["quality"].get(key, float("nan")) for r in by_budget[b]), 4)  # noqa: E731
+best_b = max(budgets, key=lambda b: mean_q(b, "store->store")) if budgets else None
+raises = {b: all(r.get("deployed", 0) > jr["store"]["json_ranker"] for r in by_budget[b]) for b in budgets}
+teachers = [n for n in directions["label_sets"] if n != "store"]
+ag = directions["agreement_f1"]
+
+claims = {
+    "D1 the JSON ranker ranks better than plain word overlap (store's labels)":
+        verdict(jr["store"]["json_ranker"] > jr["store"]["term_overlap"], "store" in jr),
+    "D2 a shorter pretraining budget ranks better than the longest":
+        verdict(best_b is not None and best_b < max(budgets)
+                and mean_q(best_b, "store->store") > mean_q(max(budgets), "store->store"), bool(budgets)),
+    "D2 some pretraining budget's .pt raises the JSON ranker on every seed":
+        verdict(any(raises.values()), bool(budgets)),
+    **{f"D3 {c}": verdict(v) for c, v in d3_claims.items()},
+    **{f"D4 the {t} labels are more learnable than the store's (trained and scored on themselves, best budget)":
+       verdict(mean_q(best_b, f"{t}->{t}") > mean_q(best_b, "store->store"), best_b is not None) for t in teachers},
+    **{f"D4 training on the {t} labels predicts the store's labels at least as well as training on them":
+       verdict(mean_q(best_b, f"{t}->store") >= mean_q(best_b, "store->store"), best_b is not None) for t in teachers},
+}
+if len(teachers) >= 2:
+    a, b = teachers[:2]
+    claims["D4 the two teachers agree with each other more than either agrees with the store's labels"] = verdict(
+        (ag.get(f"{a}~{b}") or 0) > max(ag.get(f"store~{a}") or 0, ag.get(f"store~{b}") or 0))
+if d5:
+    claims.update({f"D5 {c}": v for c, v in d5["claims"].items()})
+else:
+    claims["D5 the φ structure matters"] = "not measured"
+
+settings = {
+    "pool-effort": "low or unnamed (the JSON ranker alone)" if not any(raises.values())
+                   else f"medium or high, with the .pt pretrained {min(b for b in budgets if raises[b]):g} min",
+    "pretraining budget": f"{best_b:g} min (best held-out ranking)" if best_b is not None else "not measured",
+    "labels": ("train on the teachers' labels: they are more learnable than the store's" if teachers and all(
+                   claims.get(f"D4 the {t} labels are more learnable than the store's (trained and scored on themselves, "
+                              "best budget)") == "holds" for t in teachers)
+               else "keep the store's labels: no teacher's were more learnable" if teachers
+               else "the store's labels (no teacher ran)"),
+}
+summary = {"run": RUN, "at": now(), "pins": load_state().get("pins"), "devices": load_state().get("devices"),
+           "from_run": FROM_RUN, "pathways_run": PATHWAYS_RUN, "claims": claims, "implied_settings": settings,
+           "json_ranker": jr, "agreement_f1": ag,
+           "by_budget": {f"{b:g}": {k: mean_q(b, k) for k in runs[0]["quality"]} | {
+               "deployed": round(statistics.mean(r.get("deployed", 0) for r in by_budget[b]), 4),
+               "steps": round(statistics.mean(r["early_stopping"].get("steps", 0) for r in by_budget[b])),
+               "best_steps": round(statistics.mean(r["early_stopping"].get("best_steps", 0) for r in by_budget[b]))}
+               for b in budgets} if runs else {},
+           "d3": d3, "d5": d5 and {"claims": d5["claims"], "by_k": d5.get("by_k")}}
+save_json(ROOT / "summary.json", summary)
+
+lines = [f"# The p4 models' directions: {RUN}", "", f"Pinned commits: `{json.dumps(summary['pins'])}`", "",
+         "## Verdicts", ""] + [f"- {c}: **{v}**" for c, v in claims.items()]
+lines += ["", "## Implied settings", ""] + [f"- **{k}:** {v}" for k, v in settings.items()]
+lines += ["", "## D2 by pretraining budget (mean over seeds)", "",
+          "| budget (min) | steps | best dev step | " + " | ".join(runs[0]["quality"]) + " | JSON + .pt |",
+          "|---|---|---|" + "---|" * len(runs[0]["quality"]) + "---|"] if runs else []
+for b, row in summary["by_budget"].items():
+    lines.append(f"| {b} | {row['steps']:,} | {row['best_steps']:,} | "
+                 + " | ".join(str(row[k]) for k in runs[0]["quality"]) + f" | {row['deployed']} |")
+lines += ["", f"JSON ranker alone: {jr['store']['json_ranker']} (word overlap {jr['store']['term_overlap']}); "
+          f"label-set agreement (F1): {ag}"]
+(ROOT / "summary.md").write_text("\\n".join(lines) + "\\n", encoding="utf-8")
+
+if runs:
+    fig, ax = plt.subplots(figsize=(7, 4))
+    for key in runs[0]["quality"]:
+        if key.split("->")[0] == key.split("->")[1]:
+            ax.plot(budgets, [mean_q(b, key) for b in budgets], marker="o", label=f"trained and scored on {key.split('->')[0]}")
+    ax.axhline(jr["store"]["json_ranker"], color="#888", ls=":", label="JSON ranker (store labels)")
+    ax.set(xlabel="pretraining budget (min)", ylabel="held-out r-precision", title="D2: does longer pretraining help?")
+    ax.legend(fontsize=8)
+    fig.tight_layout()
+    fig.savefig(ROOT / "summary.png", dpi=140)
+display(Markdown((ROOT / "summary.md").read_text()))
+if runs:
+    display(Image(str(ROOT / "summary.png")))
+
+if API and not (ROOT / "report.md").exists():
+    run([sys.executable, str(TEACH_PY), "report", "--summary", ROOT / "summary.json", "--out", ROOT / "report.md",
+         "--model", REPORT_MODEL], "report", check=False)
+if (ROOT / "report.md").exists():
+    display(Markdown((ROOT / "report.md").read_text()))
+"""
+
+
+def directions_cells():
+    import copy
+    q = copy.deepcopy(cells)
+    push_md = cell(q, "Optional: commit the results into ezexe/phi")
+    push_md.source = push_md.source.replace("## 9.", "## 8.")
+    return [md(DIR_HEADER), cell(q, "## 0. Settings"), code(DIR_SETTINGS),
+            cell(q, "## 1. Drive, state and logging"), cell(q, "ROOT = pathlib.Path(DRIVE_DIR) / RUN"),
+            md(DIR_FROM_MD), code(DIR_FROM),
+            cell(q, "## 2. Repositories, pinned"), cell(q, "def checkout(repo, ref, dest, pin)"),
+            cell(q, "## 4. The store's labelled pairs"), cell(q, 'PAIRS = ROOT / "pairs" / "pairs.jsonl"'),
+            md(DIR_API_MD), code(DIR_API), md(DIR_TEACH_MD), code(DIR_TEACH), md(DIR_SUITE_MD), code(DIR_SUITE),
+            md(DIR_D3_MD), code(DIR_D3), md(DIR_D5_MD), code(DIR_D5), md(DIR_REPORT_MD), code(DIR_REPORT),
+            push_md, cell(q, 'if PUSH_RESULTS and not done("push"):')]
+
+
 def notebook(name, cs, run, t4=False):
     import copy
     cs = copy.deepcopy(cs)
@@ -785,3 +1082,5 @@ notebook("q_matrix_colab.ipynb", cells, "q-matrix-1")
 notebook("q_matrix_colab_t4.ipynb", cells, "q-matrix-1", t4=True)
 notebook("pathways_colab.ipynb", pathways_cells(), "pathways-1")
 notebook("pathways_colab_t4.ipynb", pathways_cells(), "pathways-1", t4=True)
+notebook("directions_colab.ipynb", directions_cells(), "directions-1")
+notebook("directions_colab_t4.ipynb", directions_cells(), "directions-1", t4=True)
