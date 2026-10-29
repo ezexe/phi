@@ -432,7 +432,7 @@ The owner's point, 2026-10-27:
   - "Zero logic." Fibonacci makes one test per bit. What it lacks is any other logic.
   - The binary-search contrast is an analogy: a binary tree also keeps both children.
 - **Measured, stages 1 and 3.**
-  - On held-out ranking quality at equal parameters, nesting ties one large model: stage 1's ensemble 0.200 against 0.204. It does not reliably beat it: the Zeckendorf ensemble wins at k = 4 on both seeds and loses at k = 8.
+  - On held-out ranking quality at equal parameters, nesting ties one large model: stage 1's ensemble 0.200 against 0.204. It does not reliably beat it: the Zeckendorf ensemble won at k = 4 on both seeds and lost at k = 8. **The k = 4 win did not replicate** on Colab (see "Replications on Colab" below).
   - With more total parameters (grown), nesting beats it at k = 8 (0.258 against 0.222).
   - On the realtime axes, nested and routed trees beat one large model:
     - update messages 3.6–5.8× smaller
@@ -442,6 +442,40 @@ The owner's point, 2026-10-27:
     - one node dropped costs under 0.01
   - The pruning matrix routes to the best node at about twice chance or better, and φ routes better than 2:4 on every axis but route accuracy at k = 8.
 - **Untested.** The single realtime stream of every node's rounds; more seeds, which several arms need before their differences count; and a ranker whose features have an order, where φ's adjacency rule would mean something about the data.
+
+## Replications on Colab (2026-10-29)
+
+Three runs on the same store (ezexe/AudioPlugin-p4, 24 labelled pools), with their results committed under `nested-store-results/`:
+- `colab-q-matrix-t4/`: the stage 3 suite at k = 2, 3 and 4 on two seeds, pretrained on a T4. The T4 fit about 36,000 pretraining steps where the original CPU runs fit far fewer.
+- `colab-pathways-1/`: the controls. The Zeckendorf tree against a binary tree and flat nodes, and four masks as routes. k = 4 on three seeds, every 6th pool held back as a dev set, early stopping.
+- `colab-directions-1/`: the JSON ranker, pretraining budgets from 0.5 to 6 minutes, and two Claude teachers (Fable 5.1 and Opus 5.5) as label sets.
+
+**What changed in the verdicts:**
+- **The k = 4 win did not replicate.** On the T4 the Zeckendorf ensemble lost to one large model at k = 4 on both seeds (0.186 against 0.196). k = 3 won on the mean (0.219 against 0.191) but on only one seed. In the pathways run at k = 4, one large model, the Zeckendorf tree, the binary tree and flat nodes scored 0.184, 0.185, 0.193 and 0.190: a tie within seed-to-seed swings of up to 0.07.
+- **The φ structure adds nothing to this ranker.**
+  - The Zeckendorf tree did not beat the binary tree: it won on two seeds and lost on one.
+  - Routing by the heaviest half of each node's rows found the best node most often on every seed (0.63 on average, against 0.50 for φ and 0.50 for a random half, where chance is 0.25).
+  - φ beat 2:4 on routed ranking on every seed, by about 0.01.
+  - The reading in stage 3 holds: with hashed features, the masks route because they keep each node's heaviest rows. The adjacency rule itself carries no meaning about the data. This was tested only for hashed, unordered features; ordered features remain untested.
+- **Pretraining on the store's text does not help ranking.**
+  - Every early-stopped model's best dev ranking came at step 0 or within the first ~225 steps.
+  - Held-out ranking was flat across budgets from 0.5 to 6 minutes (0.178 to 0.186).
+  - The T4's long pretraining scored below the CPU runs.
+- **No `.pt` model improved the JSON ranker.** The single ranker, the tree at medium and at high, every suite arm and every pretraining budget left it at or slightly below its 0.379 alone. The JSON ranker itself beats word overlap clearly (0.379 against 0.313).
+- **The store's labels are the noisy set.**
+  - The two Claude teachers agree with each other at F1 0.754, but with the store's labels at only 0.50 to 0.53.
+  - Their labels are more learnable: about 0.22 trained and scored on themselves, against 0.18 for the store's.
+  - Trained on Fable's labels, the model predicts the store's own labels better than when trained on them (0.199 against 0.186). Opus's labels did not.
+
+**Still holds:**
+- every structural result: the nesting grammar, the counts and the self-delimiting stream
+- routed updates 2.5 to 6 times smaller than one large model's
+- zero forgetting for time-routed nodes
+- routing above chance at every k
+
+**What p4 takes from this (vlds 0.0.77):**
+- The JSON ranker picks alone, and the `.pt` ranker is no longer trained or served.
+- The audit's reader is roboto by default, so its labels teach the ranker in place of the store's noisier ones.
 
 ## Reproduce on Colab
 

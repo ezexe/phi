@@ -54,6 +54,12 @@ When asked to update, or when a session reports open notices:
 
 This section turns phi's measurements into one configuration. Every figure is from `.docs/p4/nested-store.md` (AudioPlugin-p4, 22 labelled pools, held-out r-precision; k = 4 over 2 seeds, k = 8 over 1). Re-derive a figure before relying on it: rerun `scripts/session/nested_suite.py` on the store it is about, since the stores keep growing.
 
+**What p4 runs now (vlds 0.0.77).** The Colab replications (`.docs/p4/nested-store.md`, "Replications on Colab", 2026-10-29) changed the verdicts below. p4 now runs one configuration, with nothing for the owner to set:
+- the JSON ranker picks alone, with no `.pt` model trained, served or asked; `pool-effort:` is retired
+- roboto is always the audit's reader, and an audited session trains the ranker on roboto's labels in place of its own pool
+
+The effort tiers, the tree and the `.pt` ranker below are the design those runs tested; they run only under `VLDS_PT_RANKER=1`, for experiments. Before switching any of them back on, rerun the directions notebook and show a `.pt` that raises the JSON ranker's held-out r-precision.
+
 **What picks.** The JSON ranker (`pick-model.json`) picks. It scored 0.380, and no `.pt` arm comes close on its own (0.15–0.26). The `.pt` models feed it a feature, and only when that feature raises its leave-one-out r-precision. The plugin already enforces that.
 
 **Effort tiers.** The answer's cost is chosen by how much the task asks:
@@ -91,7 +97,7 @@ This section turns phi's measurements into one configuration. Every figure is fr
 - **The teacher** is the `mister:roboto` agent, on `model: fable`, the alias that follows Anthropic's newest and most capable widely released model.
 - Named in the store's `pool-audit-via:`, roboto reads the 1 in N audited sessions in the Haiku children's seat. Its picks become the labels the ranker and the `.pt` tiers learn from.
 - **The students** are the tiers above, picked by `pool-effort:`: low takes the Haiku seat, medium the Sonnet seat, high the Opus seat. The unbuilt grown tree would be the Fable seat.
-- **Before claiming the teacher helps,** compare the store's held-out figures from before and after it switches readers. That comparison has not been run yet.
+- **Measured since:** the two Claude teachers agreed with each other at F1 0.754, and with the store's labels at 0.50–0.53. Their labels were also more learnable (about 0.22 against 0.18). So vlds 0.0.77 makes roboto the reader always and its labels replace the audited session's own pool. No `.pt` tier raised the JSON ranker, so the students are retired and the teacher's labels teach the JSON ranker alone.
 
 ## Rules
 
