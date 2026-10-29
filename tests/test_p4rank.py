@@ -280,3 +280,23 @@ def test_training_device_and_feature_cache(monkeypatch):
     pools = [{"task": "a plan about the ring buffer", "rows": [{"text": t, "label": int(i < 2)} for i, t in enumerate(texts)]}]
     p4rank.finetune(m, pools, epochs=1)
     assert all(p.device.type == "cpu" for p in m.parameters())
+
+
+def test_pretrain_early_stopping():
+    """With a select function the pretraining keeps the best-scoring weights it saw, and reports the curve."""
+    texts = [f"the ring buffer drain order rule {i} and the toolbar latency {i % 3}" for i in range(12)]
+    m = p4rank.Ranker(1 << 12, 16)
+    calls = []
+
+    def select(model):                                   # best at the first check: the untrained weights
+        calls.append(1)
+        return 1.0 if len(calls) == 1 else 0.0
+    start = {k: v.clone() for k, v in m.state_dict().items()}
+    info = {}
+    steps = p4rank.pretrain(m, list(zip(texts, texts[1:])), 0.01, log=lambda *_: None, select=select,
+                            select_every=0.1, info=info)
+    assert steps > 0 and info["best_steps"] == 0 and info["best_score"] == 1.0 and len(info["curve"]) >= 2
+    assert all(torch.equal(start[k], v) for k, v in m.state_dict().items())        # the kept weights are the best
+    assert all(p.device.type == "cpu" for p in m.parameters())
+    m2 = p4rank.Ranker(1 << 12, 16)
+    assert p4rank.pretrain(m2, list(zip(texts, texts[1:])), 0.005, log=lambda *_: None) > 0   # no select: unchanged
