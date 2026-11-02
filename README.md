@@ -1,4 +1,4 @@
-# phi-prune
+# phi
 
 φ-pruning: structured sparsity from the φ-register's adjacency constraint, **no two adjacent weights active**.
 
