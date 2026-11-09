@@ -139,7 +139,11 @@ def labelled_tasks(m, p4: str) -> int:
 
 def check(p4: str, plugin: str, version: str, server_round) -> Dict:
     """Everything that stands and everything owed, for a p4-recall store; `owed` lists what update would do."""
-    from phi_rank import ANCHOR, CURRENT, read_sidecar, sidecar_name
+    try:
+        from phi_rank import ANCHOR, CURRENT, read_sidecar, sidecar_name
+    except ModuleNotFoundError as e:
+        raise SystemExit(f"phi_model: {e.name} is not installed in {sys.executable}. Build the p4 checkout's own "
+                         "environment with `python3 <p4 checkout>/scripts/make_venv.py` and run phi_model from its .venv.")
     m = modules(plugin)
     mdir = os.path.join(p4, "models")
     rep: Dict = {"kind": "p4-recall", "p4": p4, "plugin": plugin, "plugin_version": version, "owed": [], "corrupt": {}}
