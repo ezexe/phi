@@ -51,13 +51,16 @@ LOCAL_BUILD = "models/ranker.pt"     # each machine's build of the chain: ignore
 
 
 def p4_root(project: str) -> str:
-    """The store's root: <project>/.claude/p4, or the path itself when it is a store repository (sessions/ and
-    vindex/ at its top, as ezexe/AudioPlugin-p4 and ezexe/p4-p4 are)."""
+    """The store's root: <project>/.claude/p4, or the path itself when it is a store repository: sessions/ at its
+    top (the vlds layout, as ezexe/AudioPlugin-p4 and ezexe/p4-p4 are), or store/ and models/ (the p4-recall
+    layout, as ezexe/ap-p4 is)."""
     project = os.path.abspath(project)
     for cand in (os.path.join(project, ".claude", "p4"), project):
-        if os.path.isdir(os.path.join(cand, "sessions")):
+        if os.path.isdir(os.path.join(cand, "sessions")) or (os.path.isdir(os.path.join(cand, "store"))
+                                                             and os.path.isdir(os.path.join(cand, "models"))):
             return cand
-    raise SystemExit(f"p4model — no .claude/p4 store at or under {project} (looked for sessions/)")
+    raise SystemExit(f"p4model — no .claude/p4 store at or under {project} (looked for sessions/, or store/ and "
+                     "models/)")
 
 
 def session_store(p4: str) -> str:

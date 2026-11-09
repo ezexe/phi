@@ -1,16 +1,29 @@
 """
 A .claude/p4 store as training records for small models trained in rounds.
 
-It reads the layout the vlds plugin writes (sessions/*/vlds, sessions/*/src,
-flights/, memory/, mrindex/), as AudioPlugin-p4 holds it. A record is one text
-with its session, time and weight:
+It reads both layouts a store can hold. The old one the vlds plugin wrote
+(sessions/*/vlds, sessions/*/src, flights/, memory/, mrindex/), as
+AudioPlugin-p4 holds it; and the one the p4-recall plugin writes (store/,
+store/messages/, memory/, flights/, models/{labels,tasks}.tsv), as ap-p4 holds
+it. A record is one text with its session, time and weight:
 
-    pretrain   memory/*.md, sessions/*/vlds/**/*.md (archived runs too),
-               sessions/*/src/frags.md and the frags' scripts,
-               flights/*/plan.md and report.md (capped)
-    pair       one per flight: the clearance and plan as the prompt, the close
-               note and diff as the target; landed flights weigh 1, others less
-               (the gates fail them for a reason)
+    pretrain   memory/*.md (MEMORY.md, the index of links, aside in the new layout)
+               old: sessions/*/vlds/**/*.md (archived runs too),
+               sessions/*/src/frags.md and the frags' scripts
+               new: every entry of store/{rules,corrections,retractions,
+               facts}.md (its text fields, not its pointers), every completed
+               owner row of store/messages/<s8>.md (fingerprint, addressed,
+               recommended)
+               both: flights/*/plan.md and report.md (capped); a flight with no
+               takeoff.json is timed by its name (20261105-1126-...)
+    pair       old: one per flight, the clearance and plan as the prompt, the
+               close note and diff as the target; landed flights weigh 1, others
+               less (the gates fail them for a reason)
+               new: one per labelled task of models/tasks.tsv with a positive
+               in models/labels.tsv: the task's text as the prompt, the texts of
+               its label-1 entries (a store entry's fields, a memory section, a
+               repository entry's path) as the target; the heaviest positive's
+               weight is the record's
 
 A session's records take its mean mind-reader score (mrindex/history.tsv) as a
 weight multiplier when it has one. scratchpad/ is skipped: it is build output,
@@ -25,6 +38,7 @@ Run as a module for a summary: python -m phi_store <p4 root>
 """
 
 import csv
+import hashlib
 import json
 import re
 from dataclasses import dataclass
@@ -34,6 +48,12 @@ from typing import Dict, Iterator, List, Optional, Tuple
 
 REPORT_CAP = 64_000  # report.md runs to 470 KB; the head carries the findings
 NOT_LANDED_WEIGHT = 0.3
+STORE_FILES = ("rules.md", "corrections.md", "retractions.md", "facts.md")   # the p4-recall store's four files
+# an entry's pointer fields: never training text (the plugin's store.NOT_TEXT, plus the row state)
+NOT_TEXT = frozenset(("time", "status", "from", "arrival", "pinned", "added", "id", "session", "points-at",
+                      "supersedes", "resembles", "state", "freed-by"))
+NOT_OWNER_ARRIVAL = re.compile(r"(?i)\s*(task notification|notification|agent message|hook injection)")
+FLIGHT_NAME_RE = re.compile(r"^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})\b")
 SRC_SUFFIXES = {".py", ".ts", ".js", ".ps1", ".sh", ".cmake"}  # the frags' scripts; wav, png and json run output stay out
 
 
@@ -99,24 +119,206 @@ def flight_pair(flight: Path) -> Optional[Record]:
                   1.0 if verdict == "landed" else NOT_LANDED_WEIGHT)
 
 
+def flight_time(flight: Path) -> str:
+    """takeoff.json's time, or the time in the flight's name (20261105-1126-land-... -> 2026-11-05 11:26)."""
+    t = _json(flight / "takeoff.json").get("time", "")
+    if t:
+        return t
+    m = FLIGHT_NAME_RE.match(flight.name)
+    return f"{m.group(1)}-{m.group(2)}-{m.group(3)} {m.group(4)}:{m.group(5)}" if m else ""
+
+
+# --- the p4-recall layout: store/*.md entries, store/messages/<s8>.md rows, models/{labels,tasks}.tsv --------
+
+def sha8(text: str) -> str:
+    return hashlib.sha1((text or "").encode("utf-8")).hexdigest()[:8]
+
+
+def parse_entries(text: str) -> List[Tuple[int, List[Tuple[str, str]]]]:
+    """[(line, [(key, value)])] of a store file: a column-0 `- key: value` line opens an entry, two-space `key:`
+    lines are its fields, a four-space line continues the field before it; the header prose is skipped. The
+    plugin's store.parse, without its ids (entry_id computes those)."""
+    out: List[Tuple[int, List[Tuple[str, str]]]] = []
+    cur: Optional[List[Tuple[str, str]]] = None
+    for n, line in enumerate(text.split("\n"), 1):
+        m = re.match(r"^- ([a-z][a-z0-9_-]*):(?: (.*))?$", line)
+        if m:
+            cur = [(m.group(1), m.group(2) or "")]
+            out.append((n, cur))
+            continue
+        if cur is None:
+            continue
+        m = re.match(r"^  ([a-z][a-z0-9_-]*):(?: (.*))?$", line)
+        if m:
+            cur.append((m.group(1), m.group(2) or ""))
+        elif line.startswith("    ") and cur:
+            k, v = cur[-1]
+            cur[-1] = (k, v + "\n" + line[4:])
+        elif line.strip():
+            cur = None
+    return out
+
+
+def _fields(pairs: List[Tuple[str, str]]) -> Dict[str, str]:
+    """{key: first value}."""
+    return dict(reversed(pairs))
+
+
+def entry_id(file: str, pairs: List[Tuple[str, str]]) -> str:
+    """The plugin's id of an entry: <file>:<time>:<sha8 of the head value> (a repeat gets ~2, ~3, ... there; the
+    first wins here)."""
+    return f"{file}:{_fields(pairs).get('time', '').strip()}:{sha8(pairs[0][1] if pairs else '')}"
+
+
+def entry_text(pairs: List[Tuple[str, str]]) -> str:
+    return "\n".join(f"{k}: {v}" for k, v in pairs if k not in NOT_TEXT and v.strip())
+
+
+def owner_row(pairs: List[Tuple[str, str]]) -> bool:
+    """A completed row of the owner's own words: addressed, not a notification, an agent's message or a harness
+    injection (a fingerprint opening with `<`)."""
+    f = _fields(pairs)
+    fp = f.get("fingerprint", "").strip().strip('"')
+    return bool(f.get("addressed", "").strip()) and not NOT_OWNER_ARRIVAL.match(f.get("arrival", "")) \
+        and not fp.lstrip().startswith("<")
+
+
+def memory_sections(text: str) -> List[Tuple[str, str]]:
+    """[(heading, body)] of a memory note, the plugin's way: one per heading, the frontmatter's description (or the
+    first line) heading what comes before the first heading."""
+    lines = text.split("\n")
+    desc, start = "", 0
+    if lines and lines[0].strip() == "---":
+        for i in range(1, len(lines)):
+            if lines[i].strip() == "---":
+                start = i + 1
+                break
+            m = re.match(r"^(description|name):\s*(.*)$", lines[i])
+            if m and (m.group(1) == "description" or not desc):
+                desc = m.group(2).strip()
+    pre: List[str] = []
+    sections: List[Tuple[str, List[str]]] = []
+    cur = pre
+    for line in lines[start:]:
+        m = re.match(r"^#{1,6}\s+(.*)$", line)
+        if m:
+            cur = []
+            sections.append((m.group(1).strip(), cur))
+        else:
+            cur.append(line)
+    if any(x.strip() for x in pre) or not sections:
+        sections.insert(0, (desc or (lines[0].strip() if lines else ""), pre))
+    return [(t, " ".join(x.strip() for x in body if x.strip())) for t, body in sections]
+
+
+def store_entries(p4: Path) -> Dict[str, Tuple[str, str, str]]:
+    """{entry id: (source path, time, text)} for every entry of store/*.md, every row of store/messages/*.md and
+    every section of memory/*.md, under the plugin's ids."""
+    out: Dict[str, Tuple[str, str, str]] = {}
+    store = p4 / "store"
+    files = [(name, store / name) for name in STORE_FILES]
+    if (store / "messages").is_dir():
+        files += [(f"messages/{p.name}", p) for p in sorted((store / "messages").glob("*.md"))]
+    for rel, path in files:
+        if not path.exists():
+            continue
+        for line, pairs in parse_entries(_read(path)):
+            out.setdefault(entry_id(rel, pairs), (f"store/{rel}:{line}", _fields(pairs).get("time", "").strip(),
+                                                  entry_text(pairs)))
+    for path in sorted((p4 / "memory").glob("*.md")):
+        if path.name == "MEMORY.md":
+            continue
+        for title, body in memory_sections(_read(path)):
+            out.setdefault(f"memory/{path.name}::{sha8(title)}", (f"memory/{path.name}", "", f"{title}\n{body}"))
+    return out
+
+
+def _tsv(path: Path) -> List[dict]:
+    if not path.exists():
+        return []
+    lines = _read(path).split("\n")
+    head = lines[0].split("\t") if lines and lines[0] else []
+    return [dict(zip(head, l.split("\t"))) for l in lines[1:] if l.strip()]
+
+
+def label_pairs(p4: Path, entries: Optional[Dict[str, Tuple[str, str, str]]] = None) -> Iterator[Record]:
+    """One pair per task of models/tasks.tsv with a label-1 row in models/labels.tsv: the task's text as the
+    prompt, its positives' texts as the target (a repo: entry reads as its path), the heaviest positive's weight as
+    the record's. A task whose text is a harness or agent message (`<...>`) is skipped."""
+    entries = store_entries(p4) if entries is None else entries
+    tasks = {r["id"]: r for r in _tsv(p4 / "models" / "tasks.tsv") if r.get("id")}
+    positives: Dict[str, Dict[str, float]] = {}
+    for r in _tsv(p4 / "models" / "labels.tsv"):
+        if str(r.get("label")) == "1" and r.get("task") in tasks:
+            try:
+                w = float(r.get("weight") or 1.0)
+            except ValueError:
+                w = 1.0
+            got = positives.setdefault(r["task"], {})
+            got[r["entry"]] = max(got.get(r["entry"], 0.0), w)
+    for tid, task in tasks.items():
+        pos = positives.get(tid)
+        text = (task.get("text") or "").strip()
+        if not pos or not text or text.startswith("<"):
+            continue
+        texts = []
+        for eid in pos:
+            if eid in entries:
+                texts.append(entries[eid][2])
+            elif eid.startswith("repo:"):
+                texts.append(eid[5:].replace("#", " "))
+            else:
+                texts.append(eid)
+        yield Record("pair", f"models/labels.tsv:{tid}", task.get("session", ""), task.get("time", "")[:16], text,
+                     "\n\n".join(t for t in texts if t), max(pos.values()))
+
+
+def read_recall_layout(p4: Path) -> Iterator[Record]:
+    """The p4-recall layout's records: a pretrain record per store entry and per completed owner message row,
+    then the label pairs."""
+    entries = store_entries(p4)
+    store = p4 / "store"
+    for name in STORE_FILES:
+        if (store / name).exists():
+            for line, pairs in parse_entries(_read(store / name)):
+                text = entry_text(pairs)
+                if text:
+                    yield Record("pretrain", f"store/{name}:{line}", "", _fields(pairs).get("time", "").strip(), text)
+    if (store / "messages").is_dir():
+        for path in sorted((store / "messages").glob("*.md")):
+            for line, pairs in parse_entries(_read(path)):
+                if owner_row(pairs):
+                    yield Record("pretrain", f"store/messages/{path.name}:{line}", path.stem,
+                                 _fields(pairs).get("time", "").strip(), entry_text(pairs))
+    yield from label_pairs(p4, entries)
+
+
 def read_p4(root: str) -> Iterator[Record]:
     p4 = Path(root)
     scores = mind_reader_scores(p4)
+    new = (p4 / "store").is_dir()
 
     for path in sorted((p4 / "memory").glob("*.md")):
-        yield Record("pretrain", str(path.relative_to(p4)), "", "", _read(path))
+        if new and path.name == "MEMORY.md":
+            continue                        # the index of links, not a note
+        yield Record("pretrain", path.relative_to(p4).as_posix(), "", "", _read(path))
 
-    for session in sorted(p for p in (p4 / "sessions").iterdir() if p.is_dir()):
+    if new:
+        yield from read_recall_layout(p4)
+
+    sessions = sorted(p for p in (p4 / "sessions").iterdir() if p.is_dir()) if (p4 / "sessions").is_dir() else []
+    for session in sessions:
         sid = session_id(session.name)
         w = scores.get(sid, 1.0)
         paths = sorted(session.glob("vlds/**/*.md")) + sorted(
             p for p in session.glob("src/**/*") if p.suffix in SRC_SUFFIXES or p.name == "frags.md")
         for path in paths:
             text = _read(path)
-            yield Record("pretrain", str(path.relative_to(p4)), sid, _time_of(text), text, weight=w)
+            yield Record("pretrain", path.relative_to(p4).as_posix(), sid, _time_of(text), text, weight=w)
 
-    for flight in sorted(p for p in (p4 / "flights").iterdir() if p.is_dir()):
-        time = _json(flight / "takeoff.json").get("time", "")
+    flights = sorted(p for p in (p4 / "flights").iterdir() if p.is_dir()) if (p4 / "flights").is_dir() else []
+    for flight in flights:
+        time = flight_time(flight)
         for name, cap in (("plan.md", None), ("report.md", REPORT_CAP)):
             if (flight / name).exists():
                 yield Record("pretrain", f"flights/{flight.name}/{name}", flight.name, time, _read(flight / name, cap))
@@ -161,12 +363,39 @@ def split(records: List[Record], cutoff: str) -> Tuple[List[Record], List[Record
     return train, held
 
 
-if __name__ == "__main__":
+def source_group(source: str) -> str:
+    """store/rules.md:5 -> store/rules.md; store/messages/ab.md:9 -> store/messages/; flights/x/plan.md ->
+    flights/; models/labels.tsv:<task> -> models/labels.tsv; memory/x.md -> memory/."""
+    parts = source.split(":", 1)[0].split("/")
+    if parts[0] == "store":
+        return "store/messages/" if parts[1] == "messages" else "/".join(parts[:2])
+    if parts[0] == "models":
+        return "/".join(parts[:2])
+    return parts[0] + "/"
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    """python -m phi_store <p4 root>: records per kind and per source, characters, and the old layout's dispatch
+    rows when it has any."""
     import sys
     from collections import Counter
 
-    recs = list(read_p4(sys.argv[1]))
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if len(argv) != 1:
+        print("usage: python -m phi_store <p4 root>", file=sys.stderr)
+        return 2
+    root = argv[0]
+    recs = list(read_p4(root))
     kinds = Counter(r.kind for r in recs)
     chars = sum(len(r.text) + len(r.target) for r in recs)
     print(f"{len(recs)} records {dict(kinds)}, {chars / 1e6:.1f} M characters")
-    print("dispatch rows:", dict(Counter(d["state"] for d in dispatch_rows(sys.argv[1]))))
+    print("by source:", dict(sorted(Counter(source_group(r.source) for r in recs).items())))
+    if (Path(root) / "sessions").is_dir():
+        print("dispatch rows:", dict(Counter(d["state"] for d in dispatch_rows(root))))
+    return 0
+
+
+if __name__ == "__main__":
+    import sys
+
+    sys.exit(main())
