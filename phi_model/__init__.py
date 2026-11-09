@@ -2,11 +2,13 @@
 The p4 model checkpoint: one place where a repository's .claude/p4 store gets its models built, checked, tested,
 trained and set learning — so the agents working in that repository never have to.
 
-A store's models are the vlds plugin's two JSON models (the pool ranker, scripts/pick_model.py; the dispatch model,
-scripts/dispatch_model.py) and this package's .pt ranker (phi_rank, served by phi_serve). Sessions in
-the store's repository use them and, on any unexpected model failure, fall back (the JSON ranker, the children, the
-operator) and append one row to models/retrain-needed.tsv — nothing more. This module is where those rows are read
-and answered:
+Two plugins write such stores. The retired vlds plugin's store (sessions/*/vlds, vindex/phi-index.md) has its two
+JSON models (the pool ranker, scripts/pick_model.py; the dispatch model, scripts/dispatch_model.py) and this
+package's .pt ranker (phi_rank, served by phi_serve). The fresh marketplace's p4-recall store (store/, models/,
+p4.json) has the plugin's JSON ranker (`p4.py train`) and the .pt ranker trained from its models/labels.tsv; its
+modes, checks and trainings are in phi_model.recall. Either way the sessions use the models and, on any unexpected
+model failure, fall back (the JSON ranker, the children, the operator) and append one row to
+models/retrain-needed.tsv — nothing more. This module is where those rows are read and answered:
 
     python -m phi_model check  --project <repo or its .claude/p4>    what stands, what is behind, what failed
     python -m phi_model init   --project <…> [--mode shadow]          set up, train everything, set learning
@@ -16,7 +18,8 @@ and answered:
                                                                               clear the notices it answered, check again
     python -m phi_model mode   --project <…> shadow|active|off       the recall config's model settings
 
-Modes, written to the store's recall config (vindex/phi-index.md, ## recall):
+Modes, written to the store's recall config (vindex/phi-index.md ## recall for a vlds store; p4.json's recall
+section for a p4-recall store, see phi_model.recall):
     shadow — realtime shadow learning: the children pick and fold every pool while the model's picks are logged
              beside theirs (pool-road: model-shadow), the dispatch model proposes without deciding (dispatch-model:
              shadow), and every turn close retrains on the new labels, in the background, from then on.
@@ -48,6 +51,11 @@ MODE_KEYS = ("pool-road", "pool-audit", "dispatch-model")
 # ─── where things are ──────────────────────────────────────────────────────────────────────────────────
 
 LOCAL_BUILD = "models/ranker.pt"     # each machine's build of the chain: ignored, never tracked
+LFS_LINES = ("# the models' checkpoints in git LFS\nmodels/*.pt filter=lfs diff=lfs merge=lfs -text\n"
+             "models/*.phid filter=lfs diff=lfs merge=lfs -text\n")
+
+
+from . import recall  # noqa: E402  (the p4-recall branch)
 
 
 def p4_root(project: str) -> str:
@@ -80,31 +88,52 @@ def plugin_version(root: str) -> tuple:
 
 
 def is_plugin(path: str) -> bool:
-    return bool(path) and os.path.exists(os.path.join(path, "scripts", "pick_model.py"))
+    return bool(path) and (os.path.exists(os.path.join(path, "scripts", "pick_model.py")) or recall.is_plugin(path))
+
+
+def plugin_kind(path: str) -> str:
+    return "p4-recall" if recall.is_plugin(path) else "vlds" if is_plugin(path) else ""
 
 
 def find_plugin(given: str = "", project: str = "") -> str:
-    """The vlds plugin's root. --plugin, then $VLDS_PLUGIN_ROOT, win outright when they name the plugin; otherwise
-    the newest of the installed copies (~/.claude/plugins) and of a marketplace checkout beside the project — never a
-    wider sweep of the home directory, whose code this would import."""
-    for explicit in (given, os.environ.get("VLDS_PLUGIN_ROOT", "")):
+    """The plugin's root: p4-recall for a store with store/ at its top, vlds for one with sessions/. --plugin, then
+    $P4_RECALL_PLUGIN_ROOT / $VLDS_PLUGIN_ROOT, win outright when they name a plugin; otherwise the newest of the
+    installed copies (~/.claude/plugins) and of a marketplace checkout beside the project, of the kind the store
+    wants — never a wider sweep of the home directory, whose code this would import."""
+    for explicit in (given, os.environ.get("P4_RECALL_PLUGIN_ROOT", ""), os.environ.get("VLDS_PLUGIN_ROOT", "")):
         if explicit:
             if not is_plugin(explicit):
-                raise SystemExit(f"p4model — {explicit} is not the vlds plugin (no scripts/pick_model.py)")
+                raise SystemExit(f"p4model — {explicit} is neither the p4-recall plugin (scripts/p4.py and train.py) "
+                                 "nor the vlds plugin (scripts/pick_model.py)")
             return os.path.abspath(explicit)
+    want = "vlds"
+    try:
+        want = "p4-recall" if recall.is_store(p4_root(project or ".")) else "vlds"
+    except SystemExit:
+        pass
     home = os.path.expanduser("~")
     cands = []
-    beside = os.path.dirname(os.path.abspath(project or "."))
-    for pattern in (os.path.join(home, ".claude", "plugins", "**", "vlds", ".claude-plugin", "plugin.json"),
-                    # the marketplace's directory is lbiza (Ibiza in a checkout from before the rename)
-                    *(os.path.join(beside, "*", m, "plugins", "vlds", ".claude-plugin", "plugin.json")
-                      for m in ("lbiza", "Ibiza"))):
-        cands += [os.path.dirname(os.path.dirname(p)) for p in glob.glob(pattern, recursive=True)]
+    # a marketplace checkout beside the project, or beside one of its four nearest ancestors (a store checked out
+    # under a project's experiments/ still finds the checkout at the project's top)
+    ancestors, d = [], os.path.dirname(os.path.abspath(project or "."))
+    for _ in range(5):
+        ancestors.append(d)
+        up = os.path.dirname(d)
+        if up == d:
+            break
+        d = up
+    for name in ("p4-recall", "vlds"):
+        for pattern in (os.path.join(home, ".claude", "plugins", "**", name, ".claude-plugin", "plugin.json"),
+                        # the marketplace's directory is lbiza (Ibiza in a checkout from before the rename)
+                        *(os.path.join(a, "*", m, "plugins", name, ".claude-plugin", "plugin.json")
+                          for a in ancestors for m in ("lbiza", "Ibiza"))):
+            cands += [os.path.dirname(os.path.dirname(p)) for p in glob.glob(pattern, recursive=True)]
     found = [c for c in dict.fromkeys(cands) if is_plugin(c)]
-    if not found:
-        raise SystemExit("p4model — the vlds plugin was not found: pass --plugin <…/lbiza/plugins/vlds> or set "
-                         "VLDS_PLUGIN_ROOT")
-    return max(found, key=plugin_version)
+    right = [c for c in found if plugin_kind(c) == want] or found
+    if not right:
+        raise SystemExit(f"p4model — no {want} plugin was found: pass --plugin <…/lbiza/plugins/{want}> or set "
+                         f"{'P4_RECALL_PLUGIN_ROOT' if want == 'p4-recall' else 'VLDS_PLUGIN_ROOT'}")
+    return max(right, key=plugin_version)
 
 
 def plugin_modules(plugin: str):
@@ -124,11 +153,14 @@ def run(cmd: List[str], cwd: Optional[str] = None, env: Optional[Dict] = None) -
 # ─── the recall config ─────────────────────────────────────────────────────────────────────────────────
 
 def recall_path(p4: str) -> str:
-    return os.path.join(p4, "vindex", "phi-index.md")
+    """vindex/phi-index.md (a vlds store), or p4.json (a p4-recall store: phi_model.recall)."""
+    return recall.config_path(p4) if recall.is_store(p4) else os.path.join(p4, "vindex", "phi-index.md")
 
 
 def read_recall(p4: str) -> Dict[str, str]:
-    """The `## recall` section's key: value lines."""
+    """The `## recall` section's key: value lines (a vlds store), or p4.json's recall mode keys (p4-recall)."""
+    if recall.is_store(p4):
+        return recall.read_recall(p4)
     try:
         with open(recall_path(p4), encoding="utf-8") as f:
             text = f.read()
@@ -142,6 +174,8 @@ def read_recall(p4: str) -> Dict[str, str]:
 
 def write_mode(p4: str, mode: str, now: str) -> str:
     """Set the recall config's model keys to a mode, every other line of the file kept as it is."""
+    if recall.is_store(p4):
+        return recall.write_mode(p4, mode, now)
     path = recall_path(p4)
     try:
         with open(path, encoding="utf-8") as f:
@@ -168,6 +202,8 @@ def write_mode(p4: str, mode: str, now: str) -> str:
 
 
 def mode_of(cfg: Dict[str, str]) -> str:
+    if "inject" in cfg and not any(k in cfg for k in MODE_KEYS):   # p4.json's keys (phi_model.recall)
+        return recall.mode_of(cfg)
     for name, keys in MODES.items():
         if all(cfg.get(k) == v for k, v in keys.items() if k != "pool-audit"):
             return name
@@ -202,6 +238,8 @@ def load_json(path: str):
 
 def check(p4: str, plugin: str) -> Dict:
     """Everything that stands and everything owed, as one dict; `owed` lists the actions update would take."""
+    if plugin_kind(plugin) == "p4-recall":
+        return recall.check(p4, plugin, ".".join(map(str, plugin_version(plugin))), server_round)
     pm, dm = plugin_modules(plugin)
     store = session_store(p4)
     mdir = os.path.join(p4, "models")
@@ -306,6 +344,8 @@ def check(p4: str, plugin: str) -> Dict:
 
 
 def print_check(rep: Dict) -> None:
+    if rep.get("kind") == "p4-recall":
+        return recall.print_check(rep)
     print(f"p4 store {rep['p4']} — vlds {rep['plugin_version']} at {rep['plugin']}")
     print(f"  mode: {rep['mode']} ({', '.join(f'{k}: {v}' for k, v in rep['recall'].items() if v) or 'nothing named'})")
     print(f"  git: {'yes' if rep['git'] else 'NO'}; lfs for checkpoints: {'yes' if rep['lfs'] else 'no'}; "
@@ -329,6 +369,8 @@ def print_check(rep: Dict) -> None:
 def train(p4: str, plugin: str, only: List[str], now: str, minutes: float) -> Dict[str, Dict]:
     """The plugin's own trainers, so a model is built here exactly as the turn close builds it. Output is printed,
     not logged: the models/*.log files hold only the trainings the turn close started."""
+    if plugin_kind(plugin) == "p4-recall":
+        return recall.train(p4, plugin, only, now, minutes)
     store = session_store(p4)
     scripts = os.path.join(plugin, "scripts")
     env = dict(os.environ, VLDS_RANKER_PYTHON=sys.executable)
@@ -359,6 +401,8 @@ def resolve_notices(p4: str, plugin: str, trained: Dict[str, Dict], now: str) ->
     """Answer the open notices of every model a training just rebuilt, by appending them to
     models/retrain-resolved.tsv. retrain-needed.tsv is never rewritten, so a notice a hook appends meanwhile is
     never lost; a model that found nothing to learn answers nothing."""
+    if plugin_kind(plugin) == "p4-recall":
+        return recall.resolve_notices(p4, plugin, trained, now)
     pm, _dm = plugin_modules(plugin)
     store = session_store(p4)
     rebuilt = {k for k, v in trained.items() if v["ok"] and not v.get("empty")}
@@ -379,6 +423,8 @@ def resolve_notices(p4: str, plugin: str, trained: Dict[str, Dict], now: str) ->
 def test(p4: str, plugin: str, now: str, minutes: float, folds: int) -> Dict[str, List[str]]:
     """Held-out evaluations of all three models and a live server check. Nothing the store serves is touched: the
     .pt evaluation never writes the pretrained base, and the server check uses its own port file."""
+    if plugin_kind(plugin) == "p4-recall":
+        return recall.test(p4, plugin, now, minutes, folds, smoke_server)
     store = session_store(p4)
     scripts = os.path.join(plugin, "scripts")
     out: Dict[str, List[str]] = {}
@@ -451,10 +497,13 @@ def seed_repo(p4: str, plugin: str) -> List[str]:
         done.append("git init")
     for name, src in ((".gitignore", "p4-gitignore"), (".gitattributes", "p4-gitattributes")):
         dst, tpl = os.path.join(p4, name), os.path.join(plugin, "hooks", src)
-        if not os.path.exists(tpl):
+        if os.path.exists(tpl):
+            with open(tpl, encoding="utf-8") as f:
+                template = f.read()
+        elif name == ".gitattributes":
+            template = LFS_LINES          # p4-recall seeds the .gitignore itself and ships no .gitattributes
+        else:
             continue
-        with open(tpl, encoding="utf-8") as f:
-            template = f.read()
         if not os.path.exists(dst):
             with open(dst, "w", encoding="utf-8", newline="\n") as g:
                 g.write(template)
@@ -512,7 +561,7 @@ def main(argv=None) -> int:
     for name in ("check", "init", "train", "test", "update", "mode"):
         p = sub.add_parser(name)
         p.add_argument("--project", required=True, help="the repository, or its .claude/p4 store")
-        p.add_argument("--plugin", default="", help="the vlds plugin root (found when omitted)")
+        p.add_argument("--plugin", default="", help="the p4-recall or vlds plugin root (found when omitted)")
         p.add_argument("--now", default=time.strftime("%Y-%m-%d %H:%M"))
         if name in ("init", "train", "test", "update"):
             p.add_argument("--minutes", type=float, default=5, help="the .pt ranker's pretraining budget")
