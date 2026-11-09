@@ -76,6 +76,29 @@ def test_p4_root_and_plugin_kind(tmp_path):
     assert p4model.find_plugin(str(fake), str(tmp_path)) == str(fake)
 
 
+def test_find_plugin_reads_claude_codes_marketplace_registry(tmp_path, monkeypatch):
+    """A directory marketplace is read in place, so the plugin sits wherever known_marketplaces.json says."""
+    market = tmp_path / "market" / "lbiza"
+    plugin = market / "plugins" / "p4-recall"
+    (plugin / "scripts").mkdir(parents=True)
+    for n in ("p4.py", "train.py"):
+        (plugin / "scripts" / n).write_text("", encoding="utf-8")
+    (plugin / ".claude-plugin").mkdir()
+    (plugin / ".claude-plugin" / "plugin.json").write_text('{"name": "p4-recall", "version": "0.2.0"}', encoding="utf-8")
+    home = tmp_path / "home"
+    (home / ".claude" / "plugins").mkdir(parents=True)
+    import json
+    (home / ".claude" / "plugins" / "known_marketplaces.json").write_text(json.dumps(
+        {"p4-marketplace": {"source": {"source": "directory", "path": str(market)}, "installLocation": str(market)}}), encoding="utf-8")
+    for var in ("HOME", "USERPROFILE"):
+        monkeypatch.setenv(var, str(home))
+    monkeypatch.delenv("P4_RECALL_PLUGIN_ROOT", raising=False)
+    monkeypatch.delenv("VLDS_PLUGIN_ROOT", raising=False)
+    project = tmp_path / "elsewhere" / "proj"
+    (project / ".claude" / "p4" / "store").mkdir(parents=True)
+    assert p4model.find_plugin("", str(project)) == str(plugin)
+
+
 def test_modes_live_in_p4_json_and_keep_every_other_key(tmp_path):
     p4 = str(tmp_path)
     os.makedirs(os.path.join(p4, "store"))

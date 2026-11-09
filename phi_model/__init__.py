@@ -128,6 +128,20 @@ def find_plugin(given: str = "", project: str = "") -> str:
                         *(os.path.join(a, "*", m, "plugins", name, ".claude-plugin", "plugin.json")
                           for a in ancestors for m in ("lbiza", "Ibiza"))):
             cands += [os.path.dirname(os.path.dirname(p)) for p in glob.glob(pattern, recursive=True)]
+    # the marketplaces Claude Code knows (a directory marketplace is read in place, never copied under cache/)
+    for reg, key in (("known_marketplaces.json", "installLocation"), ("installed_plugins.json", "installPath")):
+        try:
+            with open(os.path.join(home, ".claude", "plugins", reg), encoding="utf-8") as f:
+                data = json.load(f)
+        except (OSError, ValueError):
+            continue
+        entries = data.get("plugins", {}).values() if reg == "installed_plugins.json" else data.values()
+        for entry in entries:
+            for rec in (entry if isinstance(entry, list) else [entry]):
+                loc = rec.get(key, "") if isinstance(rec, dict) else ""
+                if not loc:
+                    continue
+                cands += [loc] if is_plugin(loc) else [os.path.join(loc, "plugins", n) for n in ("p4-recall", "vlds")]
     found = [c for c in dict.fromkeys(cands) if is_plugin(c)]
     right = [c for c in found if plugin_kind(c) == want] or found
     if not right:
