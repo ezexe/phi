@@ -194,3 +194,20 @@ def test_check_without_torch_checks_what_recall_serves(tmp_path, monkeypatch, ca
     assert [o for o in with_torch["owed"] if o != "train ranker"] == rep["owed"]
     p4model.print_check(rep)
     assert "pt ranker: not checked or trained here" in capsys.readouterr().out
+
+
+@needs_plugin
+def test_labels_since_the_round_counts_raw_labels_as_the_round_does(tmp_path):
+    """eval.tsv records count_labels (labels-raw.tsv and labels.tsv); check takes the count since the round the same
+    way, so a store with raw labels never reads a negative count."""
+    p4 = os.path.join(str(tmp_path / "proj"), ".claude", "p4")
+    write_store(p4)
+    m = recall.modules(PLUGIN)
+    raw = [{"task": "t", "entry": f"e{i}", "label": "1", "source": "store", "weight": "0.5", "time": "2026-11-01 10:00"}
+           for i in range(7)]
+    m.labels.write_tsv(m.labels.mpath(p4, m.labels.RAW), m.labels.RAW_HEAD, raw)
+    total = m.labels.count_labels(p4)
+    assert total > len(m.labels.read_tsv(m.labels.mpath(p4, m.labels.TRAIN)))
+    with open(os.path.join(p4, "models", "eval.tsv"), "w", encoding="utf-8") as f:
+        f.write("round\ttime\tlabels\n1\t2026-11-09 10:00\t%d\n" % total)
+    assert p4model.check(p4, PLUGIN)["labels_since_round"] == 0

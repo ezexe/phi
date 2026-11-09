@@ -188,10 +188,13 @@ def check(p4: str, plugin: str, version: str, server_round) -> Dict:
     evals = m.labels.read_tsv(m.labels.mpath(p4, "eval.tsv"))
     last = evals[-1] if evals else {}
     rep["eval_last"] = {k: last.get(k, "") for k in ("round", "time", "labels", "r_precision", "precision", "promoted", "why")} if last else None
+    # eval.tsv's labels column is the plugin's count_labels (labels-raw.tsv and labels.tsv together), so the count
+    # since the last round is taken the same way; labels.tsv alone read 46 below the round on a store with raw labels
+    total = m.labels.count_labels(p4) if hasattr(m.labels, "count_labels") else len(labels)
     try:
-        since = len(labels) - int(last.get("labels", 0) or 0)
+        since = total - int(last.get("labels", 0) or 0)
     except ValueError:
-        since = len(labels)
+        since = total
     rep["labels_since_round"] = since
     if "ranker.json" in rep["corrupt"] or (n_lab >= MIN_JSON_TASKS and (not evals or since >= owed_labels)):
         rep["owed"].append("train json")
