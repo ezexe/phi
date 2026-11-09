@@ -1,19 +1,30 @@
 """
 The node tree behind the p4-model skill's effort tiers: K small rankers at the first K Zeckendorf store addresses,
-each pretrained on its own shard of the store's text, pruned along its feature rows by phi_prune's adjacency mask,
-and fine-tuned on the store's labelled pools. Measured in .docs/p4/nested-store.md (stage 3, nested_suite.py).
+each fine-tuned on the store's labelled pools. Measured in .docs/p4/nested-store.md (stage 3, nested_suite.py) and
+in the p4-phi experiments' phi_depth (github.com/ezexe/p4-phi-experiments, 2026-11-09).
 
-How it is built, as measured:
+How it is built:
 - the store's tracked text is cut into K shards of equal bytes by when git first added each file; the oldest shard
   goes to the deepest address
 - a leaf node starts from scratch (a node is 2^(B - log2 K) rows: the shared base, 2^B rows, does not fit it); a node
   with children starts from the mean of their weights, so the root has learned from the whole tree
-- each node pretrains on its shard for MINUTES / K, is fine-tuned on every labelled pool, and keeps the rows
-  phi_mask(density 0.5) keeps; the mask is re-applied after fine-tuning
+- each node is fine-tuned on every labelled pool. Two steps are off by default since phi_depth measured them on a
+  97-pool store (3 seeds, K = 4, held-out R-precision at high): pretraining each node on its shard for MINUTES / K
+  (0.621 with a minute of it against 0.633 without; one ranker 0.519 against 0.567), and keeping only the rows
+  phi_mask(density 0.5) keeps (0.586 against 0.633 unmasked; every half mask, φ, 2:4, heaviest, random, cost the
+  same, so the cost is halving the rows, not the pattern). --minutes and --mask turn them back on.
+- what high answers is the tree's best measured tier: 0.633 against 0.567 for one ranker of the same total size.
+  medium routes at chance on that store (the routed node was the best one for 47% of pools, 50% by chance).
+
+The limit: those numbers are on phi_rank's pools, which hold every labelled entry of a task and ten BM25 negatives.
+On p4-recall's own candidates (the top 200 of BM25, where the labelled entries are mostly absent) the same tree
+ranked 0.012 R-precision against BM25's 0.096 on that store's newest quarter of tasks: it is not a reranker for
+recall's lines as it stands.
 
 How it answers (phi_serve, by the request's effort):
-  medium  the one node whose kept rows carry the most weight on the task's features: the pruning matrix as the route
-  high    every node, each node's scores z-scored and averaged
+  medium  the one node whose rows carry the most weight on the task's features (a masked tree's zeroed rows count
+          nothing, so there the pruning matrix is the route)
+  high    every node, each node's scores z-scored and averaged; Tree.score's default
 Any other effort, or no tree on disk, is the store's single ranker (phi_rank.load_current), as before.
 
 Files, in the store's models/: tree/<address>.pt (fp16, git LFS), tree.json (the addresses, the shards' time spans,
@@ -21,7 +32,7 @@ when it was trained) and tree-oof.json: every labelled pool scored at medium and
 fine-tuned on it, with each effort's held-out r-precision. The JSON ranker fits its .pt weight on those scores when
 the store's pool-effort names the tree, as it fits it on ranker-oof.json for the single ranker.
 
-    python -m phi_rank.tree train --p4 <p4 root> --pairs pairs.jsonl --k 4 --minutes 6 --now "2026-10-28 12:00"
+    python -m phi_rank.tree train --p4 <p4 root> --pairs pairs.jsonl --k 4 [--minutes 6] [--mask] --now "2026-10-28 12:00"
 """
 
 import argparse
@@ -139,6 +150,11 @@ def answer(models: Sequence[pr.Ranker], rows: Sequence[torch.Tensor], task: str,
     return [x / len(models) for x in total], -1
 
 
+MASK = False                  # phi_mask the nodes' feature rows (measured to cost 0.05; --mask turns it on)
+MINUTES = 0.0                 # pretraining per tree, split over its nodes (measured to lower ranking; --minutes N)
+DEFAULT_EFFORT = "high"
+
+
 def mask_rows(m: pr.Ranker) -> torch.Tensor:
     """phi_prune's adjacency mask over the node's feature rows, applied in place; the mask is returned."""
     mask = phi_mask(m.bag.weight.detach(), axis=0, density=0.5)
@@ -147,8 +163,8 @@ def mask_rows(m: pr.Ranker) -> torch.Tensor:
     return mask
 
 
-def build(p4: str, pools: Sequence[Dict], k: int = 4, minutes: float = 6, epochs: int = 10, bits: int = pr.NB.bit_length() - 1,
-          dim: int = pr.DIM, now: str = "", log=print) -> Dict:
+def build(p4: str, pools: Sequence[Dict], k: int = 4, minutes: float = MINUTES, epochs: int = 10,
+          bits: int = pr.NB.bit_length() - 1, dim: int = pr.DIM, now: str = "", log=print, mask: bool = MASK) -> Dict:
     files, spans = shard_files(p4, k)
     nb = 1 << (bits - int(round(math.log2(k))))
     order = sorted(addresses(k), key=lambda a: (-len(a), a))     # deepest first: the oldest shard
@@ -163,18 +179,21 @@ def build(p4: str, pools: Sequence[Dict], k: int = 4, minutes: float = 6, epochs
             m.load_state_dict({key: sum(s[key] for s in kids) / len(kids) for key in kids[0]})
         torch.manual_seed(i)
         t0 = time.time()
-        log(f"tree - node {a} ({i + 1}/{k}): pretraining {minutes / k * 60:.0f} s on shard {i + 1}, then fine-tuning")
-        steps = pr.pretrain(m, shard_pairs(p4, files[i]), minutes / k, seed=i, log=lambda *_: None)
+        log(f"tree - node {a} ({i + 1}/{k}): " + (f"pretraining {minutes / k * 60:.0f} s on shard {i + 1}, then "
+                                                    if minutes > 0 else "") + "fine-tuning")
+        steps = pr.pretrain(m, shard_pairs(p4, files[i]), minutes / k, seed=i, log=lambda *_: None) if minutes > 0 else 0
         trained[a] = {key: v.clone() for key, v in m.state_dict().items()}   # what a parent starts from
         pre.append(trained[a])
         pr.finetune(m, pools, epochs=epochs, seed=i)
-        mask_rows(m)
-        pr.save(m, {"nb": nb, "dim": dim, "stage": "tree", "address": a, "trained": now}, os.path.join(out_dir, f"{a}.pt"))
+        if mask:
+            mask_rows(m)
+        pr.save(m, {"nb": nb, "dim": dim, "stage": "tree", "address": a, "trained": now, "masked": mask}, os.path.join(out_dir, f"{a}.pt"))
         nodes.append({"address": a, "shard": i, "files": len(files[i]), "span": list(spans[i]), "steps": steps})
         log(f"tree - node {a}: shard {i + 1}/{k}, {len(files[i])} files, {steps} steps, {time.time() - t0:.0f} s")
-    meta = {"k": k, "nb": nb, "dim": dim, "trained": now, "nodes": nodes, "pools": [p["id"] for p in pools]}
+    meta = {"k": k, "nb": nb, "dim": dim, "trained": now, "nodes": nodes, "pools": [p["id"] for p in pools],
+            "masked": mask, "minutes": minutes}
     pr.write_text_atomic(json.dumps(meta, indent=1) + "\n", os.path.join(pr.models_dir(p4), TREE_JSON))
-    oof = out_of_fold(pre, pools, epochs, now, log)
+    oof = out_of_fold(pre, pools, epochs, now, log, mask=mask)
     if oof:
         pr.write_text_atomic(json.dumps(oof, separators=(",", ":")) + "\n", os.path.join(pr.models_dir(p4), TREE_OOF))
         meta["heldout"] = oof["heldout"]
@@ -183,7 +202,8 @@ def build(p4: str, pools: Sequence[Dict], k: int = 4, minutes: float = 6, epochs
     return meta
 
 
-def out_of_fold(pre: Sequence[Dict], pools: Sequence[Dict], epochs: int, now: str, log=print) -> Optional[Dict]:
+def out_of_fold(pre: Sequence[Dict], pools: Sequence[Dict], epochs: int, now: str, log=print,
+                mask: bool = MASK) -> Optional[Dict]:
     """Every pool scored at medium and at high by a fold tree that never fine-tuned on it: each fold fine-tunes
     every node from its pretrained state on the other folds' pools and masks it, as build does. None with too few
     pools to fold."""
@@ -200,7 +220,8 @@ def out_of_fold(pre: Sequence[Dict], pools: Sequence[Dict], epochs: int, now: st
             m.load_state_dict(state)
             torch.manual_seed(f * 100 + i)
             pr.finetune(m, train, epochs=epochs, seed=f * 100 + i)
-            mask_rows(m)
+            if mask:
+                mask_rows(m)
             models.append(m)
         rows = node_rows(models)
         log(f"tree - out of fold: fold {f + 1}/{FOLDS}, {len(pre)} nodes fine-tuned on {len(train)} pools")
@@ -230,7 +251,7 @@ class Tree:
     def route(self, task: str) -> int:
         return route(self.rows, task)
 
-    def score(self, task: str, texts: Sequence[str], effort: str) -> Tuple[List[float], str]:
+    def score(self, task: str, texts: Sequence[str], effort: str = DEFAULT_EFFORT) -> Tuple[List[float], str]:
         sc, i = answer(self.models, self.rows, task, texts, effort)
         return sc, (f"tree:medium:{self.addresses[i]}" if i >= 0 else f"tree:high:{len(self.models)}")
 
@@ -242,7 +263,8 @@ def main(argv=None) -> int:
     p.add_argument("--p4", required=True)
     p.add_argument("--pairs", required=True)
     p.add_argument("--k", type=int, default=4)
-    p.add_argument("--minutes", type=float, default=6)
+    p.add_argument("--minutes", type=float, default=MINUTES, help="pretraining per tree (default none: it lowered ranking)")
+    p.add_argument("--mask", action="store_true", help="phi_mask each node's rows (default off: it cost 0.05)")
     p.add_argument("--epochs", type=int, default=10)
     p.add_argument("--now", default="")
     args = ap.parse_args(argv)
@@ -254,7 +276,7 @@ def main(argv=None) -> int:
     if not pools:
         print("tree — no labelled pool in the pairs; nothing written")
         return 1
-    meta = build(args.p4, pools, args.k, args.minutes, args.epochs, now=args.now)
+    meta = build(args.p4, pools, args.k, args.minutes, args.epochs, now=args.now, mask=args.mask)
     held = meta.get("heldout")
     print(f"tree - {meta['k']} nodes ({', '.join(n['address'] for n in meta['nodes'])}) -> models/{TREE_DIR}/"
           + (f"; held out: medium {held['medium']:.3f}, high {held['high']:.3f}" if held else ""))

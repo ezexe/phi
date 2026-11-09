@@ -213,9 +213,28 @@ def test_shared_base_seeds_a_store_without_one(tmp_path):
     assert "from_shared" not in meta2 and meta2["nb"] == p4rank.NB
 
 
+def test_node_tree_defaults_are_the_measured_best(tmp_path):
+    """By default the tree's nodes keep every row and skip pretraining (phi_depth: both cost held-out R-precision),
+    and Tree.score answers at high, every node averaged."""
+    import phi_rank.tree as tree
+    pairs = make_store(tmp_path)
+    pools = p4rank.read_pools(str(pairs))
+    meta = tree.build(str(tmp_path), pools, k=2, epochs=2, bits=13, dim=16, now="2026-11-09", log=lambda *_: None)
+    assert meta["masked"] is False and meta["minutes"] == 0
+    assert all(n["steps"] == 0 for n in meta["nodes"]), "no pretraining steps"
+    for n in meta["nodes"]:
+        m, saved = p4rank.load(str(tmp_path / "models" / "tree" / f"{n['address']}.pt"))
+        assert saved["masked"] is False
+        rows = m.bag.weight.norm(dim=1) > 0
+        assert bool((rows[1:] & rows[:-1]).any()), "unmasked: adjacent rows are kept"
+    t = tree.Tree(str(tmp_path))
+    scores, source = t.score("a plan about the ring buffer drain", [r["text"] for r in pools[0]["rows"]])
+    assert source == "tree:high:2" and len(scores) == len(pools[0]["rows"])
+
+
 def test_node_tree_answers_by_effort(tmp_path):
-    """phi_rank.tree builds K nodes at the first K Zeckendorf addresses, each pruned by phi_mask; phi_serve answers
-    medium from the one node the mask routes to, high from every node, and no effort from the single ranker."""
+    """phi_rank.tree builds K nodes at the first K Zeckendorf addresses, each pruned by phi_mask when asked; phi_serve
+    answers medium from the one node the mask routes to, high from every node, and no effort from the single ranker."""
     import phi_rank.tree as tree
     assert tree.addresses(4) == ["1", "101", "1001", "10001"]          # lengths 1, 3, 4, 5 then 10101
     assert tree.addresses(5) == ["1", "101", "1001", "10001", "10101"]
@@ -223,9 +242,10 @@ def test_node_tree_answers_by_effort(tmp_path):
     pairs = make_store(tmp_path)
     pools = p4rank.read_pools(str(pairs))
     meta = tree.build(str(tmp_path), pools, k=4, minutes=0.02, epochs=4, bits=13, dim=16, now="2026-10-28",
-                      log=lambda *_: None)
+                      log=lambda *_: None, mask=True)
     mdir = tmp_path / "models"
     assert [n["address"] for n in meta["nodes"]][-1] == "1"              # the root trains last
+    assert meta["masked"] is True
     for n in meta["nodes"]:
         m, _ = p4rank.load(str(mdir / "tree" / f"{n['address']}.pt"))
         kept = m.bag.weight.norm(dim=1) > 0
