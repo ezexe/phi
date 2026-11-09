@@ -11,9 +11,13 @@ Two stages, one model:
    passages of one file are pulled together and every other passage in the
    batch pushed apart (InfoNCE), so the encoder learns the repository's own
    vocabulary: its classes, files, measurements and rulings.
-2. finetune — on the labelled pools the vlds plugin exports (`pick_model.py
-   pairs --jsonl`): each pool's task against the entries its steering picked,
-   the pool's other candidates as the negatives.
+2. finetune — on labelled pools: each pool's task against the entries picked
+   for it, the pool's other candidates as the negatives. Two sources: the pairs
+   the vlds plugin exports (`pick_model.py pairs --jsonl`, read_pools), or,
+   with no --pairs, the p4-recall plugin's own labels (read_label_pools):
+   models/labels.tsv and tasks.tsv joined over models/index.json, label 1 the
+   positives, label 0 plus NEGATIVES unlabelled BM25 candidates the negatives,
+   each candidate one the session could have been shown (dated before the task).
 
 The encoder is a bag of hashed word, word-pair and character-trigram features
 (no vocabulary to download) through an EmbeddingBag and a small MLP, with one
@@ -47,13 +51,14 @@ pools (each fold's model fine-tuned from the base without the pools it is
 scored on) and chosen again when the labelled pools have grown by a quarter.
 
     python -m phi_rank pretrain --p4 <p4 root> --minutes 5 [--buckets 32768 --dim 64]
-    python -m phi_rank train --p4 <p4 root> --pairs pairs.jsonl --now "2026-10-27 09:00"
-    python -m phi_rank eval --p4 <p4 root> --pairs pairs.jsonl
+    python -m phi_rank train --p4 <p4 root> [--pairs pairs.jsonl] --now "2026-10-27 09:00"
+    python -m phi_rank eval --p4 <p4 root> [--pairs pairs.jsonl]
 """
 
 import argparse
 import hashlib
 import json
+import math
 import os
 import random
 import re
@@ -90,6 +95,8 @@ REFOLD_GROWTH = 1.25          # labelled pools grown by this much since the thre
 # writes beside them, would hand the encoder the answers its held-out evaluation asks for
 LABEL_FILE_RE = re.compile(r"(^|/)(recall-pool\.md|pool-picks-[^/]*|pool-review-[^/]*|retrain-[^/]*\.tsv)$")
 MIN_PRETRAIN_STEPS = 100      # a base with fewer steps (a --minutes 0 or tiny budget) is pretrained again when asked
+NEGATIVES = 10                # unlabelled BM25 candidates added to a label pool as negatives
+POOL_WORD_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*|\d+(?:\.\d+)*")
 TOKEN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*|\d+(?:\.\d+)*")
 
 
@@ -196,7 +203,7 @@ def candidate_files(root: str) -> List[str]:
                            timeout=120)
         if r.returncode == 0:
             rels = [x for x in r.stdout.decode("utf-8", "replace").split("\0") if x]
-            return [os.path.join(root, x) for x in rels
+            return [os.path.join(root, *x.split("/")) for x in rels
                     if not set(x.split("/")[:-1]) & SKIP_DIRS and not LABEL_FILE_RE.search(x)]
     except (OSError, subprocess.SubprocessError):
         pass
@@ -272,6 +279,104 @@ def read_pools(pairs_jsonl: str) -> List[Dict]:
             p = pools.setdefault(key, {"id": key, "task": r["task"], "rows": []})
             p["rows"].append({"file": r["file"], "text": r["text"], "label": int(r["label"])})
     return [p for p in pools.values() if any(x["label"] for x in p["rows"])]
+
+
+def _tsv(path: str) -> List[Dict]:
+    try:
+        with open(path, encoding="utf-8") as f:
+            lines = f.read().split("\n")
+    except OSError:
+        return []
+    head = lines[0].split("\t") if lines and lines[0] else []
+    return [dict(zip(head, l.split("\t"))) for l in lines[1:] if l.strip()]
+
+
+def index_docs(p4: str) -> List[Dict]:
+    """The p4-recall plugin's models/index.json docs as dicts: on disk they are rows under `doc_fields`."""
+    try:
+        with open(os.path.join(p4, "models", "index.json"), encoding="utf-8") as f:
+            idx = json.load(f)
+    except (OSError, ValueError):
+        return []
+    fields = idx.get("doc_fields")
+    docs = idx.get("docs") or []
+    return [dict(zip(fields, d)) if fields and isinstance(d, list) else d for d in docs]
+
+
+def doc_text(d: Dict) -> str:
+    """What a candidate reads as: the entry's shown text; a repository file or commit prefixed by its path."""
+    show, path = d.get("show") or "", d.get("path") or ""
+    if path and d.get("kind") in ("file", "commit") and not show.startswith(path):
+        return f"{path}: {show}"
+    return show or path
+
+
+def _bm25_order(task: str, docs: Sequence[Dict], k1: float = 1.2, b: float = 0.75) -> List[int]:
+    """Indices of docs by BM25 of the task's words against each doc's indexed tokens (`toks`), best first."""
+    toks = [(d.get("toks") or "").lower().split() for d in docs]
+    n = len(toks)
+    df: Dict[str, int] = {}
+    for t in toks:
+        for w in set(t):
+            df[w] = df.get(w, 0) + 1
+    avgdl = sum(len(t) for t in toks) / max(1, n)
+    terms = list(dict.fromkeys(w.lower() for w in POOL_WORD_RE.findall(task) if len(w) >= 3))
+    scores = []
+    for t in toks:
+        tf: Dict[str, int] = {}
+        for w in t:
+            tf[w] = tf.get(w, 0) + 1
+        s = 0.0
+        for w in terms:
+            f = tf.get(w)
+            if f:
+                idf = math.log(1 + (n - df[w] + 0.5) / (df[w] + 0.5))
+                s += idf * f * (k1 + 1) / (f + k1 * (1 - b + b * len(t) / (avgdl or 1.0)))
+        scores.append(s)
+    return sorted(range(n), key=lambda i: (-scores[i], i))
+
+
+def read_label_pools(p4: str, negatives: int = NEGATIVES) -> List[Dict]:
+    """[{id, task, time, session, rows: [{id, file, text, label}]}] from the p4-recall plugin's models/labels.tsv,
+    tasks.tsv and index.json: one pool per task with a label-1 entry the index holds, its rows the task's labelled
+    entries (label 1 positive, label 0 negative) plus `negatives` unlabelled BM25 candidates as negatives, drawn
+    from what the session could have been shown (store entries dated before the task, undated ones, repository
+    files). A task whose text is a harness or agent message (`<...>`) is skipped. Sorted by task time."""
+    docs = index_docs(p4)
+    by_id = {d["id"]: d for d in docs}
+    tasks = {r["id"]: r for r in _tsv(os.path.join(p4, "models", "tasks.tsv")) if r.get("id")}
+    by_task: Dict[str, Dict[str, int]] = {}
+    for r in _tsv(os.path.join(p4, "models", "labels.tsv")):
+        if r.get("entry") in by_id and r.get("task") in tasks:
+            got = by_task.setdefault(r["task"], {})
+            got[r["entry"]] = max(got.get(r["entry"], 0), int(str(r.get("label")) == "1"))
+    pools = []
+    for tid, labs in by_task.items():
+        if not any(labs.values()):
+            continue
+        task = tasks[tid]
+        text = (task.get("text") or "").strip()
+        if not text or text.startswith("<"):
+            continue
+        when = task.get("time") or "9999"
+        rows = [{"id": e, "file": by_id[e].get("path") or e, "text": doc_text(by_id[e]), "label": v}
+                for e, v in labs.items()]
+        pool = [d for d in docs if d["id"] not in labs and d["id"] != tid
+                and (d.get("kind") == "file" or not d.get("time") or d["time"] < when)]
+        for i in _bm25_order(text, pool)[:max(0, negatives)]:
+            d = pool[i]
+            rows.append({"id": d["id"], "file": d.get("path") or d["id"], "text": doc_text(d), "label": 0})
+        pools.append({"id": tid, "task": text[:2000], "time": task.get("time", ""), "session": task.get("session", ""),
+                      "rows": rows})
+    pools.sort(key=lambda p: (p["time"], p["id"]))
+    return pools
+
+
+def pools_for(args) -> List[Dict]:
+    """The pools a command trains or evaluates on: --pairs when given, else the store's own labels."""
+    if getattr(args, "pairs", None):
+        return read_pools(args.pairs)
+    return read_label_pools(args.p4, getattr(args, "negatives", NEGATIVES))
 
 
 def select(files: Sequence[str], scores: Sequence[float], threshold: float, per_file: int = PER_FILE) -> List[int]:
@@ -674,9 +779,10 @@ def heldout_threshold(base_state: Dict, pools: Sequence[Dict], epochs: int, fold
 def cmd_train(args) -> int:
     """One round: the first (or a rebase) fine-tunes the base and ships a whole anchor; every other continues from
     the chain's model on every pool and ships its change as a φ-delta."""
-    pools = read_pools(args.pairs)
+    pools = pools_for(args)
     if not pools:
-        print("train — no labelled pool in the pairs; nothing written")
+        print("train — no labelled pool in the pairs" if args.pairs else
+              "train — no labelled pool in models/labels.tsv + tasks.tsv + index.json; nothing written")
         return 1
     mdir = models_dir(args.p4)
     base, bmeta = base_model(args.p4, args.minutes, args.now, nb=args.buckets, dim=args.dim, shared=args.shared_base)
@@ -768,7 +874,7 @@ def cmd_train(args) -> int:
 
 
 def cmd_eval(args) -> int:
-    pools = read_pools(args.pairs)
+    pools = pools_for(args)
     if len(pools) < 3:
         print(f"eval — {len(pools)} labelled pools; at least 3 are needed")
         return 1
@@ -832,7 +938,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     for name in ("train", "eval"):
         p = sub.add_parser(name)
         p.add_argument("--p4", required=True)
-        p.add_argument("--pairs", required=True, help="pick_model.py pairs --jsonl output")
+        p.add_argument("--pairs", default="", help="pick_model.py pairs --jsonl output; without it the pools come "
+                                                   "from the store's models/labels.tsv, tasks.tsv and index.json")
+        p.add_argument("--negatives", type=int, default=NEGATIVES,
+                       help="unlabelled BM25 candidates added to each label pool as negatives (no --pairs)")
         p.add_argument("--minutes", type=float, default=5, help="pretraining budget when the base is (re)built")
         p.add_argument("--buckets", type=int, default=NB, help="hashed feature buckets of a new base")
         p.add_argument("--dim", type=int, default=DIM, help="embedding width of a new base")
