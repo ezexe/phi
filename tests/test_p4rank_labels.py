@@ -47,6 +47,7 @@ def labelled_store(root, rules_per_topic=4):
     labels.append("messages/s8.md:2026-11-08 12:00:t8\trules.md:2026-10-10 09:00:r00\t0\tusage\t0.3\t2026-11-08 12:01\t\t\tunused")
     (root / "models" / "tasks.tsv").write_text("\n".join(tasks) + "\n", encoding="utf-8")
     (root / "models" / "labels.tsv").write_text("\n".join(labels) + "\n", encoding="utf-8")
+    (root / "models" / "ranker.json").write_text(json.dumps({"kind": "p4 recall ranker", "floor": {}}), encoding="utf-8")
     (root / "store").mkdir()
     (root / "store" / "rules.md").write_text("\n".join(f"- ruling: {d['show']}\n  time: {d['time']}\n" for d in docs
                                                        if d["file"] == "rules.md"), encoding="utf-8")
@@ -77,7 +78,9 @@ def test_train_and_eval_without_pairs(tmp_path):
     labelled_store(tmp_path)
     args = ["--p4", str(tmp_path), "--minutes", "0.05", "--epochs", "30", "--now", "2026-11-09", "--negatives", "6"]
     assert p4rank.main(["train"] + args) == 0
-    side = json.loads((tmp_path / "models" / "ranker.json").read_text())
+    assert json.loads((tmp_path / "models" / "ranker.json").read_text()) == {"kind": "p4 recall ranker", "floor": {}},         "the plugin's JSON ranker keeps its file"
+    assert p4rank.sidecar_path(str(tmp_path)).endswith("ranker-pt.json")
+    side = json.loads((tmp_path / "models" / "ranker-pt.json").read_text())
     assert side["round"] == 0 and len(side["pools"]) == len(TOPICS) and side["pools"][0].startswith("messages/s0.md")
     model, _meta = p4rank.load(str(tmp_path / "models" / "ranker.pt"))
     pools = p4rank.read_label_pools(str(tmp_path), negatives=6)

@@ -3,7 +3,7 @@ Serve a p4 store's .pt ranker on localhost, the checkpoint loaded once and reloa
 
 The vlds plugin's hooks run a fresh process per call, too short-lived to import torch and load a checkpoint each
 time; this server holds models/ranker.pt in memory instead and answers in milliseconds. It watches the file's
-modification times between requests (ranker.pt, the sidecar ranker.json, the anchor), so a background retrain that
+modification times between requests (ranker.pt, the sidecar ranker.json or ranker-pt.json, the anchor), so a background retrain that
 ships a round, or a pull that brings one, is picked up at the next request with no restart: the model keeps running
 while it trains. What it loads is phi_rank.load_current: the chain's build, rebuilt from the anchor and its φ-deltas
 when ranker.pt is not a build of the chain the sidecar names.
@@ -34,7 +34,7 @@ from typing import Dict, Optional
 import torch
 
 import phi_rank.tree as tree_mod
-from phi_rank import ANCHOR, CURRENT, SIDECAR, load_current, models_dir, write_text_atomic
+from phi_rank import ANCHOR, CURRENT, load_current, models_dir, sidecar_path, write_text_atomic
 
 CACHE_MAX = 50_000            # entry embeddings kept between requests, by text
 MAX_BODY = 16 << 20           # a /score request larger than this is refused (413), never read
@@ -45,7 +45,7 @@ class Holder:
 
     def __init__(self, p4: str):
         self.p4 = os.path.realpath(p4)      # named in every reply: a client trusts only its own store's server
-        self.watch = [os.path.join(models_dir(p4), n) for n in (CURRENT, SIDECAR, ANCHOR)]
+        self.watch = [os.path.join(models_dir(p4), n) for n in (CURRENT, ANCHOR)] + [sidecar_path(p4)]
         self.lock = threading.Lock()
         self.model = None
         self.meta: Dict = {}

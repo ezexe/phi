@@ -37,7 +37,8 @@ It learns continually, in rounds, and what git keeps of it is phi_prune's:
   models/ranker.rNNN.phid (git LFS): the largest KEEP of the entries that
   moved, positions in Fibonacci gap codes and values on the Zeckendorf grid
   (phi_prune.delta), packed eight bits to a byte;
-- models/ranker.json names the anchor and the chain;
+- models/ranker.json names the anchor and the chain (models/ranker-pt.json in
+  a store the p4-recall plugin writes, whose own JSON ranker is ranker.json);
 - models/ranker.pt is this machine's build of anchor + chain, in fp32 so the
   next round starts exactly where a reader of the store would: never tracked,
   rebuilt by load_current() when a pull brings rounds it has not seen.
@@ -586,14 +587,27 @@ def save(model: Ranker, meta: Dict, path: str, half: bool = True) -> None:
 ANCHOR = "ranker-anchor.pt"     # git LFS: the chain's whole start
 CURRENT = "ranker.pt"           # this machine's fp32 build of anchor + chain; never tracked
 SIDECAR = "ranker.json"         # what the hooks read without torch: round, threshold, anchor, chain, pools seen
+SIDECAR_RECALL = "ranker-pt.json"   # the sidecar's name in a p4-recall store, whose own JSON ranker is ranker.json
 OOF = "ranker-oof.json"         # out-of-fold scores of every labelled pool: the JSON ranker's .pt feature
+
+
+def sidecar_name(p4: str) -> str:
+    """ranker.json, or ranker-pt.json in a store the p4-recall plugin writes (store/ at its top): the plugin's
+    ranker.py keeps its JSON ranker under models/ranker.json, and a train here must never overwrite it."""
+    return SIDECAR_RECALL if os.path.isdir(os.path.join(p4, "store")) else SIDECAR
+
+
+def sidecar_path(p4: str) -> str:
+    return os.path.join(models_dir(p4), sidecar_name(p4))
 
 
 def read_sidecar(p4: str) -> Dict:
     try:
-        with open(os.path.join(models_dir(p4), SIDECAR), encoding="utf-8") as f:
+        with open(sidecar_path(p4), encoding="utf-8") as f:
             side = json.load(f)
-        return side if isinstance(side, dict) else {}
+        if not isinstance(side, dict) or str(side.get("kind", "")).startswith("p4 recall"):
+            return {}                       # the plugin's own JSON ranker is not this sidecar
+        return side
     except (OSError, ValueError):
         return {}
 
@@ -618,7 +632,8 @@ def rebuild(p4: str, side: Dict) -> Tuple[Ranker, Dict]:
     mdir = models_dir(p4)
     model, meta = load(os.path.join(mdir, ANCHOR))
     if meta.get("round") != side.get("anchor_round"):
-        raise ValueError(f"{ANCHOR} is round {meta.get('round')}, {SIDECAR} names round {side.get('anchor_round')}")
+        raise ValueError(f"{ANCHOR} is round {meta.get('round')}, {sidecar_name(p4)} names round "
+                         f"{side.get('anchor_round')}")
     state = model.state_dict()
     for name in side.get("chain", []):
         apply_delta(state, *load_delta(os.path.join(mdir, name)))
@@ -865,7 +880,7 @@ def cmd_train(args) -> int:
     nb, dim = model.bag.weight.shape
     meta = served_meta({"nb": nb, "dim": dim, "stage": "finetuned"}, side)
     # the sidecar first: a reader that sees it before the build rebuilds the same model from the chain
-    write_text_atomic(json.dumps(side, indent=1) + "\n", os.path.join(mdir, SIDECAR))
+    write_text_atomic(json.dumps(side, indent=1) + "\n", sidecar_path(args.p4))
     save(model, meta, os.path.join(mdir, CURRENT), half=False)
     print(f"train — round {rnd}: {len(pools)} pools, threshold {t:.2f} ({how})"
           + (f", held-out r-precision {rprec:.3f}" if rprec is not None else "")

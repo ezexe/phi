@@ -254,14 +254,15 @@ def check(p4: str, plugin: str) -> Dict:
         if repeats:
             rep["owed"].append("train dispatch")
 
-    r, err = load_json(os.path.join(mdir, "ranker.json"))
+    from phi_rank import sidecar_name          # ranker.json, or ranker-pt.json beside a p4-recall JSON ranker
+    r, err = load_json(os.path.join(mdir, sidecar_name(p4)))
     state = pm.checkpoint_state(os.path.join(mdir, "ranker.pt"))
     if state == "missing":
         # a clone holds the chain (anchor + φ-deltas), never the local build: the server rebuilds ranker.pt from it
         state = pm.checkpoint_state(os.path.join(mdir, "ranker-anchor.pt"))
     seen = pm.ranker_seen(store)
     if err:
-        rep["corrupt"]["ranker.json"] = err
+        rep["corrupt"][sidecar_name(p4)] = err
     rep["ranker"] = None if not r else {
         "round": r.get("round"), "trained": r.get("trained"), "threshold": r.get("threshold"),
         "threshold_from": r.get("threshold_from"), "heldout_rprecision": r.get("heldout_rprecision"),
