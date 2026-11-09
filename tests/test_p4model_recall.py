@@ -177,3 +177,20 @@ def test_fresh_p4_recall_store_is_no_failure(tmp_path, capsys):
     rep = p4model.check(p4, PLUGIN)
     assert rep["mode"] == "shadow" and rep["owed"] == [] and rep["notices"] == [], rep
     assert not os.path.exists(os.path.join(p4, "models", "retrain-needed.tsv"))
+
+
+@needs_plugin
+def test_check_without_torch_checks_what_recall_serves(tmp_path, monkeypatch, capsys):
+    """On a machine with no torch build, check still reads the JSON ranker, labels and notices; the .pt ranker is
+    reported as not checked and never owed, since recall serves without it."""
+    p4 = os.path.join(str(tmp_path / "proj"), ".claude", "p4")
+    write_store(p4)
+    with_torch = p4model.check(p4, PLUGIN)
+    monkeypatch.setitem(sys.modules, "phi_rank", None)        # `from phi_rank import …` now raises ModuleNotFoundError
+    rep = p4model.check(p4, PLUGIN)
+    assert rep["no_torch"] == "phi_rank"
+    assert "train ranker" not in rep["owed"]
+    assert rep["labels"] == with_torch["labels"] and rep["labelled_tasks"] == with_torch["labelled_tasks"]
+    assert [o for o in with_torch["owed"] if o != "train ranker"] == rep["owed"]
+    p4model.print_check(rep)
+    assert "pt ranker: not checked or trained here" in capsys.readouterr().out

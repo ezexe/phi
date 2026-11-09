@@ -139,14 +139,25 @@ def labelled_tasks(m, p4: str) -> int:
 
 def check(p4: str, plugin: str, version: str, server_round) -> Dict:
     """Everything that stands and everything owed, for a p4-recall store; `owed` lists what update would do."""
+    no_torch = None
     try:
         from phi_rank import ANCHOR, CURRENT, read_sidecar, sidecar_name
     except ModuleNotFoundError as e:
-        raise SystemExit(f"phi_model: {e.name} is not installed in {sys.executable}. Build the p4 checkout's own "
-                         "environment with `python3 <p4 checkout>/scripts/make_venv.py` and run phi_model from its .venv.")
+        # A machine with no torch build (an Intel Mac on Python 3.13 or later has none) still checks everything recall
+        # serves: the JSON ranker, the labels, the notices. Only the .pt ranker, which recall does not serve, is out.
+        no_torch = e.name
+        ANCHOR, CURRENT = "ranker-anchor.pt", "ranker.pt"
+
+        def sidecar_name(p4: str) -> str:
+            return "ranker-pt.json" if os.path.isdir(os.path.join(p4, "store")) else "ranker.json"
+
+        def read_sidecar(p4: str) -> Dict:
+            side, _err = load_json(os.path.join(p4, "models", sidecar_name(p4)))
+            return side if isinstance(side, dict) and not str(side.get("kind", "")).startswith("p4 recall") else {}
     m = modules(plugin)
     mdir = os.path.join(p4, "models")
-    rep: Dict = {"kind": "p4-recall", "p4": p4, "plugin": plugin, "plugin_version": version, "owed": [], "corrupt": {}}
+    rep: Dict = {"kind": "p4-recall", "p4": p4, "plugin": plugin, "plugin_version": version, "owed": [], "corrupt": {},
+                 "no_torch": no_torch, "python": sys.executable}
     cfg = read_recall(p4)
     rep["recall"] = cfg
     rep["mode"] = mode_of(cfg)
@@ -206,7 +217,8 @@ def check(p4: str, plugin: str, version: str, server_round) -> Dict:
         "threshold_from": side.get("threshold_from"), "heldout_rprecision": side.get("heldout_rprecision"),
         "anchor_round": side.get("anchor_round"), "chain": len(side.get("chain", [])), "pools": len(side.get("pools", [])),
         "unseen_pools": max(0, n_pools - len(side.get("pools", []))), "checkpoint": state, "serving_round": server_round(p4)}
-    if err or (n_pools >= MIN_PT_POOLS and (not side or rep["pt_ranker"]["unseen_pools"] or state == "missing")):
+    if not no_torch and (err or (n_pools >= MIN_PT_POOLS and (not side or rep["pt_ranker"]["unseen_pools"]
+                                                               or state == "missing"))):
         rep["owed"].append("train ranker")
     if state == "lfs-pointer":
         rep["owed"].append("git lfs pull (the ranker's checkpoint is a pointer)")
@@ -217,7 +229,8 @@ def check(p4: str, plugin: str, version: str, server_round) -> Dict:
     rep["notices"] = notices
     for n in notices:
         fam = m.notices.notice_family(n["component"])
-        rep["owed"].append("train " + ("ranker" if fam == "ranker" else "json"))
+        if not (no_torch and fam == "ranker"):
+            rep["owed"].append("train " + ("ranker" if fam == "ranker" else "json"))
     rep["owed"] = list(dict.fromkeys(rep["owed"]))
     return rep
 
@@ -230,7 +243,11 @@ def print_check(rep: Dict) -> None:
           f"labels since the last round: {rep['labels_since_round']}")
     print(f"  json ranker: {json.dumps(rep['json_ranker']) if rep['json_ranker'] else 'none (the no-ranker road)'}; "
           f"last round: {json.dumps(rep['eval_last']) if rep['eval_last'] else 'none'}")
-    print(f"  pt ranker: {json.dumps(rep['pt_ranker']) if rep['pt_ranker'] else 'none'}")
+    if rep.get("no_torch"):
+        print(f"  pt ranker: not checked or trained here: {rep['no_torch']} is not installed in {rep['python']} "
+              "(recall serves without it; `python3 <p4 checkout>/scripts/make_venv.py` installs it where a build exists)")
+    else:
+        print(f"  pt ranker: {json.dumps(rep['pt_ranker']) if rep['pt_ranker'] else 'none'}")
     for f, e in rep["corrupt"].items():
         print(f"  CORRUPT models/{f}: {e}")
     for n in rep["notices"]:
