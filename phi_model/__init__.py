@@ -106,11 +106,8 @@ def find_plugin(given: str = "", project: str = "") -> str:
                 raise SystemExit(f"p4model — {explicit} is neither the p4-recall plugin (scripts/p4.py and train.py) "
                                  "nor the vlds plugin (scripts/pick_model.py)")
             return os.path.abspath(explicit)
-    want = "vlds"
-    try:
-        want = "p4-recall" if recall.is_store(p4_root(project or ".")) else "vlds"
-    except SystemExit:
-        pass
+    base = os.path.abspath(project or ".")
+    want = "p4-recall" if any(recall.is_store(c) for c in (os.path.join(base, ".claude", "p4"), base)) else "vlds"
     home = os.path.expanduser("~")
     cands = []
     # a marketplace checkout beside the project, or beside one of its four nearest ancestors (a store checked out
