@@ -181,6 +181,14 @@ def check(p4: str, plugin: str, version: str, server_round) -> Dict:
     if "ranker.json" in rep["corrupt"] or (n_lab >= MIN_JSON_TASKS and (not evals or since >= owed_labels)):
         rep["owed"].append("train json")
 
+    n_pools = n_lab                         # the pools phi_rank would build now: a task with a positive the index holds
+    if os.path.exists(os.path.join(mdir, "index.json")):    # no index yet (before the first JSON round): every labelled task
+        try:
+            from phi_rank import read_label_pools
+            n_pools = len(read_label_pools(p4))
+        except Exception:  # noqa: BLE001 — a store mid-write: the labelled count stands
+            pass
+    rep["pt_pools_now"] = n_pools
     side_name = sidecar_name(p4)
     side, err = load_json(os.path.join(mdir, side_name))
     if err:
@@ -193,8 +201,8 @@ def check(p4: str, plugin: str, version: str, server_round) -> Dict:
         "round": side.get("round"), "trained": side.get("trained"), "threshold": side.get("threshold"),
         "threshold_from": side.get("threshold_from"), "heldout_rprecision": side.get("heldout_rprecision"),
         "anchor_round": side.get("anchor_round"), "chain": len(side.get("chain", [])), "pools": len(side.get("pools", [])),
-        "unseen_tasks": max(0, n_lab - len(side.get("pools", []))), "checkpoint": state, "serving_round": server_round(p4)}
-    if err or (n_lab >= MIN_PT_POOLS and (not side or rep["pt_ranker"]["unseen_tasks"] or state == "missing")):
+        "unseen_pools": max(0, n_pools - len(side.get("pools", []))), "checkpoint": state, "serving_round": server_round(p4)}
+    if err or (n_pools >= MIN_PT_POOLS and (not side or rep["pt_ranker"]["unseen_pools"] or state == "missing")):
         rep["owed"].append("train ranker")
     if state == "lfs-pointer":
         rep["owed"].append("git lfs pull (the ranker's checkpoint is a pointer)")
