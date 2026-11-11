@@ -154,10 +154,16 @@ def check(p4: str, plugin: str, version: str, server_round) -> Dict:
         def read_sidecar(p4: str) -> Dict:
             side, _err = load_json(os.path.join(p4, "models", sidecar_name(p4)))
             return side if isinstance(side, dict) and not str(side.get("kind", "")).startswith("p4 recall") else {}
+    # The .pt ranker is an experiment, off unless VLDS_PT_RANKER=1: recall never served it, and measured on one store
+    # (2026-11-11, 67 tasks, held out, every candidate scored by a model fine-tuned without the task) its score as a
+    # feature moved the JSON ranker's r-precision from 0.085 to 0.110, 0.078 and 0.100 at 30, 100 and 300 epochs,
+    # and ranked alone at 0.013 to 0.028 against term overlap's 0.079. What stands is reported; nothing is owed.
+    pt_off = os.environ.get("VLDS_PT_RANKER") != "1"
+    skip_pt = bool(no_torch) or pt_off
     m = modules(plugin)
     mdir = os.path.join(p4, "models")
     rep: Dict = {"kind": "p4-recall", "p4": p4, "plugin": plugin, "plugin_version": version, "owed": [], "corrupt": {},
-                 "no_torch": no_torch, "python": sys.executable}
+                 "no_torch": no_torch, "pt_off": pt_off, "python": sys.executable}
     cfg = read_recall(p4)
     rep["recall"] = cfg
     rep["mode"] = mode_of(cfg)
@@ -220,10 +226,10 @@ def check(p4: str, plugin: str, version: str, server_round) -> Dict:
         "threshold_from": side.get("threshold_from"), "heldout_rprecision": side.get("heldout_rprecision"),
         "anchor_round": side.get("anchor_round"), "chain": len(side.get("chain", [])), "pools": len(side.get("pools", [])),
         "unseen_pools": max(0, n_pools - len(side.get("pools", []))), "checkpoint": state, "serving_round": server_round(p4)}
-    if not no_torch and (err or (n_pools >= MIN_PT_POOLS and (not side or rep["pt_ranker"]["unseen_pools"]
-                                                               or state == "missing"))):
+    if not skip_pt and (err or (n_pools >= MIN_PT_POOLS and (not side or rep["pt_ranker"]["unseen_pools"]
+                                                             or state == "missing"))):
         rep["owed"].append("train ranker")
-    if state == "lfs-pointer":
+    if state == "lfs-pointer" and not pt_off:
         rep["owed"].append("git lfs pull (the ranker's checkpoint is a pointer)")
     if run(["git", "-C", p4, "ls-files", "--error-unmatch", "models/ranker.pt"]).returncode == 0:
         rep["owed"].append("untrack models/ranker.pt (git rm --cached; the chain replaces it)")
@@ -232,7 +238,7 @@ def check(p4: str, plugin: str, version: str, server_round) -> Dict:
     rep["notices"] = notices
     for n in notices:
         fam = m.notices.notice_family(n["component"])
-        if not (no_torch and fam == "ranker"):
+        if not (skip_pt and fam == "ranker"):
             rep["owed"].append("train " + ("ranker" if fam == "ranker" else "json"))
     rep["owed"] = list(dict.fromkeys(rep["owed"]))
     return rep
@@ -249,6 +255,9 @@ def print_check(rep: Dict) -> None:
     if rep.get("no_torch"):
         print(f"  pt ranker: not checked or trained here: {rep['no_torch']} is not installed in {rep['python']} "
               "(recall serves without it; `python3 <p4 checkout>/scripts/make_venv.py` installs it where a build exists)")
+    elif rep.get("pt_off"):
+        print(f"  pt ranker: off, an experiment recall does not serve (VLDS_PT_RANKER=1 trains it); on disk: "
+              f"{json.dumps(rep['pt_ranker']) if rep['pt_ranker'] else 'none'}")
     else:
         print(f"  pt ranker: {json.dumps(rep['pt_ranker']) if rep['pt_ranker'] else 'none'}")
     for f, e in rep["corrupt"].items():

@@ -13,6 +13,7 @@ import phi_model as p4model
 from phi_model import recall
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+os.environ["VLDS_PT_RANKER"] = "1"      # these tests build the .pt ranker: on only as an experiment (below)
 PLUGIN = os.environ.get("P4_RECALL_PLUGIN_ROOT") or os.path.normpath(
     os.path.join(HERE, "..", "..", "p4", "lbiza", "plugins", "p4-recall"))
 needs_plugin = pytest.mark.skipif(not recall.is_plugin(PLUGIN), reason="the p4-recall plugin is not beside this checkout")
@@ -211,3 +212,18 @@ def test_labels_since_the_round_counts_raw_labels_as_the_round_does(tmp_path):
     with open(os.path.join(p4, "models", "eval.tsv"), "w", encoding="utf-8") as f:
         f.write("round\ttime\tlabels\n1\t2026-11-09 10:00\t%d\n" % total)
     assert p4model.check(p4, PLUGIN)["labels_since_round"] == 0
+
+
+@needs_plugin
+def test_the_pt_ranker_is_off_unless_asked(tmp_path, monkeypatch, capsys):
+    """Recall never served the .pt ranker and its score did not hold up as a feature: without VLDS_PT_RANKER=1
+    check reports what stands and owes no .pt training, on a round or on a notice."""
+    p4 = os.path.join(str(tmp_path / "proj"), ".claude", "p4")
+    write_store(p4)
+    on = p4model.check(p4, PLUGIN)
+    monkeypatch.delenv("VLDS_PT_RANKER")
+    rep = p4model.check(p4, PLUGIN)
+    assert rep["pt_off"] and "train ranker" not in rep["owed"]
+    assert [o for o in on["owed"] if o != "train ranker"] == rep["owed"]
+    p4model.print_check(rep)
+    assert "pt ranker: off" in capsys.readouterr().out
