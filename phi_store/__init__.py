@@ -14,11 +14,15 @@ it. A record is one text with its session, time and weight:
                facts}.md (its text fields, not its pointers), every completed
                owner row of store/messages/<s8>.md (fingerprint, addressed,
                recommended)
-               both: flights/*/plan.md and report.md (capped); a flight with no
-               takeoff.json is timed by its name (20261105-1126-...)
-    pair       old: one per flight, the clearance and plan as the prompt, the
-               close note and diff as the target; landed flights weigh 1, others
-               less (the gates fail them for a reason)
+               both: the plan.md and report.md (capped) of every folder that
+               holds one, wherever it is kept: inside the store (a flights/
+               directory is one such place, named nowhere here) and under the
+               repository's plans directory when read_p4 is given it, whose
+               single-file plans are read too; a folder with no takeoff.json is
+               timed by its name (20261105-1126-...)
+    pair       one per such folder that has them: the clearance and plan as the
+               prompt, the close note and diff as the target; landed work weighs
+               1, other work less (the gates fail it for a reason)
                new: one per labelled task of models/tasks.tsv with a positive
                in models/labels.tsv: the task's text as the prompt, the texts of
                its label-1 entries (a store entry's fields, a memory section, a
@@ -53,7 +57,10 @@ STORE_FILES = ("rules.md", "corrections.md", "retractions.md", "facts.md")   # t
 NOT_TEXT = frozenset(("time", "status", "from", "arrival", "pinned", "added", "id", "session", "points-at",
                       "supersedes", "resembles", "state", "freed-by"))
 NOT_OWNER_ARRIVAL = re.compile(r"(?i)\s*(task notification|notification|agent message|hook injection)")
-FLIGHT_NAME_RE = re.compile(r"^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})\b")
+STAMPED_NAME_RE = re.compile(r"^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})\b")
+WORK_FILES = (("plan.md", None), ("report.md", REPORT_CAP))   # what makes a folder a piece of planned work
+# the parts of a store other readers cover; scratchpad/ is build output, traces and binaries
+STORE_PARTS = ("store", "memory", "models", "scratchpad", "sessions", "mrindex")
 SRC_SUFFIXES = {".py", ".ts", ".js", ".ps1", ".sh", ".cmake"}  # the frags' scripts; wav, png and json run output stay out
 
 
@@ -103,8 +110,9 @@ def _time_of(text: str) -> str:
     return m.group(0) if m else ""
 
 
-def flight_pair(flight: Path) -> Optional[Record]:
-    """The flight's ask and plan as the prompt, its close note and diff as the target."""
+def folder_pair(flight: Path) -> Optional[Record]:
+    """A work folder's ask and plan as the prompt, its close note and diff as the target: any folder that holds
+    them, wherever it lives."""
     takeoff, close = _json(flight / "takeoff.json"), _json(flight / "close.json")
     status = _read(flight / "status") if (flight / "status").exists() else ""
     clearance = re.search(r"^clearance:\s*(.*)$", status, re.M)
@@ -119,13 +127,40 @@ def flight_pair(flight: Path) -> Optional[Record]:
                   1.0 if verdict == "landed" else NOT_LANDED_WEIGHT)
 
 
-def flight_time(flight: Path) -> str:
-    """takeoff.json's time, or the time in the flight's name (20261105-1126-land-... -> 2026-11-05 11:26)."""
+def folder_time(flight: Path) -> str:
+    """takeoff.json's time, or the time in the folder's name (20261105-1126-land-... -> 2026-11-05 11:26)."""
     t = _json(flight / "takeoff.json").get("time", "")
     if t:
         return t
-    m = FLIGHT_NAME_RE.match(flight.name)
+    m = STAMPED_NAME_RE.match(flight.name)
     return f"{m.group(1)}-{m.group(2)}-{m.group(3)} {m.group(4)}:{m.group(5)}" if m else ""
+
+
+def work_folders(root: Path, top_skip=()) -> List[Path]:
+    """Every folder under root that holds a plan.md or a report.md, in path order: a piece of planned work and
+    what came of it. Nothing here knows where such folders are kept (a store's flights/, a repository's plans
+    directory, anywhere else): the files make the folder, not its place. Dot directories are not entered, nor the
+    top-level names in top_skip (the parts of a store another reader already covers)."""
+    import os
+    out = []
+    for d, dirs, files in os.walk(root):
+        at_top = Path(d) == root
+        dirs[:] = sorted(x for x in dirs if not x.startswith(".") and not (at_top and x in top_skip))
+        if not at_top and any(n in files for n, _ in WORK_FILES):
+            out.append(Path(d))
+    return out
+
+
+def work_records(root: Path, prefix: str = "", top_skip=()) -> Iterator[Record]:
+    """The pretrain records and the pair of every work folder under root; `prefix` leads each source."""
+    for folder in work_folders(root, top_skip):
+        time, rel = folder_time(folder), prefix + folder.relative_to(root).as_posix()
+        for name, cap in WORK_FILES:
+            if (folder / name).exists():
+                yield Record("pretrain", f"{rel}/{name}", folder.name, time, _read(folder / name, cap))
+        pair = folder_pair(folder)
+        if pair:
+            yield pair
 
 
 # --- the p4-recall layout: store/*.md entries, store/messages/<s8>.md rows, models/{labels,tasks}.tsv --------
@@ -293,7 +328,8 @@ def read_recall_layout(p4: Path) -> Iterator[Record]:
     yield from label_pairs(p4, entries)
 
 
-def read_p4(root: str) -> Iterator[Record]:
+def read_p4(root: str, plans: Optional[str] = None) -> Iterator[Record]:
+    """Every record of the store at `root`, and of the repository's plans directory `plans` when it is given."""
     p4 = Path(root)
     scores = mind_reader_scores(p4)
     new = (p4 / "store").is_dir()
@@ -316,15 +352,19 @@ def read_p4(root: str) -> Iterator[Record]:
             text = _read(path)
             yield Record("pretrain", path.relative_to(p4).as_posix(), sid, _time_of(text), text, weight=w)
 
-    flights = sorted(p for p in (p4 / "flights").iterdir() if p.is_dir()) if (p4 / "flights").is_dir() else []
-    for flight in flights:
-        time = flight_time(flight)
-        for name, cap in (("plan.md", None), ("report.md", REPORT_CAP)):
-            if (flight / name).exists():
-                yield Record("pretrain", f"flights/{flight.name}/{name}", flight.name, time, _read(flight / name, cap))
-        pair = flight_pair(flight)
-        if pair:
-            yield pair
+    # planned work, wherever it is kept: inside the store, and in the repository's plans directory when one is given
+    yield from work_records(p4, top_skip=STORE_PARTS)
+    if plans and Path(plans).is_dir():
+        base = Path(plans)
+        in_folders = set()
+        for r in work_records(base, "plans/"):
+            in_folders.add(r.source)
+            yield r
+        for path in sorted(base.rglob("*.md")):         # a plan written as one file, not a folder
+            rel = "plans/" + path.relative_to(base).as_posix()
+            if rel not in in_folders and not any(part.startswith(".") for part in path.relative_to(base).parts):
+                text = _read(path, REPORT_CAP)
+                yield Record("pretrain", rel, path.stem, _time_of(text), text)
 
 
 def pick_pairs(jsonl: str) -> List[dict]:
@@ -381,11 +421,16 @@ def main(argv: Optional[List[str]] = None) -> int:
     from collections import Counter
 
     argv = list(sys.argv[1:] if argv is None else argv)
+    plans = None
+    if "--plans" in argv:
+        i = argv.index("--plans")
+        plans = argv[i + 1] if i + 1 < len(argv) else None
+        del argv[i:i + 2]
     if len(argv) != 1:
-        print("usage: python -m phi_store <p4 root>", file=sys.stderr)
+        print("usage: python -m phi_store <p4 root> [--plans <the repository's plans directory>]", file=sys.stderr)
         return 2
     root = argv[0]
-    recs = list(read_p4(root))
+    recs = list(read_p4(root, plans))
     kinds = Counter(r.kind for r in recs)
     chars = sum(len(r.text) + len(r.target) for r in recs)
     print(f"{len(recs)} records {dict(kinds)}, {chars / 1e6:.1f} M characters")

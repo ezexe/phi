@@ -55,6 +55,30 @@ def test_records(tmp_path):
     assert pairs["f-landed"].text.startswith("do the f-landed thing") and "+ a line" in pairs["f-landed"].target
 
 
+def test_planned_work_is_read_wherever_it_is_kept(tmp_path):
+    """No reader names a flights directory: a folder is planned work by the files it holds, in the store under any
+    name, and in the repository's plans directory when that is given."""
+    p4 = store(tmp_path)
+    (p4 / "flights").rename(p4 / "work-in-progress")                 # another name inside the store
+    plans = tmp_path / "repo" / ".claude" / "plans"
+    fl = plans / "flights" / "20261111-0946-wxi-write2"
+    write(fl / "plan.md", "plan for wxi")
+    write(fl / "status", "landed\n\nclearance: write the wxi thing\n")
+    write(fl / "close.json", json.dumps({"verdict": "landed", "note": "wxi note"}))
+    write(plans / "ring-drain.md", "# Ring drain\n\nwritten 2026-11-10 09:00\n")
+    write(plans / ".archive" / "old.md", "an archive worktree is not entered")
+    recs = list(read_p4(str(p4), str(plans)))
+    sources = {r.source for r in recs}
+    assert "work-in-progress/f-landed/plan.md" in sources and not any(s.startswith("flights/") for s in sources)
+    assert "plans/flights/20261111-0946-wxi-write2/plan.md" in sources
+    assert "plans/ring-drain.md" in sources and not any("old.md" in s for s in sources)
+    assert next(r for r in recs if r.source == "plans/ring-drain.md").time == "2026-11-10 09:00"
+    pairs = {r.session: r for r in recs if r.kind == "pair"}
+    assert pairs["20261111-0946-wxi-write2"].time == "" and pairs["20261111-0946-wxi-write2"].weight == 1.0
+    assert set(pairs) == {"f-landed", "f-held", "20261111-0946-wxi-write2"}
+    assert len([r for r in read_p4(str(p4)) if r.source.startswith("plans/")]) == 0      # only when it is given
+
+
 def test_split_and_scores(tmp_path):
     p4 = store(tmp_path)
     assert mind_reader_scores(p4) == {"abcd1234": 0.375}
