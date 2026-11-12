@@ -12,6 +12,8 @@ import pytest
 import phi_model as p4model
 from phi_model import recall
 
+from phi_store import layout  # noqa: E402
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 os.environ["VLDS_PT_RANKER"] = "1"      # these tests build the .pt ranker: on only as an experiment (below)
 PLUGIN = os.environ.get("P4_RECALL_PLUGIN_ROOT") or os.path.normpath(
@@ -29,7 +31,7 @@ def entry(pairs):
 def write_store(p4, n_tasks=8):
     """A p4-recall store: one rule per topic, one session's rows, usage labels pointing each task at its rule."""
     os.makedirs(os.path.join(p4, "store", "messages"))
-    os.makedirs(os.path.join(p4, "models"))
+    os.makedirs(layout.sub(p4, "models"))
     rules = "The owner's rulings.\nWritten when the owner rules.\nFields: ruling, status, time.\n\n"
     ids = []
     for i, t in enumerate(TOPICS):
@@ -54,9 +56,9 @@ def write_store(p4, n_tasks=8):
         labels += f"{rid}\t{ids[(i + 1) % len(TOPICS)]}\t0\tusage\t0.3\t{time}\t\t\tunused; shown\n"
     with open(os.path.join(p4, "store", "messages", "aaaa1111.md"), "w", encoding="utf-8") as f:
         f.write(rows)
-    with open(os.path.join(p4, "models", "tasks.tsv"), "w", encoding="utf-8") as f:
+    with open(layout.sub(p4, "models", "tasks.tsv"), "w", encoding="utf-8") as f:
         f.write(tasks)
-    with open(os.path.join(p4, "models", "labels.tsv"), "w", encoding="utf-8") as f:
+    with open(layout.sub(p4, "models", "labels.tsv"), "w", encoding="utf-8") as f:
         f.write(labels)
     with open(os.path.join(p4, ".gitignore"), "w", encoding="utf-8") as f:
         f.write("models/index.json\nmodels/repo.json\nmodels/*.tmp\nmodels/served/\nmodels/ranker.pt\n")
@@ -66,7 +68,7 @@ def write_store(p4, n_tasks=8):
 def test_p4_root_and_plugin_kind(tmp_path):
     p4 = str(tmp_path / ".claude" / "p4")
     os.makedirs(os.path.join(p4, "store"))
-    os.makedirs(os.path.join(p4, "models"))
+    os.makedirs(layout.sub(p4, "models"))
     assert p4model.p4_root(str(tmp_path)) == p4
     assert recall.is_store(p4) and not recall.is_store(str(tmp_path))
     fake = tmp_path / "p4-recall"
@@ -141,7 +143,7 @@ def test_checkpoint_routine_on_a_p4_recall_store(tmp_path, capsys):
     assert rep["mode"] == "shadow", rep["recall"]
     assert rep["eval_last"] and rep["eval_last"]["round"] == "0", rep["eval_last"]
     assert rep["pt_ranker"] and rep["pt_ranker"]["round"] == 0 and rep["pt_ranker"]["checkpoint"] == "present", rep["pt_ranker"]
-    assert os.path.exists(os.path.join(p4, "models", "ranker-pt.json"))        # never the plugin's ranker.json
+    assert os.path.exists(layout.sub(p4, "models", "ranker-pt.json"))        # never the plugin's ranker.json
     assert rep["lfs"] and "models/*.pt filter=lfs" in open(os.path.join(p4, ".gitattributes"), encoding="utf-8").read()
     assert rep["owed"] == [], rep["owed"]
     # a session meets a failure: one notice; the checkpoint owes the model it names, retrains, answers it
@@ -153,16 +155,16 @@ def test_checkpoint_routine_on_a_p4_recall_store(tmp_path, capsys):
     assert p4model.main(["update"] + args + ["--minutes", "0.02"]) == 0
     rep = p4model.check(p4, PLUGIN)
     assert rep["notices"] == [] and rep["owed"] == [] and rep["pt_ranker"]["round"] == 1, rep
-    resolved = open(os.path.join(p4, "models", notices.RESOLVED), encoding="utf-8").read()
+    resolved = open(layout.sub(p4, "models", notices.RESOLVED), encoding="utf-8").read()
     assert "pt ranker server" in resolved and "retrained 2026-11-09 18:00" in resolved
     # a corrupt JSON ranker is a finding and owes a round; the notice file is never rewritten
-    before = open(os.path.join(p4, "models", notices.NOTICES), encoding="utf-8").read()
-    with open(os.path.join(p4, "models", "ranker.json"), "w", encoding="utf-8") as f:
+    before = open(layout.sub(p4, "models", notices.NOTICES), encoding="utf-8").read()
+    with open(layout.sub(p4, "models", "ranker.json"), "w", encoding="utf-8") as f:
         f.write("<<<<<<< HEAD\n")
     rep = p4model.check(p4, PLUGIN)
     assert "ranker.json" in rep["corrupt"] and "train json" in rep["owed"]
     assert p4model.main(["train", "--only", "json"] + args) == 0
-    assert open(os.path.join(p4, "models", notices.NOTICES), encoding="utf-8").read() == before
+    assert open(layout.sub(p4, "models", notices.NOTICES), encoding="utf-8").read() == before
     assert "ranker.json" not in p4model.check(p4, PLUGIN)["corrupt"]
     assert p4model.main(["check"] + args) == 0
 
@@ -172,12 +174,12 @@ def test_fresh_p4_recall_store_is_no_failure(tmp_path, capsys):
     root = str(tmp_path / "proj")
     p4 = os.path.join(root, ".claude", "p4")
     os.makedirs(os.path.join(p4, "store"))
-    os.makedirs(os.path.join(p4, "models"))
+    os.makedirs(layout.sub(p4, "models"))
     args = ["--project", root, "--plugin", PLUGIN, "--now", "2026-11-09 18:00"]
     assert p4model.main(["init"] + args + ["--minutes", "0"]) == 0
     rep = p4model.check(p4, PLUGIN)
     assert rep["mode"] == "shadow" and rep["owed"] == [] and rep["notices"] == [], rep
-    assert not os.path.exists(os.path.join(p4, "models", "retrain-needed.tsv"))
+    assert not os.path.exists(layout.sub(p4, "models", "retrain-needed.tsv"))
 
 
 @needs_plugin
@@ -203,13 +205,13 @@ def test_labels_since_the_round_counts_raw_labels_as_the_round_does(tmp_path):
     way, so a store with raw labels never reads a negative count."""
     p4 = os.path.join(str(tmp_path / "proj"), ".claude", "p4")
     write_store(p4)
-    m = recall.modules(PLUGIN)
+    m = recall.modules(PLUGIN, p4)
     raw = [{"task": "t", "entry": f"e{i}", "label": "1", "source": "store", "weight": "0.5", "time": "2026-11-01 10:00"}
            for i in range(7)]
     m.labels.write_tsv(m.labels.mpath(p4, m.labels.RAW), m.labels.RAW_HEAD, raw)
     total = m.labels.count_labels(p4)
     assert total > len(m.labels.read_tsv(m.labels.mpath(p4, m.labels.TRAIN)))
-    with open(os.path.join(p4, "models", "eval.tsv"), "w", encoding="utf-8") as f:
+    with open(layout.sub(p4, "models", "eval.tsv"), "w", encoding="utf-8") as f:
         f.write("round\ttime\tlabels\n1\t2026-11-09 10:00\t%d\n" % total)
     assert p4model.check(p4, PLUGIN)["labels_since_round"] == 0
 

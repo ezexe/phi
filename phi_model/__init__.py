@@ -39,6 +39,7 @@ import tempfile
 import time
 import urllib.request
 from typing import Dict, List, Optional
+from phi_store import layout  # noqa: E402  (the store's layout: recall/, temportal/)
 
 MODES = {
     "shadow": {"pool-road": "model-shadow", "dispatch-model": "shadow"},
@@ -51,6 +52,14 @@ MODE_KEYS = ("pool-road", "pool-audit", "dispatch-model")
 # ─── where things are ──────────────────────────────────────────────────────────────────────────────────
 
 LOCAL_BUILD = "models/ranker.pt"     # each machine's build of the chain: ignored, never tracked
+
+
+def in_layout(p4: str, text: str) -> str:
+    """Store-relative paths in `text` (`models/...` at a line's start) as the store's layout names them: under
+    recall/ once the plugins moved it, at the top in a store an older plugin wrote flat."""
+    return text if layout.is_flat(p4) else re.sub(r"(?m)^models/", layout.LAYOUT["models"] + "/", text)
+
+
 LFS_LINES = ("# the models' checkpoints in git LFS\nmodels/*.pt filter=lfs diff=lfs merge=lfs -text\n"
              "models/*.phid filter=lfs diff=lfs merge=lfs -text\n")
 
@@ -64,8 +73,8 @@ def p4_root(project: str) -> str:
     layout, as ezexe/ap-p4 is)."""
     project = os.path.abspath(project)
     for cand in (os.path.join(project, ".claude", "p4"), project):
-        if os.path.isdir(os.path.join(cand, "sessions")) or (os.path.isdir(os.path.join(cand, "store"))
-                                                             and os.path.isdir(os.path.join(cand, "models"))):
+        if os.path.isdir(os.path.join(cand, "sessions")) or (os.path.isdir(layout.sub(cand, "store"))
+                                                             and os.path.isdir(layout.sub(cand, "models"))):
             return cand
     raise SystemExit(f"p4model — no .claude/p4 store at or under {project} (looked for sessions/, or store/ and "
                      "models/)")
@@ -226,7 +235,7 @@ def mode_of(cfg: Dict[str, str]) -> str:
 def server_round(p4: str) -> Optional[int]:
     """The round this store's ranker server is serving, or None — a server naming another store is not this one's."""
     try:
-        with open(os.path.join(p4, "models", "ranker.server.json"), encoding="utf-8") as f:
+        with open(layout.sub(p4, "models", "ranker.server.json"), encoding="utf-8") as f:
             port = int(json.load(f)["port"])
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=2) as r:
             out = json.loads(r.read())
@@ -253,7 +262,7 @@ def check(p4: str, plugin: str) -> Dict:
         return recall.check(p4, plugin, ".".join(map(str, plugin_version(plugin))), server_round)
     pm, dm = plugin_modules(plugin)
     store = session_store(p4)
-    mdir = os.path.join(p4, "models")
+    mdir = layout.sub(p4, "models")
     rep: Dict = {"p4": p4, "plugin": plugin, "plugin_version": ".".join(map(str, plugin_version(plugin))),
                  "owed": [], "corrupt": {}}
     cfg = read_recall(p4)
@@ -261,10 +270,10 @@ def check(p4: str, plugin: str) -> Dict:
     rep["mode"] = mode_of(cfg)
     rep["git"] = run(["git", "-C", p4, "rev-parse", "--show-toplevel"]).returncode == 0
     attrs = os.path.join(p4, ".gitattributes")
-    rep["lfs"] = os.path.exists(attrs) and "models/*.pt filter=lfs" in open(attrs, encoding="utf-8").read()
+    rep["lfs"] = os.path.exists(attrs) and in_layout(p4, "models/*.pt filter=lfs") in open(attrs, encoding="utf-8").read()
     gi = os.path.join(p4, ".gitignore")
     rep["gitignore"] = os.path.exists(gi)
-    local_build = rep["gitignore"] and LOCAL_BUILD in open(gi, encoding="utf-8").read().split("\n")
+    local_build = rep["gitignore"] and in_layout(p4, LOCAL_BUILD) in open(gi, encoding="utf-8").read().split("\n")
     if not rep["gitignore"] or not rep["lfs"] or not local_build:
         rep["owed"].append("seed .gitignore/.gitattributes")
 
@@ -420,7 +429,7 @@ def resolve_notices(p4: str, plugin: str, trained: Dict[str, Dict], now: str) ->
     answered = [n for n in pm.open_notices(store) if pm.notice_family(n["component"]) in rebuilt]
     if not answered:
         return 0
-    res = os.path.join(p4, "models", pm.RESOLVED)
+    res = layout.sub(p4, "models", pm.RESOLVED)
     new = not os.path.exists(res)
     with open(res, "a", encoding="utf-8", newline="\n") as f:
         if new:
@@ -444,7 +453,7 @@ def test(p4: str, plugin: str, now: str, minutes: float, folds: int) -> Dict[str
     r = run([sys.executable, os.path.join(scripts, "dispatch_model.py"), "--store", store, "eval"],
             cwd=tempfile.gettempdir())
     out["dispatch model"] = (r.stdout + r.stderr).strip().splitlines()[-3:]
-    pairs = os.path.join(p4, "models", f".pairs.test.{os.getpid()}.jsonl")
+    pairs = layout.sub(p4, "models", f".pairs.test.{os.getpid()}.jsonl")
     try:
         run([sys.executable, os.path.join(scripts, "pick_model.py"), "--store", store, "pairs", "--jsonl", pairs],
             cwd=tempfile.gettempdir())
@@ -462,7 +471,7 @@ def test(p4: str, plugin: str, now: str, minutes: float, folds: int) -> Dict[str
         except OSError:
             pass
     pm, _dm = plugin_modules(plugin)
-    if "present" in (pm.checkpoint_state(os.path.join(p4, "models", n)) for n in ("ranker.pt", "ranker-anchor.pt")):
+    if "present" in (pm.checkpoint_state(layout.sub(p4, "models", n)) for n in ("ranker.pt", "ranker-anchor.pt")):
         out["server"] = [smoke_server(p4)]
     for k, v in out.items():
         print(f"{k}:")
@@ -482,7 +491,7 @@ def smoke_server(p4: str) -> str:
     if not ready.wait(60):
         return "server: did not start in 60 s"
     try:
-        with open(os.path.join(p4, "models", info), encoding="utf-8") as f:
+        with open(layout.sub(p4, "models", info), encoding="utf-8") as f:
             port = int(json.load(f)["port"])
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=10) as r:
             out = json.loads(r.read())
@@ -491,7 +500,7 @@ def smoke_server(p4: str) -> str:
         return f"server: started but /health failed ({type(e).__name__}: {e})"
     finally:
         try:
-            os.remove(os.path.join(p4, "models", info))
+            os.remove(layout.sub(p4, "models", info))
         except OSError:
             pass
 
@@ -512,7 +521,7 @@ def seed_repo(p4: str, plugin: str) -> List[str]:
             with open(tpl, encoding="utf-8") as f:
                 template = f.read()
         elif name == ".gitattributes":
-            template = LFS_LINES          # p4-recall seeds the .gitignore itself and ships no .gitattributes
+            template = in_layout(p4, LFS_LINES)   # p4-recall seeds the .gitignore itself and ships no .gitattributes
         else:
             continue
         if not os.path.exists(dst):
@@ -530,18 +539,18 @@ def seed_repo(p4: str, plugin: str) -> List[str]:
                 done.append("added the LFS lines to .gitattributes")
     gi = os.path.join(p4, ".gitignore")
     have = open(gi, encoding="utf-8").read() if os.path.exists(gi) else ""
-    if LOCAL_BUILD not in have.split("\n"):
+    if in_layout(p4, LOCAL_BUILD) not in have.split("\n"):
         with open(gi, "a", encoding="utf-8", newline="\n") as g:
             g.write(("" if not have or have.endswith("\n") else "\n")
                     + "# the .pt ranker's local build: git keeps its chain, models/ranker-anchor.pt and the "
-                      "ranker.rNNN.phid deltas (added by the p4-model skill)\n" + LOCAL_BUILD + "\n")
-        done.append(f"added {LOCAL_BUILD} to .gitignore")
+                      "ranker.rNNN.phid deltas (added by the p4-model skill)\n" + in_layout(p4, LOCAL_BUILD) + "\n")
+        done.append(f"added {in_layout(p4, LOCAL_BUILD)} to .gitignore")
     if run(["git", "lfs", "version"]).returncode == 0:
         if run(["git", "-C", p4, "lfs", "install", "--local"]).returncode == 0:
             done.append("git lfs install --local")
     else:
         done.append("git-lfs NOT installed: install it before committing models/*.pt")
-    py_file = os.path.join(p4, "models", ".ranker-python")
+    py_file = layout.sub(p4, "models", ".ranker-python")
     os.makedirs(os.path.dirname(py_file), exist_ok=True)
     from phi_rank import write_text_atomic
     write_text_atomic(sys.executable + "\n", py_file)

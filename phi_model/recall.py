@@ -21,6 +21,7 @@ import sys
 import tempfile
 from types import SimpleNamespace
 from typing import Dict, List
+from phi_store import layout  # noqa: E402  (the store's layout: recall/, temportal/)
 
 MODES = {"shadow": {"inject": "off", "learn": True},
          "active": {"inject": "rules-facts", "learn": True},
@@ -34,11 +35,13 @@ def is_plugin(path: str) -> bool:
 
 
 def is_store(p4: str) -> bool:
-    return os.path.isdir(os.path.join(p4, "store")) or os.path.exists(os.path.join(p4, "p4.json"))
+    return os.path.isdir(layout.sub(p4, "store")) or os.path.exists(os.path.join(p4, "p4.json"))
 
 
-def modules(plugin: str):
-    """The plugin's labels, notices, p4conf and ranker modules, imported from its scripts/ (standard library only)."""
+def modules(plugin: str, p4: str = ""):
+    """The plugin's labels, notices, p4conf and ranker modules, imported from its scripts/ (standard library only).
+    With `p4`, a store the plugin's older versions wrote flat is moved into its layout first, as the plugin's own
+    hooks would at the next session start, so the plugin's modules find it."""
     d = os.path.join(plugin, "scripts")
     if d not in sys.path:
         sys.path.insert(0, d)
@@ -46,6 +49,8 @@ def modules(plugin: str):
     import notices  # noqa: E402
     import p4conf  # noqa: E402
     import ranker  # noqa: E402
+    if p4 and hasattr(p4conf, "migrate_layout"):
+        p4conf.migrate_layout(p4)
     return SimpleNamespace(labels=labels, notices=notices, conf=p4conf, ranker=ranker)
 
 
@@ -149,10 +154,10 @@ def check(p4: str, plugin: str, version: str, server_round) -> Dict:
         ANCHOR, CURRENT = "ranker-anchor.pt", "ranker.pt"
 
         def sidecar_name(p4: str) -> str:
-            return "ranker-pt.json" if os.path.isdir(os.path.join(p4, "store")) else "ranker.json"
+            return "ranker-pt.json" if os.path.isdir(layout.sub(p4, "store")) else "ranker.json"
 
         def read_sidecar(p4: str) -> Dict:
-            side, _err = load_json(os.path.join(p4, "models", sidecar_name(p4)))
+            side, _err = load_json(layout.sub(p4, "models", sidecar_name(p4)))
             return side if isinstance(side, dict) and not str(side.get("kind", "")).startswith("p4 recall") else {}
     # The .pt ranker is an experiment, off unless VLDS_PT_RANKER=1: recall never served it, and measured on one store
     # (2026-11-11, 67 tasks, held out, every candidate scored by a model fine-tuned without the task) its score as a
@@ -160,19 +165,20 @@ def check(p4: str, plugin: str, version: str, server_round) -> Dict:
     # and ranked alone at 0.013 to 0.028 against term overlap's 0.079. What stands is reported; nothing is owed.
     pt_off = os.environ.get("VLDS_PT_RANKER") != "1"
     skip_pt = bool(no_torch) or pt_off
-    m = modules(plugin)
-    mdir = os.path.join(p4, "models")
+    m = modules(plugin, p4)
+    mdir = layout.sub(p4, "models")
     rep: Dict = {"kind": "p4-recall", "p4": p4, "plugin": plugin, "plugin_version": version, "owed": [], "corrupt": {},
                  "no_torch": no_torch, "pt_off": pt_off, "python": sys.executable}
     cfg = read_recall(p4)
     rep["recall"] = cfg
     rep["mode"] = mode_of(cfg)
     rep["git"] = run(["git", "-C", p4, "rev-parse", "--show-toplevel"]).returncode == 0
+    mrel = "models" if layout.is_flat(p4) else layout.LAYOUT["models"]   # as .gitignore and .gitattributes name it
     attrs = os.path.join(p4, ".gitattributes")
-    rep["lfs"] = os.path.exists(attrs) and "models/*.pt filter=lfs" in open(attrs, encoding="utf-8").read()
+    rep["lfs"] = os.path.exists(attrs) and f"{mrel}/*.pt filter=lfs" in open(attrs, encoding="utf-8").read()
     gi = os.path.join(p4, ".gitignore")
     rep["gitignore"] = os.path.exists(gi)
-    local_build = rep["gitignore"] and "models/ranker.pt" in open(gi, encoding="utf-8").read().split("\n")
+    local_build = rep["gitignore"] and f"{mrel}/ranker.pt" in open(gi, encoding="utf-8").read().split("\n")
     if not rep["gitignore"] or not rep["lfs"] or not local_build:
         rep["owed"].append("seed .gitignore/.gitattributes")
 
@@ -299,13 +305,13 @@ def train(p4: str, plugin: str, only: List[str], now: str, minutes: float) -> Di
 def resolve_notices(p4: str, plugin: str, trained: Dict[str, Dict], now: str) -> int:
     """Answer the open notices of every model a training just rebuilt (a hook's or a round's failure counts as the
     JSON ranker's), appending to models/retrain-resolved.tsv; retrain-needed.tsv is never rewritten."""
-    m = modules(plugin)
+    m = modules(plugin, p4)
     rebuilt = {k for k, v in trained.items() if v["ok"] and not v.get("empty")}
     fam_of = lambda c: "ranker" if m.notices.notice_family(c) == "ranker" else "json"  # noqa: E731
     answered = [n for n in m.notices.open_notices(p4) if fam_of(n["component"]) in rebuilt]
     if not answered:
         return 0
-    res = os.path.join(p4, "models", m.notices.RESOLVED)
+    res = layout.sub(p4, "models", m.notices.RESOLVED)
     new = not os.path.exists(res)
     with open(res, "a", encoding="utf-8", newline="\n") as f:
         if new:
@@ -326,7 +332,7 @@ def test(p4: str, plugin: str, now: str, minutes: float, folds: int, smoke_serve
     r = run([sys.executable, "-m", "phi_rank", "eval", "--p4", p4, "--minutes", str(minutes), "--folds", str(folds)]
             + (["--now", now] if now else []))
     out[".pt ranker"] = (r.stdout + r.stderr).strip().splitlines()[-2:]
-    if "present" in (checkpoint_state(os.path.join(p4, "models", n)) for n in (CURRENT, ANCHOR)):
+    if "present" in (checkpoint_state(layout.sub(p4, "models", n)) for n in (CURRENT, ANCHOR)):
         out["server"] = [smoke_server(p4)]
     for k, v in out.items():
         print(f"{k}:")

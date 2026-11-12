@@ -49,6 +49,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from statistics import mean
 from typing import Dict, Iterator, List, Optional, Tuple
+from . import layout  # noqa: E402  (the store's layout: recall/, temportal/)
 
 REPORT_CAP = 64_000  # report.md runs to 470 KB; the head carries the findings
 NOT_LANDED_WEIGHT = 0.3
@@ -250,7 +251,7 @@ def store_entries(p4: Path) -> Dict[str, Tuple[str, str, str]]:
     """{entry id: (source path, time, text)} for every entry of store/*.md, every row of store/messages/*.md and
     every section of memory/*.md, under the plugin's ids."""
     out: Dict[str, Tuple[str, str, str]] = {}
-    store = p4 / "store"
+    store = layout.sub(p4, "store")
     files = [(name, store / name) for name in STORE_FILES]
     if (store / "messages").is_dir():
         files += [(f"messages/{p.name}", p) for p in sorted((store / "messages").glob("*.md"))]
@@ -260,7 +261,7 @@ def store_entries(p4: Path) -> Dict[str, Tuple[str, str, str]]:
         for line, pairs in parse_entries(_read(path)):
             out.setdefault(entry_id(rel, pairs), (f"store/{rel}:{line}", _fields(pairs).get("time", "").strip(),
                                                   entry_text(pairs)))
-    for path in sorted((p4 / "memory").glob("*.md")):
+    for path in sorted(layout.sub(p4, "memory").glob("*.md")):
         if path.name == "MEMORY.md":
             continue
         for title, body in memory_sections(_read(path)):
@@ -281,9 +282,9 @@ def label_pairs(p4: Path, entries: Optional[Dict[str, Tuple[str, str, str]]] = N
     prompt, its positives' texts as the target (a repo: entry reads as its path), the heaviest positive's weight as
     the record's. A task whose text is a harness or agent message (`<...>`) is skipped."""
     entries = store_entries(p4) if entries is None else entries
-    tasks = {r["id"]: r for r in _tsv(p4 / "models" / "tasks.tsv") if r.get("id")}
+    tasks = {r["id"]: r for r in _tsv(layout.sub(p4, "models") / "tasks.tsv") if r.get("id")}
     positives: Dict[str, Dict[str, float]] = {}
-    for r in _tsv(p4 / "models" / "labels.tsv"):
+    for r in _tsv(layout.sub(p4, "models") / "labels.tsv"):
         if str(r.get("label")) == "1" and r.get("task") in tasks:
             try:
                 w = float(r.get("weight") or 1.0)
@@ -312,7 +313,7 @@ def read_recall_layout(p4: Path) -> Iterator[Record]:
     """The p4-recall layout's records: a pretrain record per store entry and per completed owner message row,
     then the label pairs."""
     entries = store_entries(p4)
-    store = p4 / "store"
+    store = layout.sub(p4, "store")
     for name in STORE_FILES:
         if (store / name).exists():
             for line, pairs in parse_entries(_read(store / name)):
@@ -332,9 +333,9 @@ def read_p4(root: str, plans: Optional[str] = None) -> Iterator[Record]:
     """Every record of the store at `root`, and of the repository's plans directory `plans` when it is given."""
     p4 = Path(root)
     scores = mind_reader_scores(p4)
-    new = (p4 / "store").is_dir()
+    new = layout.sub(p4, "store").is_dir()
 
-    for path in sorted((p4 / "memory").glob("*.md")):
+    for path in sorted(layout.sub(p4, "memory").glob("*.md")):
         if new and path.name == "MEMORY.md":
             continue                        # the index of links, not a note
         yield Record("pretrain", path.relative_to(p4).as_posix(), "", "", _read(path))

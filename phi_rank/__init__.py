@@ -70,6 +70,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import torch
+from phi_store import layout  # noqa: E402  (the store's layout: recall/, temportal/)
 import torch.nn as nn
 import torch.nn.functional as F
 
@@ -295,7 +296,7 @@ def _tsv(path: str) -> List[Dict]:
 def index_docs(p4: str) -> List[Dict]:
     """The p4-recall plugin's models/index.json docs as dicts: on disk they are rows under `doc_fields`."""
     try:
-        with open(os.path.join(p4, "models", "index.json"), encoding="utf-8") as f:
+        with open(layout.sub(p4, "models", "index.json"), encoding="utf-8") as f:
             idx = json.load(f)
     except (OSError, ValueError):
         return []
@@ -345,9 +346,9 @@ def read_label_pools(p4: str, negatives: int = NEGATIVES) -> List[Dict]:
     files). A task whose text is a harness or agent message (`<...>`) is skipped. Sorted by task time."""
     docs = index_docs(p4)
     by_id = {d["id"]: d for d in docs}
-    tasks = {r["id"]: r for r in _tsv(os.path.join(p4, "models", "tasks.tsv")) if r.get("id")}
+    tasks = {r["id"]: r for r in _tsv(layout.sub(p4, "models", "tasks.tsv")) if r.get("id")}
     by_task: Dict[str, Dict[str, int]] = {}
-    for r in _tsv(os.path.join(p4, "models", "labels.tsv")):
+    for r in _tsv(layout.sub(p4, "models", "labels.tsv")):
         if r.get("entry") in by_id and r.get("task") in tasks:
             got = by_task.setdefault(r["task"], {})
             got[r["entry"]] = max(got.get(r["entry"], 0), int(str(r.get("label")) == "1"))
@@ -532,7 +533,7 @@ def finetune(model: Ranker, pools: Sequence[Dict], epochs: int = 30, negatives: 
 # ─── checkpoints ───────────────────────────────────────────────────────────────────────────────────────
 
 def models_dir(p4: str) -> str:
-    return os.path.join(p4, "models")
+    return layout.sub(p4, "models")
 
 
 def replace_retrying(tmp: str, path: str, tries: int = 50) -> None:
@@ -594,7 +595,7 @@ OOF = "ranker-oof.json"         # out-of-fold scores of every labelled pool: the
 def sidecar_name(p4: str) -> str:
     """ranker.json, or ranker-pt.json in a store the p4-recall plugin writes (store/ at its top): the plugin's
     ranker.py keeps its JSON ranker under models/ranker.json, and a train here must never overwrite it."""
-    return SIDECAR_RECALL if os.path.isdir(os.path.join(p4, "store")) else SIDECAR
+    return SIDECAR_RECALL if os.path.isdir(layout.sub(p4, "store")) else SIDECAR
 
 
 def sidecar_path(p4: str) -> str:
