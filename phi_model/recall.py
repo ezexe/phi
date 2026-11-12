@@ -1,5 +1,5 @@
 """
-The p4-model checkpoint on a store the p4-recall plugin writes (the fresh marketplace, ezexe/p4 lbiza/plugins/p4-recall).
+The p4-model checkpoint on a store recall writes (the fresh marketplace, ezexe/p4 lbiza/plugins/p4-phi, once p4-recall).
 
 Such a store has `store/` and `models/` at its top and its settings in `p4.json`; its models are the plugin's own
 JSON ranker (`models/ranker.json`, trained by `p4.py train`, evaluated by `p4.py eval`) and this package's .pt ranker
@@ -173,7 +173,7 @@ def check(p4: str, plugin: str, version: str, server_round) -> Dict:
     rep["recall"] = cfg
     rep["mode"] = mode_of(cfg)
     rep["git"] = run(["git", "-C", p4, "rev-parse", "--show-toplevel"]).returncode == 0
-    mrel = "models" if layout.is_flat(p4) else layout.LAYOUT["models"]   # as .gitignore and .gitattributes name it
+    mrel = layout.rel(p4, "models")      # as .gitignore and .gitattributes name it
     attrs = os.path.join(p4, ".gitattributes")
     rep["lfs"] = os.path.exists(attrs) and f"{mrel}/*.pt filter=lfs" in open(attrs, encoding="utf-8").read()
     gi = os.path.join(p4, ".gitignore")

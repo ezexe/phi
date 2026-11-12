@@ -57,7 +57,8 @@ LOCAL_BUILD = "models/ranker.pt"     # each machine's build of the chain: ignore
 def in_layout(p4: str, text: str) -> str:
     """Store-relative paths in `text` (`models/...` at a line's start) as the store's layout names them: under
     recall/ once the plugins moved it, at the top in a store an older plugin wrote flat."""
-    return text if layout.is_flat(p4) else re.sub(r"(?m)^models/", layout.LAYOUT["models"] + "/", text)
+    m = layout.rel(p4, "models")
+    return text if m == "models" else re.sub(r"(?m)^models/", m + "/", text)
 
 
 LFS_LINES = ("# the models' checkpoints in git LFS\nmodels/*.pt filter=lfs diff=lfs merge=lfs -text\n"
@@ -112,7 +113,7 @@ def find_plugin(given: str = "", project: str = "") -> str:
     for explicit in (given, os.environ.get("P4_RECALL_PLUGIN_ROOT", ""), os.environ.get("VLDS_PLUGIN_ROOT", "")):
         if explicit:
             if not is_plugin(explicit):
-                raise SystemExit(f"p4model — {explicit} is neither the p4-recall plugin (scripts/p4.py and train.py) "
+                raise SystemExit(f"p4model — {explicit} is neither recall's plugin, p4-phi or p4-recall (scripts/p4.py and train.py), "
                                  "nor the vlds plugin (scripts/pick_model.py)")
             return os.path.abspath(explicit)
     base = os.path.abspath(project or ".")
@@ -128,7 +129,7 @@ def find_plugin(given: str = "", project: str = "") -> str:
         if up == d:
             break
         d = up
-    for name in ("p4-recall", "vlds"):
+    for name in ("p4-phi", "p4-recall", "vlds"):
         for pattern in (os.path.join(home, ".claude", "plugins", "**", name, ".claude-plugin", "plugin.json"),
                         # the marketplace's directory is lbiza (Ibiza in a checkout from before the rename)
                         *(os.path.join(a, "*", m, "plugins", name, ".claude-plugin", "plugin.json")
@@ -147,11 +148,11 @@ def find_plugin(given: str = "", project: str = "") -> str:
                 loc = rec.get(key, "") if isinstance(rec, dict) else ""
                 if not loc:
                     continue
-                cands += [loc] if is_plugin(loc) else [os.path.join(loc, "plugins", n) for n in ("p4-recall", "vlds")]
+                cands += [loc] if is_plugin(loc) else [os.path.join(loc, "plugins", n) for n in ("p4-phi", "p4-recall", "vlds")]
     found = [c for c in dict.fromkeys(cands) if is_plugin(c)]
     right = [c for c in found if plugin_kind(c) == want] or found
     if not right:
-        raise SystemExit(f"p4model — no {want} plugin was found: pass --plugin <…/lbiza/plugins/{want}> or set "
+        raise SystemExit(f"p4model — no {want} plugin was found: pass --plugin <…/lbiza/plugins/{'p4-phi' if want == 'p4-recall' else want}> or set "
                          f"{'P4_RECALL_PLUGIN_ROOT' if want == 'p4-recall' else 'VLDS_PLUGIN_ROOT'}")
     return max(right, key=plugin_version)
 
