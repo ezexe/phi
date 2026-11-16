@@ -15,6 +15,7 @@ Usage:
 The command exports nothing; phi_prune.export.export_onnx writes a model to ONNX.
 """
 
+import _codecs as codecs
 import argparse
 import pickle
 import sys
@@ -30,10 +31,12 @@ def _numpy_arrays():
     """
     The globals a numpy array rebuilds itself by, which a checkpoint holds whose per-channel scales are numpy arrays, as
     save_checkpoint wrote them before it stored float64 tensors, and the float dtype classes whose state the unpickler
-    restores.
+    restores. _codecs.encode rebuilds the array's raw bytes; a recent torch allows it by default, and torch 2.4 refuses it
+    unless it is named here.
     """
     multiarray = np._core.multiarray if hasattr(np, "_core") else np.core.multiarray
-    return [multiarray._reconstruct, np.ndarray, np.dtype] + [type(np.dtype(t)) for t in (np.float64, np.float32)]
+    arrays = [multiarray._reconstruct, np.ndarray, np.dtype] + [type(np.dtype(t)) for t in (np.float64, np.float32)]
+    return arrays + [codecs.encode]
 
 
 def _load(path):
