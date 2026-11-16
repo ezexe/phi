@@ -728,3 +728,12 @@ class TestCLI:
         path = str(tmp_path / "flipped.pt")
         save_checkpoint(pruned, flipped, path)
         assert run_cli(cmd_check, path)[0] == 1
+
+    def test_cli_check_on_a_file_that_holds_a_bare_tensor(self, tmp_path):
+        """phi-prune check on a file that holds a bare tensor prints that it holds no masks and exits 1, raising nothing."""
+        from phi_prune.cli import cmd_check
+
+        path = str(tmp_path / "bare.pt")
+        torch.save(torch.zeros(3), path)
+        code, out = run_cli(cmd_check, path)
+        assert code == 1 and "masks" in out

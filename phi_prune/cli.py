@@ -66,7 +66,7 @@ def cmd_check(args):
     print(f"Loading {args.model}...")
     data = _load(args.model)
 
-    if "masks" not in data:
+    if not isinstance(data, dict) or "masks" not in data:
         print("ERROR: Checkpoint does not contain masks.")
         print("Save one with phi_prune.export.save_checkpoint(model, masks, path), which records the pattern too.")
         sys.exit(1)
