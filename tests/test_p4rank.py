@@ -133,7 +133,8 @@ def test_rounds_ship_as_phi_deltas_and_rebuild(tmp_path, monkeypatch):
     side = json.loads((mdir / "ranker.json").read_text())
     assert side["round"] == 1 and side["anchor_round"] == 0 and side["chain"] == ["ranker.r001.phid"]
     raw = (mdir / "ranker.r001.phid").read_bytes()
-    header = json.loads(raw.split(b"\n", 1)[0])
+    assert raw.startswith(b"PHID1 ")
+    header = json.loads(raw.split(b"\n", 2)[1])
     assert header["packed_bits"] > 0 and header["changed_only"] and header["round"] == 1 and header["parent"] == [0]
     built, meta = p4rank.load(str(mdir / "ranker.pt"))
     assert meta["chain_key"] == [0, "ranker.r001.phid"]

@@ -30,7 +30,13 @@ its n_kept values. It is written as '0' and '1' text,
 the layout export_bitstream uses, or with packed=True as bits packed eight to
 a byte, an eighth of the size, with their count in the header's
 "packed_bits". The Fibonacci code is a prefix code, so with the n_kept counts
-a reader splits the payload without lengths or separators. A count, a
+a reader splits the payload without lengths or separators.
+
+save_delta writes a first line before the header, "PHID1 " and the CRC-32 of
+every byte after that line in eight hex digits, and load_delta refuses a file
+whose line or CRC does not match with ValueError, so a flipped bit is caught
+before it decodes as another delta. A file that starts with the header's "{",
+as every file written before the check does, loads unchecked as before. A count, a
 position or a shape that the header does not match raises ValueError before
 any weight is written.
 
@@ -42,6 +48,7 @@ costs nothing.
 """
 
 import json
+import zlib
 from typing import Dict, Tuple
 
 import numpy as np
@@ -170,25 +177,33 @@ def delta_stats(header: Dict, payload: str) -> Dict[str, float]:
     return {"kept": kept, "entries": total, "bits_per_kept": len(payload) / kept if kept else 0.0}
 
 
+_MARK = b"PHID1 "
+
+
 def save_delta(path: str, header: Dict, payload: str, packed: bool = False) -> str:
-    """The header line, then the payload: '0'/'1' text, or with packed=True its bits eight to a byte."""
+    """The check line, the header line, then the payload: '0'/'1' text, or with packed=True its bits eight to a byte."""
     if not packed:
-        with open(path, "w", newline="\n") as f:
-            f.write(json.dumps(header) + "\n")
-            f.write(payload)
-        return path
-    bits = np.frombuffer(payload.encode("ascii"), dtype=np.uint8) - ord("0")
+        body = (json.dumps(header) + "\n").encode("utf-8") + payload.encode("ascii")
+    else:
+        bits = np.frombuffer(payload.encode("ascii"), dtype=np.uint8) - ord("0")
+        head = json.dumps({**header, "packed_bits": int(bits.size)}) + "\n"
+        body = head.encode("utf-8") + np.packbits(bits).tobytes()
     with open(path, "wb") as f:
-        f.write((json.dumps({**header, "packed_bits": int(bits.size)}) + "\n").encode("utf-8"))
-        f.write(np.packbits(bits).tobytes())
+        f.write(_MARK + b"%08x\n" % zlib.crc32(body) + body)
     return path
 
 
 def load_delta(path: str) -> Tuple[Dict, str]:
-    """(header, payload) from save_delta's file, text or packed."""
+    """(header, payload) from save_delta's file, text or packed; a check line that does not match raises ValueError."""
     with open(path, "rb") as f:
-        header = json.loads(f.readline().decode("utf-8"))
-        rest = f.read()
+        data = f.read()
+    if not data.startswith(b"{"):
+        line, sep, data = data.partition(b"\n")
+        crc = line[len(_MARK):]
+        if not sep or not line.startswith(_MARK) or len(crc) != 8 or crc != b"%08x" % zlib.crc32(data):
+            raise ValueError(f"{path}: the check line {line[:24]!r} does not match the file")
+    head, _, rest = data.partition(b"\n")
+    header = json.loads(head.decode("utf-8"))
     n = header.pop("packed_bits", None)
     if n is None:
         return header, rest.decode("ascii").strip()
