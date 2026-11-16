@@ -134,6 +134,17 @@ class TestDelta:
         assert header["skipped"] == ["empty"] and [t["name"] for t in header["tensors"]] == ["w"]
         assert decode_delta(header, payload)["w"][0].tolist() == [0, 1, 2, 3]
 
+    def test_apply_into_a_transposed_tensor(self):
+        base = {"a": torch.zeros(3, 4), "b": torch.zeros(4, 3)}
+        new = {"a": torch.ones(3, 4), "b": torch.arange(12.0).reshape(4, 3)}
+        header, payload = encode_delta(base, new, keep=1.0, n_digits=8)
+        state = {"a": torch.zeros(3, 4), "b": torch.zeros(3, 4).t()}
+        assert not state["b"].is_contiguous()
+        apply_delta(state, header, payload)
+        for t in header["tensors"]:
+            off = float((state[t["name"]] - new[t["name"]]).abs().max())
+            assert off <= t["scale"] / 2 + 1e-6, f"{t['name']} is off by {off:.4f}"
+
     def test_shape_mismatch_refused_before_writing(self):
         base, new = self.states()
         header, payload = encode_delta(base, new, keep=0.1)

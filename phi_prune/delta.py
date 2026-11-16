@@ -131,16 +131,26 @@ def decode_delta(header: Dict, payload: str) -> Dict[str, Tuple[np.ndarray, np.n
 
 
 def apply_delta(state: Dict[str, torch.Tensor], header: Dict, payload: str) -> Dict[str, torch.Tensor]:
-    """Add a decoded delta into state's tensors in place, after checking each tensor's name and shape; returns state."""
+    """
+    Add a decoded delta into state's tensors in place, after checking each tensor's name and shape; returns state.
+
+    A contiguous tensor takes the values through its flat view, and a non-contiguous one, a transposed one included,
+    through Tensor.put_, which indexes a tensor of any strides as if it were one-dimensional. Under
+    torch.use_deterministic_algorithms(True), put_ with accumulate=True raises RuntimeError on a CUDA tensor, so in
+    that mode a non-contiguous CUDA tensor is refused.
+    """
     decoded = decode_delta(header, payload)
     for t in header["tensors"]:
         if t["name"] not in state or list(state[t["name"]].shape) != t["shape"]:
             raise ValueError(f"{t['name']}: not in state, or not of shape {t['shape']}")
     with torch.no_grad():
         for name, (pos, vals) in decoded.items():
-            flat = state[name].view(-1)
-            idx = torch.from_numpy(pos).to(flat.device)
-            flat[idx] += torch.from_numpy(vals).to(flat.device, flat.dtype)
+            x = state[name]
+            idx, add = torch.from_numpy(pos).to(x.device), torch.from_numpy(vals).to(x.device, x.dtype)
+            if x.is_contiguous():
+                x.view(-1)[idx] += add
+            else:
+                x.put_(idx, add, accumulate=True)
     return state
 
 
