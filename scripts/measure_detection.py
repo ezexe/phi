@@ -1,12 +1,11 @@
 """
-Measure Cassini's single-bit-flip detection rate.
+Measure the share of single-digit flips that the minimal-form check catches.
 
-For each setup, encodes weights with FibonacciEncoder, runs
-integrity.simulate_corruption, and checks the result against the exact
-expectation: for each active weight's codeword, the share of bit
-positions whose 0 -> 1 flip creates '11' (a 1 -> 0 flip never does).
-"uniform" is that share averaged over every grid level, a baseline
-that does not depend on the weights.
+For each setup it quantizes weights with FibonacciEncoder, runs integrity.simulate_corruption, and
+sets the result beside the exact expectation: over each kept weight's Zeckendorf digits, the share
+of digit positions whose flip from 0 to 1 makes 11. A flip from 1 to 0 never does. "uniform" is
+that share averaged over every quantization level, a baseline that does not depend on the weights.
+results/prune/measure_detection.txt holds a run with the defaults.
 
 Usage:
     python scripts/measure_detection.py                      # synthetic conv weights
@@ -44,7 +43,7 @@ def synthetic_weights(dist, g):
 
 
 def per_level_rate(enc):
-    """Exact detection rate of a random single-bit flip, for each grid level."""
+    """For each quantization level, the exact share of single-digit flips the minimal-form check catches."""
     rates = np.zeros(enc.max_value + 1)
     for v in range(enc.max_value + 1):
         cw = enc.to_codeword(v)
@@ -58,10 +57,10 @@ def per_level_rate(enc):
 
 def measure_layers(layers, enc, n_flips):
     """
-    Encode each (weight, mask) pair and flip bits in it.
+    Quantize each weight under its mask and flip digits of its quantization levels.
 
-    Returns (detected, flips, exact_rate, rmse); exact_rate and rmse are
-    weighted by each layer's share of the flips.
+    Returns detected, flips, exact_rate and rmse, with exact_rate and rmse weighted by each
+    layer's share of the flips.
     """
     rates = per_level_rate(enc)
     detected = flips = 0
@@ -89,8 +88,9 @@ def model_layers(name):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--digits", default="8,10", help="comma-separated codeword widths")
-    ap.add_argument("--models", default="", help="comma-separated torchvision model names; "
+    ap.add_argument("--digits", default="8,10", help="comma-separated numbers of Zeckendorf digits")
+    ap.add_argument("--models", default="", help="comma-separated torchvision model names, each with its "
+                    "DEFAULT weights, which are IMAGENET1K_V2 for ResNet-50, 101 and 152; "
                     "empty measures synthetic weights instead")
     ap.add_argument("--flips", type=int, default=200_000,
                     help="flips per synthetic tensor, or per pruned layer with --models")
