@@ -184,7 +184,10 @@ print("done so far:", ", ".join(load_state().get("done", {})) or "nothing")
 '''))
 
 cells.append(md("## 2. Repositories, pinned\nClones ezexe/phi, ezexe/p4 and the store into the runtime's disk. The first session records each commit in `state.json`; later sessions check out those same commits, so a resumed run measures the same code on the same data. Delete `pins` from `state.json` to move to newer commits."))
-cells.append(code('''def token():
+cells.append(code('''import base64
+
+
+def token():
     if not IN_COLAB:
         return os.environ.get("GITHUB_TOKEN", "")
     from google.colab import userdata
@@ -195,21 +198,48 @@ cells.append(code('''def token():
 
 
 def url(repo):
+    """The repository's address, which never holds the token, so no clone keeps it as its remote."""
+    return f"https://github.com/{repo}.git"
+
+
+def git_env():
+    """The environment of a git command that reaches GitHub. The token travels as an HTTP header that git reads from
+    GIT_CONFIG_COUNT, GIT_CONFIG_KEY_0 and GIT_CONFIG_VALUE_0, so it is on no command line and in no file."""
+    env = {**os.environ, "GIT_LFS_SKIP_SMUDGE": "1", "GIT_TERMINAL_PROMPT": "0"}
     t = token()
-    return f"https://x-access-token:{t}@github.com/{repo}.git" if t else f"https://github.com/{repo}.git"
+    if t:
+        basic = base64.b64encode(f"x-access-token:{t}".encode()).decode()
+        env.update({"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "http.https://github.com/.extraheader",
+                    "GIT_CONFIG_VALUE_0": f"AUTHORIZATION: basic {basic}"})
+    return env
 
 
-def checkout(repo, ref, dest, pin):
+def redact(text):
+    """text with the token, and the header that carries it, replaced by ***."""
+    t = token()
+    if t:
+        for secret in (t, base64.b64encode(f"x-access-token:{t}".encode()).decode()):
+            text = text.replace(secret, "***")
+    return text
+
+
+def checkout(repo, ref, dest, pin, history=False):
     """Clone with full history (the shards are cut by when git first added each file) but no LFS objects, then
-    check out the pinned commit, or `ref` on the first session."""
-    env = {"GIT_LFS_SKIP_SMUDGE": "1", "GIT_TERMINAL_PROMPT": "0"}
+    check out the pinned commit, or `ref` on the first session. The clone is partial, so with history the log that
+    first_added reads runs here once, while git has the token, and fetches the blobs its rename detection needs: no
+    later fetch can reach the remote, whose address holds no token."""
     if not (dest / ".git").exists():
         r = subprocess.run(["git", "clone", "-q", "--filter=blob:none", "--no-checkout", url(repo), str(dest)],
-                           env={**os.environ, **env}, capture_output=True, text=True)
-        if r.returncode != 0:          # the error may hold the URL, so the token is stripped before printing
-            raise RuntimeError(f"cloning {repo} failed: " + r.stderr.replace(token() or "\\0", "***"))
+                           env=git_env(), capture_output=True, text=True)
+        if r.returncode != 0:
+            raise RuntimeError(f"cloning {repo} failed: " + redact(r.stderr))
     target = pin or f"origin/{ref}"
-    subprocess.run(["git", "-C", str(dest), "checkout", "-q", "--force", target], env={**os.environ, **env}, check=True)
+    subprocess.run(["git", "-C", str(dest), "checkout", "-q", "--force", target], env=git_env(), check=True)
+    if history:                        # the log of first_added in nested_vs_one.py and phi_rank/tree.py
+        r = subprocess.run(["git", "-C", str(dest), "log", "--format=@%at", "--name-only", "--diff-filter=A"],
+                           env=git_env(), capture_output=True, text=True)
+        if r.returncode != 0:
+            raise RuntimeError(f"reading the history of {repo} failed: " + redact(r.stderr))
     return subprocess.run(["git", "-C", str(dest), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
 
 
@@ -223,7 +253,7 @@ if STORE_PATH:
     STORE = pathlib.Path(STORE_PATH)
 else:
     STORE = WORK / "store"
-    pins["store"] = checkout(STORE_REPO, STORE_BRANCH, STORE, pins.get("store"))
+    pins["store"] = checkout(STORE_REPO, STORE_BRANCH, STORE, pins.get("store"), history=True)
 st = load_state()
 st["pins"] = pins
 save_json(STATE, st)
@@ -551,8 +581,10 @@ cells.append(code('''if PUSH_RESULTS and not done("push"):
     dest = WORK / "phi-push"
     if dest.exists():
         shutil.rmtree(dest)
-    subprocess.run(["git", "clone", "-q", "--depth", "1", url("ezexe/phi"), str(dest)], check=True,
-                   capture_output=True)
+    r = subprocess.run(["git", "clone", "-q", "--depth", "1", url("ezexe/phi"), str(dest)], env=git_env(),
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        raise RuntimeError("cloning ezexe/phi failed: " + redact(r.stderr))
     subprocess.run(["git", "-C", str(dest), "checkout", "-q", "-B", PUSH_BRANCH], check=True)
     out = dest / ".docs" / "p4" / "nested-store-results" / f"colab-{RUN}"
     out.mkdir(parents=True, exist_ok=True)
@@ -563,9 +595,10 @@ cells.append(code('''if PUSH_RESULTS and not done("push"):
     git = ["git", "-C", str(dest), "-c", "user.name=phi colab", "-c", "user.email=phi-colab@users.noreply.github.com"]
     subprocess.run(git + ["add", "-A"], check=True)
     subprocess.run(git + ["commit", "-q", "-m", f"nested-store results from Colab run {RUN}"], check=True)
-    r = subprocess.run(["git", "-C", str(dest), "push", "-q", "-u", "origin", PUSH_BRANCH], capture_output=True, text=True)
+    r = subprocess.run(["git", "-C", str(dest), "push", "-q", "-u", "origin", PUSH_BRANCH], env=git_env(),
+                       capture_output=True, text=True)
     if r.returncode != 0:
-        raise RuntimeError("push failed: " + r.stderr.replace(token(), "***"))
+        raise RuntimeError("push failed: " + redact(r.stderr))
     mark("push", branch=PUSH_BRANCH)
     print(f"pushed to {PUSH_BRANCH}: open a pull request on https://github.com/ezexe/phi/compare/{PUSH_BRANCH}")
 else:
@@ -753,7 +786,7 @@ def pathways_cells():
     push_md.source = push_md.source.replace("## 9.", "## 7.")
     return [md(PW_HEADER), cell(q, "## 0. Settings"), code(PW_SETTINGS),
             cell(q, "## 1. Drive, state and logging"), cell(q, "ROOT = pathlib.Path(DRIVE_DIR) / RUN"),
-            cell(q, "## 2. Repositories, pinned"), cell(q, "def checkout(repo, ref, dest, pin)"),
+            cell(q, "## 2. Repositories, pinned"), cell(q, "def checkout(repo, ref, dest, pin"),
             cell(q, "## 4. The store's labelled pairs"), cell(q, 'PAIRS = ROOT / "pairs" / "pairs.jsonl"'),
             md(PW_SUITE_MD), code(PW_SUITE), md(PW_SUMMARY_MD), code(PW_SUMMARY),
             push_md, cell(q, 'if PUSH_RESULTS and not done("push"):')]
@@ -1049,7 +1082,7 @@ def directions_cells():
     return [md(DIR_HEADER), cell(q, "## 0. Settings"), code(DIR_SETTINGS),
             cell(q, "## 1. Drive, state and logging"), cell(q, "ROOT = pathlib.Path(DRIVE_DIR) / RUN"),
             md(DIR_FROM_MD), code(DIR_FROM),
-            cell(q, "## 2. Repositories, pinned"), cell(q, "def checkout(repo, ref, dest, pin)"),
+            cell(q, "## 2. Repositories, pinned"), cell(q, "def checkout(repo, ref, dest, pin"),
             cell(q, "## 4. The store's labelled pairs"), cell(q, 'PAIRS = ROOT / "pairs" / "pairs.jsonl"'),
             md(DIR_API_MD), code(DIR_API), md(DIR_TEACH_MD), code(DIR_TEACH), md(DIR_SUITE_MD), code(DIR_SUITE),
             md(DIR_D3_MD), code(DIR_D3), md(DIR_D5_MD), code(DIR_D5), md(DIR_REPORT_MD), code(DIR_REPORT),
