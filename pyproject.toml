@@ -27,3 +27,5 @@ include = ["phi_prune*", "phi_store*", "phi_rank*", "phi_serve*", "phi_model*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "--durations=0 --durations-min=0 -ra"
+# The seconds a whole run may take on this machine; tests/test_suite.py fails a run that takes longer, except in CI.
+budget_seconds = "60"
