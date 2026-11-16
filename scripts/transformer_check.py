@@ -382,15 +382,30 @@ def run_delta(args):
     print()
     for k, v in results["verdicts"].items():
         print(f"{k:<48} difference {v['difference']:+.4f}  {'SURVIVES' if v['survives'] else 'KILLED'}")
-    with open(args.out, "w") as f:
-        json.dump(results, f, indent=1, default=float)
+    write_json(results, args.out)
     print(f"\n{time.time() - t0:.0f} s; results in {args.out}")
 
 
 # ── run ──
 
 def pooled(a, b):
-    return math.sqrt((np.var(a, ddof=1) + np.var(b, ddof=1)) / 2) if len(a) > 1 else float("nan")
+    """Pooled standard deviation of two methods over seeds; None from one seed, where there is none."""
+    return math.sqrt((np.var(a, ddof=1) + np.var(b, ddof=1)) / 2) if len(a) > 1 else None
+
+
+def write_json(results, path):
+    """Write results as JSON, with every NaN or infinity as null, since JSON has neither."""
+    def finite(x):
+        if isinstance(x, dict):
+            return {k: finite(v) for k, v in x.items()}
+        if isinstance(x, (list, tuple)):
+            return [finite(v) for v in x]
+        if isinstance(x, (float, np.floating)) and not math.isfinite(x):
+            return None
+        return x
+    text = json.dumps(finite(results), indent=1, default=float, allow_nan=False)
+    with open(path, "w") as f:
+        f.write(text)
 
 
 def main():
@@ -459,8 +474,8 @@ def main():
         }
     else:
         verdicts = low_verdicts(ft, digits)
-    results["verdicts"] = {k: {"difference": float(a), "sigma": float(b), "survives": bool(c)}
-                           for k, (a, b, c) in verdicts.items()}
+    results["verdicts"] = {k: {"difference": float(a), "sigma": None if b is None else float(b),
+                               "survives": None if c is None else bool(c)} for k, (a, b, c) in verdicts.items()}
     report(results, methods, ft, args, t0)
 
 
@@ -468,13 +483,13 @@ def low_verdicts(ft, digits):
     phi, two4, reo, top50 = ft("phi"), ft("2:4"), ft("phi-reorder"), ft("top-50")
     low, one4 = ft("phi-low-25"), ft("1:4")
     zeck21, csd21 = digits(21)
+    d1, s1 = np.mean(phi) - np.mean(two4), pooled(phi, two4)
+    d2, s2 = np.mean(one4) - np.mean(low), pooled(low, one4)
+    d3, s3 = np.mean(reo) - np.mean(top50), pooled(reo, top50)
     return {
-        "K1 phi vs 2:4 at 50%": (np.mean(phi) - np.mean(two4), pooled(phi, two4),
-                                 np.mean(phi) - np.mean(two4) < pooled(phi, two4)),
-        "K2 phi-low vs 1:4 at 25%": (np.mean(one4) - np.mean(low), pooled(low, one4),
-                                     np.mean(one4) - np.mean(low) > pooled(low, one4)),
-        "K3 phi-reorder vs top-50": (np.mean(reo) - np.mean(top50), pooled(reo, top50),
-                                     abs(np.mean(reo) - np.mean(top50)) < pooled(reo, top50)),
+        "K1 phi vs 2:4 at 50%": (d1, s1, None if s1 is None else d1 < s1),
+        "K2 phi-low vs 1:4 at 25%": (d2, s2, None if s2 is None else d2 > s2),
+        "K3 phi-reorder vs top-50": (d3, s3, None if s3 is None else abs(d3) < s3),
         "K4 Zeckendorf vs CSD digits at 21 levels": (zeck21 - csd21, 0.0, zeck21 < csd21),
     }
 
@@ -490,10 +505,12 @@ def report(results, methods, ft, args, t0):
     print(f"dense       {'1.000':>9}{'':>10}{np.mean([s['dense'] for s in results['seeds']]):>12.4f}")
     print()
     for k, v in results["verdicts"].items():
-        print(f"{k:<44} difference {v['difference']:+.4f}  σ {v['sigma']:.4f}  "
-              f"{'SURVIVES' if v['survives'] else 'KILLED'}")
-    with open(args.out, "w") as f:
-        json.dump(results, f, indent=1, default=float)
+        if v["sigma"] is None:
+            print(f"{k:<44} difference {v['difference']:+.4f}  no σ from one seed, UNDECIDED")
+        else:
+            print(f"{k:<44} difference {v['difference']:+.4f}  σ {v['sigma']:.4f}  "
+                  f"{'SURVIVES' if v['survives'] else 'KILLED'}")
+    write_json(results, args.out)
     print(f"\n{time.time() - t0:.0f} s; results in {args.out}")
 
 
