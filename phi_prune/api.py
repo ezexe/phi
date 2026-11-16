@@ -1,11 +1,5 @@
 """
-High-level API for φ-pruning.
-
-    from phi_prune import prune, finetune, check
-
-    model, masks = prune(model, density=0.5)
-    finetune(model, train_loader, epochs=40, masks=masks)
-    report = check(model, masks)
+Pruning, fine-tuning, evaluation and the mask pattern check of a model.
 """
 
 import copy
@@ -35,37 +29,39 @@ def prune(
     pattern: str = "phi",
 ) -> Tuple[nn.Module, Dict[str, torch.Tensor]]:
     """
-    Apply adjacency-constrained pruning to a model.
+    Prune a model, one mask per eligible weight, and zero the pruned weights.
 
-    Generates an adjacency-constrained mask for each eligible layer
-    and zeros the pruned weights. pattern="2:4" applies the 2-of-4
-    baseline instead.
+    Each weight of a layer_types module, apart from those prune_head, exclude and min_dim leave
+    dense, gets a φ mask, which keeps the positions along `axis` with the largest total L1 norm
+    such that no two are adjacent, the (1,∞)-RLL constraint.
+    pattern="2:4" keeps instead the 2 heaviest of every 4 consecutive positions.
 
     Args:
         model: Trained PyTorch model
-        density: Target density (informational — actual density is
-                 determined by the DP algorithm, always ≤0.5)
-        axis: Dimension to apply constraint along (0 = output features)
-        layer_types: Which layer types to prune
-        min_dim: Skip layers smaller than this along the prune axis
-        inplace: If False, works on a deep copy
-        score_fn: Weight importance metric ("magnitude")
-        prune_head: Also prune the model's last weight layer (its last
-                    Conv2d, Linear or layer_types module in registration
-                    order) — the classifier head in standard architectures —
-                    when layer_types selects it. Off by default: along axis 0
-                    its positions are the classes, and the constraint keeps
-                    at most half of them, leaving the rest with a bias-only
-                    logit
-        exclude: Module names to leave dense (e.g. {"fc"}), for a head
-                 that is not registered last or any other layer to keep
-        pattern: "phi" (no two adjacent positions along `axis`) or
-                 "2:4" (2 of every 4 consecutive positions along `axis`, the
-                 baseline in .docs/experiment/Zeckendorf.py; for axis=0 it
-                 keeps whole channels, not NVIDIA's 2-of-4 weights per row)
+        density: Not read. A φ mask keeps the heaviest set the constraint allows, at most
+                 (n + 1) // 2 of n positions, and pattern="2:4" keeps 2 of every full group of 4
+        axis: Dimension the pattern runs along; 0 is the output channels
+        layer_types: Module types whose weights are pruned
+        min_dim: A weight with fewer positions than this along `axis` stays dense
+        inplace: Prune `model` itself; when False, a deep copy is pruned
+        score_fn: How a position is scored; "magnitude", the one value, is the L1 norm of its slice
+        prune_head: Also prune the model's last weight layer, the last Conv2d, Linear or
+                    layer_types module in registration order, which is the classifier head in
+                    standard architectures. It stays dense by default: along axis 0 its n positions
+                    are the classes, the constraint keeps at most (n + 1) // 2 of them, and each
+                    class left out gets a logit that is its bias alone
+        exclude: Module names to leave dense, such as {"fc"} for a head that is not
+                 registered last, or any other layer to keep whole
+        pattern: "phi", no two adjacent positions kept along `axis`, or "2:4", 2 of every 4
+                 consecutive positions with a trailing group shorter than 4 kept whole. Along
+                 axis 0 both keep or drop whole channels, unlike NVIDIA's 2:4, which keeps 2 of
+                 every 4 weights inside each row
 
     Returns:
-        (pruned_model, masks) where masks maps param names to mask tensors
+        pruned_model and masks, as a pair; masks maps each pruned parameter's name to its mask.
+        pruned_model._phi_prune_stats holds total_params, active_params, pruned_layers, pattern,
+        density and sparsity, counted over every weight of the layer_types modules, the dense ones
+        included
     """
     make_mask = get_pattern(pattern)[0]
     if not inplace:
@@ -98,14 +94,14 @@ def prune(
             mask = make_mask(param.data, axis=axis, score_fn=score_fn)
             masks[pname] = mask
 
-            # Apply mask
+            # Zero the pruned weights
             param.data.mul_(mask)
 
             stats["total_params"] += param.numel()
             stats["active_params"] += mask.sum().item()
             stats["pruned_layers"] += 1
 
-    # Attach stats
+    # Over every weight of the layer_types modules, the ones left dense included
     stats["density"] = stats["active_params"] / stats["total_params"] if stats["total_params"] > 0 else 0
     stats["sparsity"] = 1.0 - stats["density"]
     model._phi_prune_stats = stats
@@ -132,26 +128,31 @@ def finetune(
     amp: bool = False,
 ) -> Dict:
     """
-    Fine-tune a pruned model with mask enforcement.
+    Train a model with SGD and a cosine learning-rate schedule, holding the masks fixed.
 
-    Zeros gradients on pruned positions after each backward pass,
-    ensuring the sparsity pattern is maintained throughout training.
+    After each backward pass every masked weight's gradient is multiplied by its mask, and after
+    each step the weight is, so pruned weights stay zero. With no masks every weight trains,
+    which is how a dense model is fine-tuned before pruning.
 
     Args:
-        model: Pruned model
-        train_loader: Training data
-        epochs: Fine-tuning epochs
-        masks: Dict of pruning masks (from prune())
-        lr: Learning rate
-        device: Compute device
-        val_loader: Optional validation loader for tracking accuracy
-        verbose: Print progress
-        criterion: Loss function (default: CrossEntropyLoss)
-        amp: Run forward passes under fp16 autocast with loss scaling
-             (CUDA devices only; elsewhere training stays fp32)
+        model: Model to train
+        train_loader: Yields batches of inputs and targets
+        epochs: Epochs to train; the cosine schedule spans them all
+        masks: Parameter name to mask, as prune returns them; None trains every weight
+        lr: Learning rate at the start of the schedule
+        momentum: SGD momentum
+        weight_decay: SGD weight decay
+        device: Compute device; the model's by default
+        val_loader: Batches scored after every epoch; the weights of the best-scoring epoch
+                    are restored at the end
+        verbose: Print the loss and accuracies every max(1, epochs // 4) epochs
+        criterion: Loss function; cross-entropy by default
+        amp: On a CUDA device, run forward passes under fp16 autocast with loss scaling;
+             on any other device training stays in fp32
 
     Returns:
-        dict with training history and best accuracy
+        dict with history, one entry per epoch, best_val_acc, which is None without val_loader,
+        and final_train_acc
     """
     if device is None:
         device = next(model.parameters()).device
@@ -193,7 +194,7 @@ def finetune(
                 loss = criterion(outputs, targets)
             scaler.scale(loss).backward()
 
-            # Enforce masks: zero gradients on pruned positions
+            # Hold the masks fixed: zero the gradients of pruned weights
             for param, mask in masked:
                 if param.grad is not None:
                     param.grad.mul_(mask)
@@ -201,7 +202,7 @@ def finetune(
             scaler.step(optimizer)
             scaler.update()
 
-            # Re-apply masks to weights (belt and suspenders)
+            # Multiply the weights by their masks too, so pruned weights end every step at zero
             with torch.no_grad():
                 for param, mask in masked:
                     param.mul_(mask)
@@ -214,7 +215,7 @@ def finetune(
         train_acc = 100.0 * correct.item() / total
         avg_loss = total_loss.item() / total
 
-        # Validation
+        # Score val_loader, keeping the weights of the best epoch
         val_acc = None
         if val_loader is not None:
             val_acc = evaluate(model, val_loader, device, amp=amp)
@@ -234,7 +235,7 @@ def finetune(
             print(f"  Epoch {epoch+1:3d}/{epochs}: loss={avg_loss:.4f} "
                   f"train={train_acc:.1f}%{val_str}")
 
-    # Restore best checkpoint if we tracked validation
+    # Restore the weights of the best epoch when val_loader was scored
     if best_state is not None:
         model.load_state_dict(best_state)
 
@@ -253,19 +254,16 @@ def evaluate(
     fp32_fallback: bool = True,
 ) -> float:
     """
-    Top-1 accuracy (%) of a model on a data loader.
+    Top-1 accuracy of a model on a data loader, in percent.
 
     Args:
-        model: Model to evaluate (put in eval mode)
-        loader: Yields (inputs, targets) batches
-        device: Compute device (default: the model's)
-        amp: Run forward passes under fp16 autocast (CUDA devices only)
-        fp32_fallback: Under amp, re-run in fp32 any batch whose fp16
-                       logits are not all finite. Activations past fp16's
-                       range (65504) turn logits into inf/NaN, and argmax
-                       over a NaN row picks class 0, so without this an
-                       encoded model that overflows fp16 scores chance
-                       level on a balanced test set
+        model: Model to evaluate; it is put in eval mode
+        loader: Yields batches of inputs and targets
+        device: Compute device; the model's by default
+        amp: On a CUDA device, run forward passes under fp16 autocast
+        fp32_fallback: Under amp, run again in fp32 any batch whose fp16 logits are not all
+                       finite. An activation past fp16's largest value, 65504, makes a logit
+                       inf or NaN, and argmax over a row of NaN picks class 0
     """
     if device is None:
         device = next(model.parameters()).device
@@ -286,7 +284,7 @@ def evaluate(
 
 
 def _amp_enabled(amp: bool, device) -> bool:
-    """fp16 autocast runs on CUDA devices only; elsewhere amp=True falls back to fp32."""
+    """phi runs fp16 autocast on CUDA devices only; on any other device amp=True runs in fp32."""
     return amp and torch.device(device).type == "cuda"
 
 
@@ -298,7 +296,7 @@ def _grad_scaler(enabled: bool):
 
 
 # ───────────────────────────────────────────────────────────
-# INTEGRITY CHECK
+# MASK PATTERN CHECK
 # ───────────────────────────────────────────────────────────
 
 def check(
@@ -307,21 +305,20 @@ def check(
     pattern: Optional[str] = None,
 ) -> Dict:
     """
-    Verify pruned model integrity.
+    Check every mask against its pattern, and that every pruned weight is zero.
 
-    Checks:
-    1. All masks satisfy their pattern (the adjacency constraint by default)
-    2. All pruned positions are actually zero
-    3. Density statistics
+    For each masked parameter it reports mask_stats, whose "valid" reads the pattern along
+    axis 0, and zeros_enforced, whether every pruned weight is within 1e-10 of zero.
 
     Args:
         model: Pruned model
-        masks: Dict of pruning masks
-        pattern: The pattern to validate ("phi" or "2:4"); None reads
-                 it from the stats prune() attached, else "phi"
+        masks: Parameter name to mask
+        pattern: The pattern to check, "phi" or "2:4"; None reads it from the stats prune
+                 attached, else "phi"
 
     Returns:
-        dict with per-layer and aggregate results
+        dict of each masked parameter's report, and "_summary" with all_masks_valid,
+        all_zeros_enforced, n_layers and pattern
     """
     if pattern is None:
         pattern = getattr(model, "_phi_prune_stats", {}).get("pattern", "phi")
@@ -336,7 +333,7 @@ def check(
         mask = masks[name].to(param.device)
         ms = mask_stats(mask, pattern=pattern)
 
-        # Check pruned positions are zero
+        # Every pruned weight is zero
         pruned_vals = param.data[~mask.bool()]
         zeros_ok = (pruned_vals.abs() < 1e-10).all().item()
 
