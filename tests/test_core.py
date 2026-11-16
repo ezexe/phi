@@ -574,6 +574,36 @@ class TestExport:
             with pytest.raises(ValueError):
                 load_bitstream(copy.deepcopy(pruned), masks, str(path))
 
+    def test_payload_padding_and_odd_bit_counts(self, tmp_path):
+        """
+        A count that is not a multiple of 8 loads; the same file with a set padding bit is refused for its padding;
+        an empty payload of 0 bits is refused for its count of levels.
+        """
+        pruned, masks, enc, scales = encoded_mlp()
+        path = tmp_path / "model.phi"
+        export_bitstream(pruned, masks, enc, scales, str(path))
+        header_line, payload = _read_phi(path)
+        # Swap the first codeword for level 0's, "11", which keeps the count of levels and moves the bit count off a byte
+        first = payload.index("11") + 2
+        odd = "11" + payload[first:]
+        if len(odd) % 8 == 0:  # level 1's code, "011", when level 0's lands on a byte
+            odd = "011" + payload[first:]
+        assert len(odd) % 8
+        target = copy.deepcopy(pruned)
+        _write_phi(path, header_line, odd)
+        load_bitstream(target, masks, str(path))
+
+        data = path.read_bytes()
+        path.write_bytes(data[:-1] + bytes([data[-1] | 1]))  # the last bit of the last byte is padding
+        before = copy.deepcopy(target.state_dict())
+        with pytest.raises(ValueError, match="zero padding"):
+            load_bitstream(target, masks, str(path))
+        assert all(torch.equal(before[k], v) for k, v in target.state_dict().items())
+
+        _write_phi(path, header_line, "")
+        with pytest.raises(ValueError, match="holds 0 levels"):
+            load_bitstream(target, masks, str(path))
+
     @pytest.mark.parametrize("axis", [None, 0])
     def test_load_bitstream_restores_encoded_weights(self, tmp_path, axis):
         """load_bitstream writes the de-quantized weights back into the kept positions, bit for bit."""
