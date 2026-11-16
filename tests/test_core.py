@@ -90,6 +90,11 @@ class TestPhiMask:
             vals = mask[i].unique()
             assert len(vals) == 1  # all 0 or all 1
 
+    def test_phi_mask_on_a_1d_tensor(self):
+        """A 1-D tensor is scored by the absolute value of each entry, as two_four_mask scores it."""
+        w = torch.tensor([1.0, 5.0, 1.0, 5.0, 1.0, 5.0])
+        assert phi_mask(w).tolist() == [0.0, 1.0, 0.0, 1.0, 0.0, 1.0]
+
 
 # ── The baseline that keeps 2 of every 4 channels ──
 
