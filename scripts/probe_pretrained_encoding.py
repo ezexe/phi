@@ -1,24 +1,23 @@
 """
-Probe Fibonacci encoding on ImageNet-pretrained ResNets, fp32 vs fp16.
+Probe per-tensor quantization of ImageNet-pretrained ResNets, in fp32 and under fp16 autocast.
 
-Encoded ResNet-152 V2 scored exactly 10.00% on CIFAR-10 in the notebook,
-which is what non-finite logits give. This script needs no fine-tuned
-checkpoint or GPU: it loads torchvision's ImageNet weights, and for each
-model compares four variants on CIFAR-10 test images upscaled as in the
-notebook:
+It needs no fine-tuned checkpoint and no GPU: it loads torchvision's ImageNet weights, and for each
+model compares four variants on CIFAR-10 test images upscaled as the notebook does:
 
   dense            the pretrained weights
-  dense+enc        every conv layer encoded with an all-ones mask
-                   (isolates encoding from pruning)
-  pruned           φ-pruned convs, as the notebook prunes them
-  pruned+enc       the pruned convs encoded, as the notebook's encoding cell does
+  dense+enc        every convolution quantized per tensor under an all-ones mask, which keeps
+                   quantization apart from pruning
+  pruned           the convolutions φ-pruned, as the notebook prunes them
+  pruned+enc       the pruned convolutions quantized per tensor
 
-For each variant it prints the share of images whose logits are not finite
-in fp32 and under fp16 autocast (CPU autocast works; it is slower than
-fp32), how often the top-1 ImageNet class agrees with the dense fp32 model,
-and the largest block output in fp32, against fp16's largest finite value
-65504. Pruned variants are not fine-tuned here, so their agreement is low
-by construction; the fp16 columns are the point.
+For each variant it prints the share of images whose logits are not finite in fp32 and under CPU
+fp16 autocast, which runs slower than fp32, how often the top-1 ImageNet class agrees with the dense
+fp32 model, and the largest block output in fp32, against fp16's largest finite value, 65504. Pruned
+variants are not fine-tuned here, so their agreement is low by construction; the fp16 columns are
+the point. results/prune/probe-encoding-36060638869.txt holds a run on three models.
+
+--strategies compares quantization strategies on the dense models instead, and
+results/prune/probe-encoding-36066245824.txt holds a run on four models.
 
 Usage:
     python scripts/probe_pretrained_encoding.py \
@@ -42,7 +41,7 @@ STD = (0.229, 0.224, 0.225)
 
 
 def cifar_images(root, n, size, fake=False):
-    if fake:  # offline smoke test
+    if fake:  # random images in place of CIFAR-10
         x = torch.randint(0, 256, (n, 3, 32, 32), dtype=torch.uint8)
     else:
         import torchvision
@@ -55,7 +54,7 @@ def cifar_images(root, n, size, fake=False):
 
 
 def encode_convs(model, masks, encoder):
-    """Encode each masked parameter in place, as the notebook's encoding cell does."""
+    """Quantize each masked parameter per tensor in place; returns the worst relative error and its layer."""
     params = dict(model.named_parameters())
     worst = (0.0, "")
     with torch.no_grad():
@@ -87,7 +86,7 @@ def run(model, x, batch, fp16):
 
 
 def block_peak(model, x):
-    """Largest |output| of any residual block, and the first block past fp16's range (fp32)."""
+    """Largest |output| of any residual block in fp32, and the first block past fp16's range."""
     import torchvision.models.resnet as R
 
     peaks = []
@@ -133,12 +132,12 @@ def probe(arch, weights, x, x16, batch, digits):
 
 def encode_strategy(model, encoder, strategy):
     """
-    Encode every conv weight of model in place with one quantization strategy.
+    Quantize every conv weight of model in place with one strategy.
 
-    tensor      one (scale, offset) per layer, as encode_tensor does today
-    channel     one (scale, offset) per output channel
-    clipP       per layer, after clamping weights to their [100-P, P] percentiles
-    Returns the per-layer relative errors.
+    tensor      one scale and quantization offset per tensor, encode_tensor with no axis
+    channel     one scale and quantization offset per output channel, as encode_tensor(axis=0) gives
+    clipP       per tensor, after clamping weights to their [100-P, P] percentiles
+    Returns the relative error of each layer.
     """
     errs = []
     with torch.no_grad():
@@ -194,7 +193,8 @@ def main():
     ap.add_argument("--batch", type=int, default=16)
     ap.add_argument("--digits", type=int, default=10)
     ap.add_argument("--data", default="./data")
-    ap.add_argument("--fake-data", action="store_true", help="random images (offline smoke test)")
+    ap.add_argument("--fake-data", action="store_true",
+                    help="random images in place of CIFAR-10; the weights still download")
     ap.add_argument("--strategies", default="",
                     help="instead of the fp16 probe, compare quantization strategies on the dense "
                          "models, e.g. tensor,channel,clip99.9")
@@ -206,19 +206,19 @@ def main():
         compare_strategies(args.models.split(","), args.strategies.split(","), x, args.batch, args.digits)
         return
     x16 = x[:args.fp16_images]
-    print(f"{len(x)} images at {args.img_size} px ({len(x16)} in fp16), "
+    print(f"{len(x)} images at {args.img_size} px, {len(x16)} of them in fp16, "
           f"{args.digits}-digit codewords, {torch.get_num_threads()} threads\n")
     for spec in args.models.split(","):
         arch, weights = spec.split(":")
         start = time.perf_counter()
         rows, wd, wp = probe(arch, weights, x, x16, args.batch, args.digits)
-        print(f"{arch} {weights}  ({(time.perf_counter() - start) / 60:.1f} min)")
+        print(f"{arch} {weights}, {(time.perf_counter() - start) / 60:.1f} min")
         print(f"  {'variant':<12}{'nonfinite32':>12}{'nonfinite16':>12}{'agree32':>9}{'agree16':>9}"
               f"{'max|block|':>12}  first block over 65504")
         for label, n32, n16, a32, a16, peak, first in rows:
             print(f"  {label:<12}{n32:>12.1%}{n16:>12.1%}{a32:>9.1%}{a16:>9.1%}{peak:>12.4g}  {first}")
-        print(f"  worst layer rel. error: dense+enc {wd[0]:.4f} ({wd[1]}), "
-              f"pruned+enc {wp[0]:.4f} ({wp[1]})\n", flush=True)
+        print(f"  worst layer rel. error: dense+enc {wd[0]:.4f} at {wd[1]}, "
+              f"pruned+enc {wp[0]:.4f} at {wp[1]}\n", flush=True)
 
 
 if __name__ == "__main__":
