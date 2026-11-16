@@ -1,4 +1,5 @@
-"""pyproject.toml agrees with the files that act on it: the tests workflow installs the floors it declares."""
+"""pyproject.toml agrees with the files beside it: the tests workflow installs the floors it declares, and the license
+it declares is the one LICENSE holds, in the form its build requires."""
 import pathlib
 import re
 import tomllib
@@ -29,3 +30,11 @@ def test_the_tests_workflow_installs_the_floors_pyproject_declares():
     assert python == release(re.fullmatch(r">=([\d.]+)", PROJECT["requires-python"]).group(1))
     assert torch == floor("torch")
     assert numpy == floor("numpy")
+
+
+def test_the_license_pyproject_declares_is_the_one_LICENSE_holds():
+    """An SPDX expression and its file, the form setuptools reads from version 77 on, which the build requires."""
+    assert PROJECT["license"] == "Apache-2.0"
+    assert PROJECT["license-files"] == ["LICENSE"]
+    assert (ROOT / "LICENSE").read_text(encoding="utf-8").split()[:4] == ["Apache", "License", "Version", "2.0,"]
+    assert PYPROJECT["build-system"]["requires"] == ["setuptools>=77"]
