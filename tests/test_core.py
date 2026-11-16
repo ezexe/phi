@@ -228,14 +228,56 @@ class TestIntegrity:
         # ezexe/p4-phi holds
         assert 0.40 < exact < 0.42
 
-    def test_per_channel_passes_integrity_check(self):
-        """cassini_check reads per-channel scale and quantization offset arrays, and passes every quantized weight."""
+    @pytest.mark.parametrize("axis", [None, 0])
+    def test_check_fails_on_noise_nan_and_a_flipped_float_bit(self, axis):
+        """cassini_check passes every quantized weight, per tensor and per channel, and fails noise, NaN and a flipped bit."""
         from phi_prune.integrity import cassini_check
 
-        pruned, masks, enc, scales = encoded_mlp(axis=0)
+        torch.manual_seed(0)
+        pruned, masks, enc, scales = encoded_mlp(axis)
         report = cassini_check(pruned, masks, enc, scales)["_aggregate"]
-        assert report["total"] == sum(int(m.sum()) for m in masks.values())
-        assert report["failed"] == 0
+        assert report["total"] == sum(int(m.sum()) for m in masks.values()) and report["failed"] == 0
+        name = next(iter(masks))
+        param = dict(pruned.named_parameters())[name]
+        keep = masks[name].bool()
+        n = int(keep.sum())
+        clean = param.data.clone()
+        for corrupt, at_least in (("noise", n), ("nan", n), ("bit", 1)):
+            param.data.copy_(clean)
+            if corrupt == "noise":
+                param.data[keep] += torch.randn(n) * 0.05
+            elif corrupt == "nan":
+                param.data[keep] = float("nan")
+            else:  # the lowest exponent bit of one kept float32 weight, which doubles or halves it
+                i = int(keep.view(-1).nonzero()[0])
+                param.data.view(-1).view(torch.int32)[i] ^= 1 << 23
+            assert cassini_check(pruned, masks, enc, scales)[name]["failed"] >= at_least, corrupt
+
+    def test_check_passes_an_empty_mask_and_refuses_a_layer_without_scales(self):
+        """A mask that keeps nothing passes with pass_rate 1.0, and a masked layer missing from scales raises."""
+        from phi_prune.integrity import cassini_check, check_tensor_integrity
+
+        report = check_tensor_integrity(torch.randn(4), torch.zeros(4), FibonacciEncoder(n_digits=8), 1.0, 0.0)
+        assert report["total"] == 0 and report["pass_rate"] == 1.0
+        pruned, masks, enc, scales = encoded_mlp()
+        del scales[next(iter(scales))]
+        with pytest.raises(ValueError, match="scales"):
+            cassini_check(pruned, masks, enc, scales)
+
+    @pytest.mark.parametrize("axis", [None, 0])
+    def test_check_passes_weights_encoded_from_a_range_under_1e_10(self, axis):
+        """encode_tensor puts kept weights that span less than 1e-10 on level 0, per tensor and per channel, and cassini_check passes them."""
+        from phi_prune.integrity import cassini_check
+
+        tiny = [0.0, 5e-11, 2e-11, 3e-11]
+        rows = [tiny] if axis is None else [tiny, [0.1, -0.2, 0.3, 0.05]]
+        layer = nn.Linear(4, len(rows), bias=False)
+        enc = FibonacciEncoder(n_digits=8)
+        encoded, scale, _, offset = enc.encode_tensor(torch.tensor(rows), return_offset=True, axis=axis)
+        layer.weight.data.copy_(encoded)
+        masks = {"weight": torch.ones_like(layer.weight.data)}
+        report = cassini_check(layer, masks, enc, {"weight": (scale, offset)})["_aggregate"]
+        assert report["total"] == 4 * len(rows) and report["failed"] == 0
 
 
 # ── prune, finetune, evaluate and check ──

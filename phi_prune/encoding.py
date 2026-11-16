@@ -69,6 +69,7 @@ class FibonacciEncoder:
 
         Scales the kept weights to [0, max_value], rounds each to the nearest level and scales back.
         Only positions where mask is set are quantized, every position when mask is None.
+        Kept weights that span less than 1e-10 all go to level 0, the smallest of them, with a scale of 1.0.
 
         Args:
             tensor: Weight tensor to quantize
@@ -107,24 +108,23 @@ class FibonacciEncoder:
         # Scale to [0, max_value]
         vmin, vmax = active.min().item(), active.max().item()
         span = vmax - vmin
-        if span < 1e-10:
-            return out(tensor.clone(), 1.0, 0.0, vmin)
-
-        scale = self.max_value / span
         offset = vmin
-
-        # Quantize
         active_np = active.cpu().numpy()
-        scaled = (active_np - offset) * scale
-        # Round each value to the nearest quantization level
-        indices = np.searchsorted(self.grid, scaled, side="left")
-        indices = np.clip(indices, 0, len(self.grid) - 1)
-
-        # The nearest level is grid[indices] or the one below it
-        upper = self.grid[indices]
-        lower = self.grid[np.maximum(indices - 1, 0)]
-        use_lower = np.abs(scaled - lower) < np.abs(scaled - upper)
-        quantized = np.where(use_lower, lower, upper)
+        if span < 1e-10:
+            # A range this narrow holds one level, so every kept weight goes to level 0, the smallest of them
+            scale = 1.0
+            quantized = np.zeros(active_np.shape)
+        else:
+            scale = self.max_value / span
+            # Round each value to the nearest quantization level
+            scaled = (active_np - offset) * scale
+            indices = np.searchsorted(self.grid, scaled, side="left")
+            indices = np.clip(indices, 0, len(self.grid) - 1)
+            # The nearest level is grid[indices] or the one below it
+            upper = self.grid[indices]
+            lower = self.grid[np.maximum(indices - 1, 0)]
+            use_lower = np.abs(scaled - lower) < np.abs(scaled - upper)
+            quantized = np.where(use_lower, lower, upper)
 
         # Scale back
         decoded = (quantized / scale) + offset
