@@ -1,11 +1,13 @@
 """
-Generates notebooks/register_settling.ipynb (without outputs).
+Writes notebooks/register_settling.ipynb, its cells without outputs.
 
-Run it, then execute the notebook:
+The saved notebook holds the outputs of one run, and its closing cell, which
+this script writes too, quotes that run's figures, so a new run needs the
+closing cell rewritten from its own outputs. To run it:
     python scripts/session/make_register_notebook.py
     jupyter nbconvert --to notebook --execute --inplace notebooks/register_settling.ipynb
-The saved notebook's closing cell was then filled in with that run's numbers by hand,
-so regenerating it brings back the generic closing text.
+The first command needs nbformat, the second jupyter and nbconvert, and the
+cells need torch and phi_prune, and torchvision for the pretrained weights.
 """
 
 from pathlib import Path
@@ -13,28 +15,28 @@ from pathlib import Path
 import nbformat as nbf
 md, code = nbf.v4.new_markdown_cell, nbf.v4.new_code_cell
 cells = []
-cells.append(md("""# φ-Register: where self-timed settling saves time
+cells.append(md("""# Zeckendorf register: where self-timed Zeckendorf normalization saves time
 
-Runs on CPU in a few minutes; a GPU is not needed.
+It runs on a CPU and needs no GPU.
 
-Every Fibonacci-encoded weight multiplies by shift-and-add: each 1 digit of the weight's level adds a partial product `x · F(k)` to an accumulator.
-This notebook runs that dot product for real conv-layer weights in two accumulators, a φ-register and a binary register (`phi_prune.register.dot`), and asks where the φ side comes out ahead:
+A weight quantized to one of FibonacciEncoder's levels multiplies an activation `x` by adding Fibonacci multiples: each digit of the level's Zeckendorf representation that is 1 adds a partial product `x · F(k)` to an accumulator.
+This notebook runs that dot product with `phi_prune.register.dot`, for the weights of one convolution layer of a pretrained ResNet-18, or for synthetic weights of the same shape when those cannot be loaded, in two accumulators, a Zeckendorf register and a binary register, and asks where the Zeckendorf side comes out ahead:
 
-1. **Fewer additions.** A Zeckendorf level has fewer 1 digits than the same level in binary, so fewer partial products.
-2. **Self-timed settling.** Each φ addition stops when no `11` and no 2 are left; a clocked binary adder waits its worst case every time.
-3. **Free integrity.** The same no-`11` scan flags corrupted accumulator states; a binary accumulator cannot.
+1. **Fewer additions.** A level's Zeckendorf representation has a lower Hamming weight than the same level in binary, so fewer partial products.
+2. **Self-timed Zeckendorf normalization.** Each Zeckendorf addition stops when no `11` and no 2 are left, and the scan that finds none is its completion signal; a clocked binary adder waits its worst case every time.
+3. **Single-bit error detection.** The same scan for `11` flags corrupted accumulator states; a binary accumulator cannot.
 
-Settling is counted in rounds, every cell rewriting at once (`normalize_rounds`). Rounds compare the rule systems, not gate-level circuits."""))
+Zeckendorf normalization is counted in normalization rounds, every cell rewriting at once, by `normalize_rounds`. Rounds compare the rule systems, not gate-level circuits."""))
 cells.append(md("## 0. Install"))
-cells.append(code("""# phi_prune.register ships in main from PR #2 on
+cells.append(code("""# installs phi when this Python cannot import phi_prune.register
 import importlib.util, subprocess, sys
 if importlib.util.find_spec("phi_prune.register") is None:
     subprocess.check_call([sys.executable, "-m", "pip", "install", "-q",
                            "git+https://github.com/ezexe/phi.git"])"""))
-cells.append(md("""## 1. One pruned, encoded conv layer
+cells.append(md("""## 1. One pruned, quantized convolution layer
 
-ResNet-18's `layer3.0.conv1` (256 output channels, fan-in 128 × 3 × 3 = 1152) with torchvision's ImageNet weights, φ-pruned and encoded per output channel with 10 Fibonacci digits (144 levels), as in the README pipeline.
-Without network access to the weights, the cell falls back to Laplace-distributed synthetic weights of the same shape and says so."""))
+ResNet-18's `layer3.0.conv1`, with 256 output channels and a fan-in of 128 × 3 × 3 = 1152, with torchvision's ImageNet weights, φ-pruned and quantized per output channel to the 144 levels of 10 Zeckendorf digits, as in the README pipeline.
+When torchvision or the weights cannot be loaded, the cell falls back to Laplace-distributed synthetic weights of the same shape and says so."""))
 cells.append(code("""import math
 import time
 
@@ -56,7 +58,7 @@ try:
     import torchvision
     model = torchvision.models.resnet18(weights="DEFAULT").eval()
     SOURCE = "torchvision ResNet-18 ImageNet weights"
-except Exception as exc:  # no torchvision, or no network for the weights
+except Exception as exc:  # any failure: no torchvision, no network for the weights, or another error
     model = None
     SOURCE = f"synthetic Laplace weights ({type(exc).__name__}: no pretrained weights)"
 
@@ -75,8 +77,8 @@ print(SOURCE)
 print(f"{LAYER}: {weight.shape[0]} output channels, {len(kept)} kept, fan-in {FAN_IN}")"""))
 cells.append(md("""## 2. Activations
 
-The layer's real inputs on CIFAR-10 test images at 224 px when the pretrained model and the dataset are available, else on random images (pretrained model) or half-normal values (synthetic).
-Each 3 × 3 patch is one activation vector; activations are quantized to 0–255."""))
+The layer's inputs on CIFAR-10 test images at 224 px when the pretrained model and the dataset are available, its inputs on random images when only the model is, and half-normal values with the synthetic weights.
+Each 3 × 3 patch is one activation vector, and activations are quantized to 0–255."""))
 cells.append(code("""N_PATCHES = 4
 
 def layer_inputs(model, images):
@@ -111,8 +113,8 @@ print(ACT_SOURCE)
 print(f"{N_PATCHES} patches; nonzero activations per patch: {[int((a > 0).sum()) for a in acts]} of {FAN_IN}")"""))
 cells.append(md("""## 3. The dot products, in both registers
 
-For a sample of kept output channels and every patch: the weight levels (`encoder.levels`), then `dot` in a φ-register and in a binary register.
-Both get the same integer levels and activations, so both accumulate the same sum; the φ side writes each level in Zeckendorf digits (10 cells), the binary side in 8 bits."""))
+For a sample of kept output channels and every patch, the cell takes the weight levels from `encoder.levels` and runs `dot` in a Zeckendorf register and in a binary register.
+Both get the same integer levels and activations, so both accumulate the same sum; the Zeckendorf side writes each level in 10 Zeckendorf digits, the binary side in 8 bits."""))
 cells.append(code("""N_CHANNELS = 8
 
 def run(n_digits):
@@ -143,12 +145,12 @@ for kind in KINDS:
           f"{np.mean(r['rounds']):.2f} rounds per addition on average, {max(r['rounds'])} at worst")"""))
 cells.append(md("""## 4. Cost per dot product, four ways to time it
 
-- **φ, self-timed:** the rounds each addition actually took, plus the φ side's extra work, the partial products `x · F(k)`. Each activation needs a ladder of `n_digits − 1` additions (`x·F(k) = x·F(k−1) + x·F(k−2)`), shared by every kept output channel that reads it; the cell runs those ladders and spreads their rounds over the kept channels.
-- **Binary, self-timed:** the rounds each binary addition took (an asynchronous adder with carry-completion detection).
+- **φ, self-timed:** the rounds each addition took, plus the Zeckendorf side's extra work, the Fibonacci multiples `x · F(k)`. Each activation needs `n_digits − 1` additions to build them by `x·F(k) = x·F(k−1) + x·F(k−2)`, shared by every kept output channel that reads it; the cell runs those additions and spreads their rounds over the kept channels.
+- **Binary, self-timed:** the rounds each binary addition took, as in an asynchronous adder with carry-completion detection.
 - **Binary, clocked ripple:** every addition waits for a carry across the whole accumulator, its width in bits.
 - **Binary, clocked lookahead:** every addition waits ⌈log₂ width⌉, the depth of a carry-lookahead adder, the closest of the four to a CPU's adder."""))
 cells.append(code("""def ladder_rounds(x, n_digits):
-    \"\"\"Rounds to build x·F(0) .. x·F(n_digits-1) in φ-registers by the ladder.\"\"\"
+    \"\"\"Rounds to build the Fibonacci multiples x·F(0) .. x·F(n_digits-1) in Zeckendorf registers.\"\"\"
     terms, total = [from_int(x, PHI)], 0
     a, r = normalize_rounds(pour(terms[0], terms[0]), PHI)  # x·2
     terms.append(a); total += r
@@ -179,17 +181,17 @@ for name, v in rows.items():
     print(f"{name:<28}{v:>22,.0f}{v / base:>17.2f}×")"""))
 cells.append(md("""## 5. The low end: fewer digits
 
-The same layer at 6, 8 and 10 Fibonacci digits (21, 55 and 144 levels).
-Fewer levels mean narrower weights, so fewer additions on both sides, but the φ side's share of 1 digits stays lower than binary's at every width."""))
+The same layer at 6, 8 and 10 Zeckendorf digits, which hold 21, 55 and 144 levels.
+Fewer levels mean narrower weights, so fewer additions on both sides, but the Zeckendorf side's Hamming weight stays lower than binary's at every width."""))
 cells.append(code("""print(f"{'digits':>6}{'levels':>8}{'φ adds':>9}{'bin adds':>10}{'φ self-timed':>14}{'bin self-timed':>16}{'bin lookahead':>15}{'bin ripple':>12}")
 for n_digits in (6, 8, 10):
     r = res if n_digits == N_DIGITS else run(n_digits)
     t, _, _ = cost_table(r, n_digits)
     print(f"{n_digits:>6}{r['enc'].n_levels:>8}{r[PHI]['adds'] / r['n_dots']:>9.0f}{r[BINARY]['adds'] / r['n_dots']:>10.0f}"
           f"{t['φ, self-timed']:>14,.0f}{t['binary, self-timed']:>16,.0f}{t['binary, clocked lookahead']:>15,.0f}{t['binary, clocked ripple']:>12,.0f}")"""))
-cells.append(md("""## 6. Integrity of the accumulator
+cells.append(md("""## 6. Single-bit error detection in the accumulator
 
-Every settled accumulator state from section 3, with each of its bits flipped in turn: the share of flips the no-`11` scan catches.
+Every accumulator state in normal form from section 3, with each of its bits flipped in turn: the share of flips the scan for `11` catches.
 A binary accumulator reads every pattern as a valid number, so it catches none."""))
 cells.append(code("""for kind in KINDS:
     caught = total = 0
@@ -202,13 +204,13 @@ cells.append(code("""for kind in KINDS:
     print(f"{kind:>6}: {caught / total:.1%} of {total} single-bit flips detected")"""))
 cells.append(md("""## 7. What this run shows
 
-Read the numbers above from your own run; on the run saved in this notebook (see the source lines printed in sections 1 and 2):
+The run saved in this notebook used the synthetic fallback, Laplace weights and half-normal activations, since the pretrained weights could not be downloaded where it ran. At 10 digits:
 
-- **Fewer additions** is the first saving and does not depend on timing: Zeckendorf levels carry fewer 1 digits than binary ones.
-- **Against a clocked binary adder** the self-timed φ accumulator needs fewer rounds per dot product, far fewer than a ripple adder and fewer than a lookahead adder.
-- **Against a self-timed binary adder** it does not win: binary additions settle in fewer rounds, which outweighs the φ side's fewer additions.
-- **Integrity** comes free on the φ side only.
+- **Fewer additions** is the first saving and does not depend on timing: the Zeckendorf representations of the levels have a lower Hamming weight than binary ones, 3,495 additions per dot product against 4,132, which is 15% fewer.
+- **Against a clocked binary adder** the self-timed Zeckendorf accumulator needs fewer rounds per dot product at each width of section 5: at 10 digits 8.76× fewer than a ripple adder and 1.68× fewer than a lookahead adder.
+- **Against a self-timed binary adder** it does not win: binary additions reach normal form in 2.45 rounds against 3.44, which outweighs the Zeckendorf side's fewer additions, and self-timed binary needs 0.82× the Zeckendorf rounds.
+- **Single-bit error detection** comes on the Zeckendorf side only: 45.3% of single-bit flips in accumulators in normal form are caught, against none.
 
-So the optimization is real where the alternative is a clocked binary MAC, and it comes from two places at once: the low density of 1s in Zeckendorf levels and paying each addition's own settling time. It disappears against binary hardware that is also self-timed, and none of this is a gate-level or silicon measurement."""))
+So the saving is real where the alternative is a clocked binary multiply-accumulate unit, and it comes from two places at once: the low Hamming weight of Zeckendorf levels and paying each addition's own Zeckendorf normalization time. It disappears against binary hardware that is also self-timed, and none of this is a gate-level or silicon measurement."""))
 nb = nbf.v4.new_notebook(cells=cells, metadata={"kernelspec": {"name": "python3", "display_name": "Python 3"}, "language_info": {"name": "python"}})
 nbf.write(nb, Path(__file__).resolve().parents[2] / "notebooks" / "register_settling.ipynb")
