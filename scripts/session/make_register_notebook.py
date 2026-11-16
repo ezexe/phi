@@ -1,9 +1,9 @@
 """
-Generates .docs/register_settling.ipynb (without outputs).
+Generates notebooks/register_settling.ipynb (without outputs).
 
 Run it, then execute the notebook:
     python scripts/session/make_register_notebook.py
-    jupyter nbconvert --to notebook --execute --inplace .docs/register_settling.ipynb
+    jupyter nbconvert --to notebook --execute --inplace notebooks/register_settling.ipynb
 The saved notebook's closing cell was then filled in with that run's numbers by hand,
 so regenerating it brings back the generic closing text.
 """
@@ -211,4 +211,4 @@ Read the numbers above from your own run; on the run saved in this notebook (see
 
 So the optimization is real where the alternative is a clocked binary MAC, and it comes from two places at once: the low density of 1s in Zeckendorf levels and paying each addition's own settling time. It disappears against binary hardware that is also self-timed, and none of this is a gate-level or silicon measurement."""))
 nb = nbf.v4.new_notebook(cells=cells, metadata={"kernelspec": {"name": "python3", "display_name": "Python 3"}, "language_info": {"name": "python"}})
-nbf.write(nb, Path(__file__).resolve().parents[2] / ".docs" / "register_settling.ipynb")
+nbf.write(nb, Path(__file__).resolve().parents[2] / "notebooks" / "register_settling.ipynb")
