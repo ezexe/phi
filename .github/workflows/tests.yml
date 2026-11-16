@@ -11,14 +11,22 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.12"]
+        include:
+          # pyproject.toml's floors: the oldest Python, torch and numpy it admits.
+          - python-version: "3.11"
+            torch: "torch==2.4.1"
+            numpy: "numpy==1.24.0"
+          # The newest Python, with the newest torch and numpy.
+          - python-version: "3.15"
+            torch: "torch"
+            numpy: "numpy"
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Install (CPU torch)
+      - name: Install torch from its CPU wheels, then phi
         run: |
-          pip install torch --index-url https://download.pytorch.org/whl/cpu
-          pip install -e ".[dev]"
+          pip install "${{ matrix.torch }}" --index-url https://download.pytorch.org/whl/cpu
+          pip install -e ".[dev]" "${{ matrix.numpy }}"
       - run: python -m pytest
