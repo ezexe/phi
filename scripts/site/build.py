@@ -242,8 +242,35 @@ def build(out):
              f'<a href="{REPO}">ezexe/phi</a>, rebuilt on every push to main.</p>')
     with open(os.path.join(out, "index.html"), "w", encoding="utf-8", newline="\n") as f:
         f.write(page("Docs", f'<div class="index">{intro}{"".join(groups)}</div>', 0))
+    folder_indexes(out, listed)
     missing = [x for x in listed if x[0] not in taken]
     return listed, missing
+
+
+def folder_indexes(out, listed):
+    """An index.html in every folder that holds pages, so docs/phi/ opens as .docs/phi does on GitHub."""
+    names = {prefix: name for prefix, name in SECTIONS if prefix}
+    folders = {}
+    for site, title, kind in listed:
+        d = posixpath.dirname(site)
+        folders.setdefault(d, []).append((site, title, kind))
+        while d:
+            d = posixpath.dirname(d)
+            folders.setdefault(d, [])
+    for d, items in sorted(folders.items()):
+        dst = os.path.join(out, d, "index.html")
+        if not d or os.path.exists(dst):
+            continue
+        subs = sorted(x for x in folders if x and posixpath.dirname(x) == d)
+        lis = "".join(f'<li><a href="{posixpath.basename(x)}/index.html">{html.escape(posixpath.basename(x))}/'
+                      f'<span>folder</span></a></li>' for x in subs)
+        lis += "".join(f'<li><a href="{posixpath.basename(s)}">{html.escape(t)}<span>{k}</span></a></li>'
+                       for s, t, k in items)
+        head = names.get(d + "/", d)
+        body = f'<div class="index"><h1>{html.escape(head)}</h1><ul>{lis}</ul></div>'
+        src = "." + d if d.startswith("docs") else None
+        with open(dst, "w", encoding="utf-8", newline="\n") as f:
+            f.write(page(head, body, d.count("/") + 1, src))
 
 
 def main(argv=None):
