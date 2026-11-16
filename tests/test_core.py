@@ -600,3 +600,13 @@ class TestCLI:
             code, printed[args[0]] = run_main(monkeypatch, *args, encoding="cp1252")
             assert code == 0, (args, printed[args[0]][-300:])
         assert "?" in printed["--help"] and "?" in printed["check"]
+
+    def test_cli_exit_codes(self, tmp_path, monkeypatch):
+        """info on a file without masks exits 1, and phi-prune with no command exits 2, argparse's code for a usage error."""
+        from phi_prune.cli import cmd_info
+
+        path = str(tmp_path / "list.pt")
+        torch.save([1, 2, 3], path)
+        assert run_cli(cmd_info, path)[0] == 1
+        assert run_main(monkeypatch, "info", path)[0] == 1
+        assert run_main(monkeypatch)[0] == 2
