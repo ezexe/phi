@@ -1,11 +1,16 @@
 """
-Sparse weight deltas between two checkpoints, in Fibonacci codes.
+Sparse deltas between two checkpoints, in Fibonacci codes.
 
-For continual training in rounds: each round's update (new - base) keeps its
-largest keep fraction per tensor; the kept positions go out as Fibonacci gap
-codes (phi_prune.gaps) and each kept value as a sign digit and the Fibonacci
-code of its magnitude level + 1, on a symmetric grid of
-FibonacciEncoder(n_digits).max_value levels per side, scaled per tensor.
+A model trained in rounds can ship each round as its delta, new minus base.
+encode_delta keeps, in each floating tensor of the delta, the top-k entries
+by absolute value, with k the fraction keep of the tensor's entries. Each
+kept value is quantized symmetrically: its absolute value over the tensor's
+scale is rounded to a quantization level from 0 to L, where L is
+FibonacciEncoder(n_digits).max_value and the scale is the step that puts the
+largest kept value at L, or 1.0 when every kept value is 0. The value is
+written as a sign digit, 1 for a negative value, followed by the Fibonacci
+code of its level plus 1. The kept positions are written as Fibonacci-coded
+gaps, by phi_prune.gaps.
 
     header, payload = encode_delta(base.state_dict(), tuned.state_dict(), keep=0.01)
     save_delta("round-07.phid", header, payload)
@@ -14,17 +19,26 @@ FibonacciEncoder(n_digits).max_value levels per side, scaled per tensor.
     apply_delta(state, *load_delta("round-07.phid"))
     base.load_state_dict(state)
 
-The file is one JSON header line and the payload as '0'/'1' text, the layout
-export_bitstream uses, or with packed=True the payload's bits packed eight to a
-byte (the header's "packed_bits" counts them): the layout a round of a live
-model ships in, an eighth of the size. Every code ends in '11', so the payload
-frames itself; a count, a position or a shape that the header does not match
-raises ValueError before any weight is written.
+A .phid file is one JSON header line followed by the payload. The header
+holds keep, n_digits and levels, which is L; each tensor the delta carries,
+with its name, shape, n_kept and scale; the names of the tensors it skipped;
+and with changed_only, that flag and the names of the tensors that did not
+change. A writer may add keys of its own, as phi_rank adds round and parent
+to every round it ships, and decode_delta passes over them. The payload
+holds the tensors in the header's order, each as its n_kept gaps followed by
+its n_kept values. It is written as '0' and '1' text,
+the layout export_bitstream uses, or with packed=True as bits packed eight to
+a byte, an eighth of the size, with their count in the header's
+"packed_bits". The Fibonacci code is a prefix code, so with the n_kept counts
+a reader splits the payload without lengths or separators. A count, a
+position or a shape that the header does not match raises ValueError before
+any weight is written.
 
 changed_only=True takes keep as a fraction of the entries that changed rather
-than of all of them: a sparse update (an embedding table whose untouched rows
-never move) keeps its largest changes, never its zeros, and a tensor with no
-change is named in the header's "unchanged" and costs nothing.
+than of all of them. A sparse delta, such as that of an embedding table whose
+untouched rows never move, then keeps its largest changes and never its
+zeros, and a tensor with no change is named in the header's "unchanged" and
+costs nothing.
 """
 
 import json
@@ -45,12 +59,12 @@ def encode_delta(
     changed_only: bool = False,
 ) -> Tuple[Dict, str]:
     """
-    Header and payload for the largest keep fraction of each floating tensor of new - base.
+    Header and payload for the top-k entries of each floating tensor of new - base, k a fraction keep of its entries.
 
     Tensors missing from base, of another shape, or not floating point are skipped
-    and named in the header's "skipped". n_digits sets the magnitude grid:
-    FibonacciEncoder(n_digits).max_value levels per side (6 digits: 20, near 5 bits
-    with the sign), the 4-6 bit range where Zeckendorf digits beat binary and CSD.
+    and named in the header's "skipped". n_digits sets L, the largest quantization
+    level, to FibonacciEncoder(n_digits).max_value. 6 digits give 20, so each kept
+    value decodes as the scale times one of the 41 integers from -20 to 20.
     """
     levels = FibonacciEncoder(n_digits).max_value
     header = {"keep": keep, "n_digits": n_digits, "levels": levels, "tensors": [], "skipped": []}
@@ -105,7 +119,7 @@ def decode_delta(header: Dict, payload: str) -> Dict[str, Tuple[np.ndarray, np.n
 
 
 def apply_delta(state: Dict[str, torch.Tensor], header: Dict, payload: str) -> Dict[str, torch.Tensor]:
-    """Add a decoded delta into state's tensors in place, after checking every tensor; returns state."""
+    """Add a decoded delta into state's tensors in place, after checking each tensor's name and shape; returns state."""
     decoded = decode_delta(header, payload)
     for t in header["tensors"]:
         if t["name"] not in state or list(state[t["name"]].shape) != t["shape"]:
