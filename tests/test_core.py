@@ -650,6 +650,14 @@ class TestCLI:
         assert run_main(monkeypatch, "info", path)[0] == 1
         assert run_main(monkeypatch)[0] == 2
 
+    def test_cli_offers_no_prune_that_always_exits_1(self, tmp_path, monkeypatch):
+        """phi-prune --help offers check and info only, and phi-prune prune is a usage error that exits 2."""
+        path = str(tmp_path / "state.pt")
+        torch.save(mlp().state_dict(), path)
+        code, help_text = run_main(monkeypatch, "--help")
+        assert code == 0 and "{check,info}" in help_text
+        assert run_main(monkeypatch, "prune", path)[0] == 2
+
     def test_cli_info_on_a_checkpoint_with_no_masked_layer(self, tmp_path):
         """info on the checkpoint of a model that prune left dense prints that no layer is masked and exits 0."""
         from phi_prune.cli import cmd_info

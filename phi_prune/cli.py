@@ -1,8 +1,8 @@
 """
 The phi-prune command, for a checkpoint that save_checkpoint wrote: check reads every mask against its
 pattern and checks that each pruned weight in the state dict is zero, and info prints how many weights
-each mask keeps. prune loads a saved state dict, prints how to prune with the Python API and exits 1,
-since a model's class cannot be rebuilt from its saved weights.
+each mask keeps. The command does not prune: a model's class cannot be rebuilt from its saved weights,
+so pruning and fine-tuning go through the Python API, phi_prune.prune and phi_prune.finetune.
 check and info read the file with torch.load(weights_only=True), which runs no code from it, and exit
 1 for a file that load refuses or that has no masks entry, check also when a mask or a pruned weight
 fails; a command line that argparse cannot read exits 2.
@@ -56,21 +56,6 @@ def _load(path):
             print(reason)
         print("phi-prune reads what save_checkpoint writes; a file you trust loads in Python with weights_only=False.")
         sys.exit(1)
-
-
-def cmd_prune(args):
-    """Load a saved state dict, print how to prune with the Python API, and exit 1."""
-    print(f"Loading {args.model}...")
-    state_dict = torch.load(args.model, map_location="cpu", weights_only=True)
-
-    # A model's class cannot be read from its saved weights, so the command has no model to prune
-    print("ERROR: phi-prune prune cannot rebuild a model from its saved weights, so it cannot prune one.")
-    print("Prune and fine-tune with the Python API instead:")
-    print()
-    print("    from phi_prune import prune, finetune")
-    print("    model, masks = prune(model)")
-    print("    finetune(model, train_loader, epochs=40, masks=masks)")
-    sys.exit(1)
 
 
 def cmd_check(args):
@@ -164,13 +149,6 @@ def main():
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    # prune
-    p = sub.add_parser("prune", help="Print how to prune with the Python API, and exit 1")
-    p.add_argument("model", help="A saved state dict, a .pt file")
-    p.add_argument("--output", "-o", default="pruned.pt")
-    p.add_argument("--density", type=float, default=0.5)
-    p.add_argument("--finetune-epochs", type=int, default=40)
-
     # check
     p = sub.add_parser("check", help="Check every mask against its pattern, and that every pruned weight is zero")
     p.add_argument("model", help="A checkpoint that save_checkpoint wrote")
@@ -181,9 +159,7 @@ def main():
 
     args = parser.parse_args()
 
-    if args.command == "prune":
-        cmd_prune(args)
-    elif args.command == "check":
+    if args.command == "check":
         sys.exit(cmd_check(args))
     elif args.command == "info":
         sys.exit(cmd_info(args))
