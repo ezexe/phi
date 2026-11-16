@@ -10,7 +10,7 @@
   13 digits phi      610 values  detected 0.424  correctable 0.094
   13 digits binary  8192 values  detected 0.000  correctable 0.000
 
-2. rules fired per sum, same values in both registers (lowest position first)
+2. rewrite steps per sum, same values in both registers, lowest position first
   values < 21   phi    mean 2.20 max 9
   values < 21   binary mean 1.33 max 5
   values < 55   phi    mean 3.18 max 16
@@ -18,7 +18,7 @@
   values < 144  phi    mean 4.17 max 25
   values < 144  binary mean 2.80 max 8
 
-3. parallel settling rounds per sum
+3. normalization rounds per sum
   values < 21   phi    width  6  mean 1.82 worst 6
   values < 21   binary width  5  mean 1.20 worst 5
   values < 55   phi    width  8  mean 2.32 worst 7

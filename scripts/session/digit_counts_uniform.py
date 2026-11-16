@@ -1,8 +1,9 @@
 """
-1 digits per value over uniformly spread levels (.docs/register.md, section 5c).
+Mean Hamming weight of the values 0 .. L-1, the uniformly spread levels.
 
-Mean nonzero digits over the values 0 .. L-1 in Zeckendorf, canonical
-signed digit (CSD/NAF) and binary form: where CSD overtakes Zeckendorf.
+Each value is written in the Zeckendorf representation, in canonical signed
+digit form, CSD, and in binary, and the table shows the level count from which
+CSD has the lower mean Hamming weight.
 """
 
 import sys

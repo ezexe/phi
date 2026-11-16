@@ -1,10 +1,10 @@
 """
-φ-register against binary register measurements (.docs/register.md, sections 3 and 6).
+Measurements of the Zeckendorf register against the binary register.
 
-1. Single-bit flips over every canonical register of a width: share detected,
-   share uniquely correctable.
-2. Rules fired per sum, for every pair of values below 21, 55, 144.
-3. Parallel settling rounds (normalize_rounds) for every pair below 21 .. 610.
+1. Single-bit flips over every register of a width in normal form: the share
+   detected and the share uniquely correctable.
+2. Rewrite steps per sum, for every pair of values below 21, 55 and 144.
+3. Normalization rounds, by normalize_rounds, for every pair below 21 .. 610.
 """
 
 import statistics as st
@@ -36,7 +36,7 @@ def flips():
 
 
 def equal_values():
-    print("\n2. rules fired per sum, same values in both registers (lowest position first)")
+    print("\n2. rewrite steps per sum, same values in both registers, lowest position first")
     for n in (21, 55, 144):
         for kind in KINDS:
             steps = [add(from_int(a, kind), from_int(b, kind), kind)[1] for a in range(n) for b in range(n)]
@@ -48,7 +48,7 @@ def all_rounds(n, kind):
 
 
 def rounds():
-    print("\n3. parallel settling rounds per sum")
+    print("\n3. normalization rounds per sum")
     for n in (21, 55, 144, 610):
         for kind in KINDS:
             r = all_rounds(n, kind)
