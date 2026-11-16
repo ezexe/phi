@@ -5,6 +5,7 @@ import contextlib
 import copy
 import io
 import json
+import random
 import sys
 import numpy as np
 import torch
@@ -19,6 +20,21 @@ from phi_prune.gaps import decode_gaps, encode_gaps
 from phi_prune.integrity import adjacency_check, simulate_corruption
 from phi_prune.api import prune, finetune, check, evaluate
 from phi_prune.export import export_bitstream, load_bitstream
+
+
+@pytest.fixture(autouse=True)
+def _seeded():
+    """Seed random, numpy and torch at 0 before each test."""
+    random.seed(0)
+    np.random.seed(0)
+    torch.manual_seed(0)
+
+
+def test_each_test_starts_seeded():
+    """Every test of this file starts from seed 0 in random, numpy and torch, so a failure repeats."""
+    assert torch.initial_seed() == 0
+    assert np.array_equal(np.random.get_state()[1], np.random.RandomState(0).get_state()[1])
+    assert random.getstate() == random.Random(0).getstate()
 
 
 # ── The maximum-weight independent set ──
