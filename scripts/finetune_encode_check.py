@@ -1,15 +1,17 @@
 """
-Fine-tune, prune and encode a ResNet on CIFAR-10, then compare encodings.
+Fine-tune, prune and quantize a ResNet on CIFAR-10, then compare per-tensor and per-channel quantization.
 
-A reduced CPU version of the notebook's variant pipeline (dense fine-tune,
-conv-only φ-pruning, mask-aware fine-tune) followed by its encoding
-cell, run once with one scale and offset per layer (the encoding behind the
-README's 10.00% for ResNet-152 V2) and once per output channel. Each model
-is evaluated in fp32 and, on the first --fp16-test images, under CPU fp16
-autocast, with the share of those images whose logits are not finite.
+The steps of the notebook's variant cells on a CPU: a dense fine-tune, φ-pruning of the
+convolutions and a fine-tune with the masks held fixed. The pruned convolutions are then quantized
+once per tensor and once per output channel. Each model is scored in fp32 and, on the first
+--fp16-test images, under CPU fp16 autocast, with the share of those images whose logits are not
+all finite.
 
-Defaults fit a 4-core CPU runner in a few hours for ResNet-152: 128 px
-images, 5000 training and 2000 test images, one epoch per fine-tune.
+With the defaults, 128 px images, 5000 training and 2000 test images and one epoch per fine-tune,
+the fine-tunes, pruning, quantization and scoring of ResNet-152 took 50.9 minutes on a GitHub runner
+with 2 threads, once the data and weights had loaded, and 101.2 minutes with --ft-epochs 6;
+results/prune/finetune-check-36070148204.txt and results/prune/finetune-check-36076634102.txt hold
+the two runs, whose printed total is that span.
 
 Usage:
     python scripts/finetune_encode_check.py --arch resnet152 --weights IMAGENET1K_V2
@@ -49,7 +51,7 @@ class Batches:
 
 
 def cifar(root, n_train, n_test, fake=False):
-    if fake:  # offline smoke test
+    if fake:  # random images in place of CIFAR-10
         g = torch.Generator().manual_seed(0)
         return (torch.randint(0, 256, (n_train, 3, 32, 32), dtype=torch.uint8, generator=g),
                 torch.randint(0, 10, (n_train,), generator=g),
@@ -70,7 +72,7 @@ def cifar(root, n_train, n_test, fake=False):
 
 
 def accuracy(model, loader, fp16):
-    """(top-1 %, % of images with non-finite logits)."""
+    """Top-1 accuracy in percent, and the percent of images whose logits are not all finite."""
     model.eval()
     correct = bad = total = 0
     with torch.inference_mode(), torch.autocast("cpu", dtype=torch.float16, enabled=fp16):
@@ -100,13 +102,14 @@ def main():
     ap.add_argument("--train", type=int, default=5000, help="training images")
     ap.add_argument("--test", type=int, default=2000, help="test images")
     ap.add_argument("--fp16-test", type=int, default=256,
-                    help="of which evaluated under fp16 autocast too (CPU fp16 is ~30x slower than fp32)")
+                    help="of which also scored under CPU fp16 autocast, which runs far slower than fp32")
     ap.add_argument("--batch", type=int, default=64)
     ap.add_argument("--dense-epochs", type=int, default=1)
     ap.add_argument("--ft-epochs", type=int, default=1)
     ap.add_argument("--digits", type=int, default=10)
     ap.add_argument("--data", default="./data")
-    ap.add_argument("--fake-data", action="store_true", help="random images (offline smoke test)")
+    ap.add_argument("--fake-data", action="store_true",
+                    help="random images in place of CIFAR-10; with --weights none the run downloads nothing")
     args = ap.parse_args()
 
     import torchvision
@@ -126,15 +129,15 @@ def main():
 
     start = time.perf_counter()
     finetune(net, train, epochs=args.dense_epochs, lr=0.01 * lr_scale, verbose=False)
-    print(f"dense fine-tune done ({(time.perf_counter() - start) / 60:.1f} min)", flush=True)
+    print(f"dense fine-tune done, {(time.perf_counter() - start) / 60:.1f} min", flush=True)
     pruned, masks = prune(net, inplace=False, layer_types=(nn.Conv2d,))
     finetune(pruned, train, epochs=args.ft_epochs, masks=masks, lr=0.001 * lr_scale, verbose=False)
-    print(f"pruned fine-tune done ({(time.perf_counter() - start) / 60:.1f} min)\n", flush=True)
+    print(f"pruned fine-tune done, {(time.perf_counter() - start) / 60:.1f} min\n", flush=True)
 
     models = [("dense", net), ("pruned", pruned),
-              ("enc per layer", encoded(pruned, masks, args.digits, None)),
-              ("enc per channel", encoded(pruned, masks, args.digits, 0))]
-    print(f"{'model':<17}{'fp32':>8}{'fp16':>8}{'non-finite fp16':>17}  (fp16 on the first {len(test16.y)})")
+              ("per tensor", encoded(pruned, masks, args.digits, None)),
+              ("per channel", encoded(pruned, masks, args.digits, 0))]
+    print(f"{'model':<17}{'fp32':>8}{'fp16':>8}{'non-finite fp16':>17}  fp16 on the first {len(test16.y)} images")
     for label, m in models:
         a32, _ = accuracy(m, test, False)
         a16, bad16 = accuracy(m, test16, True)
