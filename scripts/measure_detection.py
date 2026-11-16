@@ -8,10 +8,6 @@ positions whose 0 -> 1 flip creates '11' (a 1 -> 0 flip never does).
 "uniform" is that share averaged over every grid level, a baseline
 that does not depend on the weights.
 
-Pass --old-encoder to also measure the encoder before the rounding fix
-(encoding.py at ae7396e, which rounded up instead of to nearest); this
-needs a git checkout with that commit.
-
 Usage:
     python scripts/measure_detection.py                      # synthetic conv weights
     python scripts/measure_detection.py --models resnet18,resnet50
@@ -19,9 +15,6 @@ Usage:
 
 import argparse
 import random
-import subprocess
-import types
-from pathlib import Path
 
 import numpy as np
 import torch
@@ -31,23 +24,8 @@ from phi_prune.encoding import FibonacciEncoder
 from phi_prune.integrity import simulate_corruption
 from phi_prune.masks import phi_mask
 
-OLD_ENCODER_COMMIT = "ae7396e"
 SYNTHETIC_SHAPE = (256, 128, 3, 3)
 DISTRIBUTIONS = ("gaussian", "laplace", "student-t3", "uniform")
-
-
-def load_old_encoder():
-    repo = Path(__file__).resolve().parents[1]
-    src = subprocess.check_output(
-        ["git", "show", f"{OLD_ENCODER_COMMIT}:zeckendorf_prune/encoding.py"],
-        cwd=repo, text=True,
-    )
-    mod = types.ModuleType("old_encoding")
-    exec(src, mod.__dict__)
-    # integrity.simulate_corruption calls encoder.levels(), added after this commit;
-    # it only reads max_value, so the current implementation fits the old class
-    mod.FibonacciEncoder.levels = FibonacciEncoder.levels
-    return mod.FibonacciEncoder
 
 
 def synthetic_weights(dist, g):
@@ -89,7 +67,7 @@ def measure_layers(layers, enc, n_flips):
     detected = flips = 0
     exact_sum = sq_err_sum = 0.0
     for w, mask in layers:
-        encoded, scale, rmse, offset = encode(enc, w, mask)
+        encoded, scale, rmse, offset = enc.encode_tensor(w, mask, return_offset=True)
         active = encoded[mask.bool()].double().cpu().numpy()
         levels = np.clip(np.round((active - offset) * scale), 0, enc.max_value).astype(int)
         d, t = simulate_corruption(encoded, mask, enc, scale, offset, n_flips=n_flips)
@@ -98,13 +76,6 @@ def measure_layers(layers, enc, n_flips):
         exact_sum += rates[levels].mean() * t
         sq_err_sum += rmse ** 2 * t
     return detected, flips, exact_sum / flips, (sq_err_sum / flips) ** 0.5
-
-
-def encode(enc, w, mask):
-    """encode_tensor with the offset, for encoders with or without return_offset."""
-    encoded, scale, rmse = enc.encode_tensor(w, mask)[:3]
-    offset = w[mask.bool()].min().item()
-    return encoded, scale, rmse, offset
 
 
 def model_layers(name):
@@ -123,14 +94,8 @@ def main():
                     "empty measures synthetic weights instead")
     ap.add_argument("--flips", type=int, default=200_000,
                     help="flips per synthetic tensor, or per pruned layer with --models")
-    ap.add_argument("--old-encoder", action="store_true",
-                    help=f"also measure the encoder at {OLD_ENCODER_COMMIT} (round-up bug)")
     ap.add_argument("--seed", type=int, default=0)
     args = ap.parse_args()
-
-    encoders = [("new", FibonacciEncoder)]
-    if args.old_encoder:
-        encoders.insert(0, ("old", load_old_encoder()))
 
     if args.models:
         setups = [(m, lambda m=m: model_layers(m)) for m in args.models.split(",")]
@@ -140,19 +105,18 @@ def main():
             return [(w, phi_mask(w))]
         setups = [(d, lambda d=d: synthetic(d)) for d in DISTRIBUTIONS]
 
-    print(f"{'digits':>6} {'weights':>11} {'encoder':>7} {'rmse':>8} "
+    print(f"{'digits':>6} {'weights':>11} {'rmse':>8} "
           f"{'simulated':>9} {'±2σ':>6} {'exact':>6} {'uniform':>7}")
     for label, get_layers in setups:
         layers = get_layers()
         for n_digits in (int(d) for d in args.digits.split(",")):
-            for enc_name, Enc in encoders:
-                enc = Enc(n_digits)
-                random.seed(args.seed)
-                det, tot, exact, rmse = measure_layers(layers, enc, args.flips)
-                p = det / tot
-                print(f"{n_digits:>6} {label:>11} {enc_name:>7} {rmse:8.5f} "
-                      f"{p:9.4f} {2 * np.sqrt(p * (1 - p) / tot):6.4f} "
-                      f"{exact:6.4f} {per_level_rate(enc).mean():7.4f}")
+            enc = FibonacciEncoder(n_digits)
+            random.seed(args.seed)
+            det, tot, exact, rmse = measure_layers(layers, enc, args.flips)
+            p = det / tot
+            print(f"{n_digits:>6} {label:>11} {rmse:8.5f} "
+                  f"{p:9.4f} {2 * np.sqrt(p * (1 - p) / tot):6.4f} "
+                  f"{exact:6.4f} {per_level_rate(enc).mean():7.4f}")
 
 
 if __name__ == "__main__":
