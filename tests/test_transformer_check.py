@@ -37,7 +37,8 @@ def check(monkeypatch):
 
 def run(check, monkeypatch, tmp_path, *args):
     out = tmp_path / "run.json"
-    monkeypatch.setattr(sys, "argv", ["transformer_check.py", "--steps", "1", "--finetune", "1", "--out", str(out), *args])
+    monkeypatch.setattr(sys, "argv",
+                        ["transformer_check.py", "--steps", "1", "--finetune", "1", "--out", str(out), *args])
     check.main()
     return out.read_text()
 

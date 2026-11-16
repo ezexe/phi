@@ -100,7 +100,8 @@ class TestRewrites:
         2.7 normalization rounds on average, binary in about 2.1, and binary's worst case, which a clock
         must wait for, is 8.
 
-        A pair and its swap pour the same register, so each unordered pair is normalized once and counted twice."""
+        A pair and its swap give the same register by digit-wise addition, so each unordered pair is brought to
+        normal form once and counted twice."""
         stats = {}
         for kind in KINDS:
             words = [from_int(v, kind) for v in range(144)]
