@@ -208,6 +208,6 @@ __marimo__/
 
 data
 model_pruned.pt
-# The vlds store of this repository is its own private repository (ezexe/phi-p4), cloned here; never part of phi.
+# This repository's store is a clone of the private repository ezexe/phi-p4 and never part of phi.
 .claude/p4/
 _site/
