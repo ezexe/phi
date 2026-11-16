@@ -98,16 +98,20 @@ class TestRewrites:
     def test_normalization_rounds_self_timed_phi_against_clocked_binary(self):
         """Over every sum of two values below 144: the Zeckendorf register reaches normal form in about
         2.7 normalization rounds on average, binary in about 2.1, and binary's worst case, which a clock
-        must wait for, is 8."""
+        must wait for, is 8.
+
+        A pair and its swap pour the same register, so each unordered pair is normalized once and counted twice."""
         stats = {}
         for kind in KINDS:
-            rounds = []
+            words = [from_int(v, kind) for v in range(144)]
+            total = count = worst = 0
             for a in range(144):
-                for b in range(144):
-                    out, r = normalize_rounds(pour(from_int(a, kind), from_int(b, kind)), kind)
+                for b in range(a, 144):
+                    out, r = normalize_rounds(pour(words[a], words[b]), kind)
                     assert value(out, kind) == a + b and is_canonical(out, kind)
-                    rounds.append(r)
-            stats[kind] = (sum(rounds) / len(rounds), max(rounds))
+                    times = 1 if a == b else 2
+                    total, count, worst = total + times * r, count + times, max(worst, r)
+            stats[kind] = (total / count, worst)
         assert 2.6 < stats[PHI][0] < 2.8 and stats[PHI][1] == 8
         assert 2.0 < stats[BINARY][0] < 2.2 and stats[BINARY][1] == 8
         assert stats[BINARY][1] / stats[PHI][0] > 2.9  # clocked binary worst case over self-timed Zeckendorf mean
