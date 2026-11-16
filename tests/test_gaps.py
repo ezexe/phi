@@ -42,8 +42,9 @@ class TestGaps:
         assert positions_to_gaps([0, 1, 5])[0] == 1
 
     def test_unsorted_positions_refused(self):
-        with pytest.raises(ValueError):
-            positions_to_gaps([3, 3])
+        for positions in ([3, 3], [5, 2], [-1, 0]):
+            with pytest.raises(ValueError):
+                positions_to_gaps(positions)
 
     def test_truncated_stream_refused(self):
         with pytest.raises(ValueError):
