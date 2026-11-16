@@ -30,3 +30,21 @@ jobs:
           pip install "${{ matrix.torch }}" --index-url https://download.pytorch.org/whl/cpu
           pip install -e ".[dev]" "${{ matrix.numpy }}"
       - run: python -m pytest
+
+  # export_onnx with the packages the export extra installs, on the newest torch; the test may not skip.
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.15"
+      - name: Install torch from its CPU wheels, then phi with its export extra
+        run: |
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -e ".[dev,export]"
+      - name: Run the export test, failing on a skip
+        run: |
+          set -o pipefail
+          python -m pytest -rs tests/test_export_onnx.py | tee export.log
+          ! grep -q skipped export.log
