@@ -1,16 +1,19 @@
 """
-Fibonacci gap codes for sparse positions.
+Fibonacci coding of the gaps between sorted positions.
 
-A sparse update keeps a few positions of a tensor; storing them as the gaps
-between consecutive kept positions, each gap in its Fibonacci code, beat
-Elias-gamma, Elias-delta and fixed-width position codes on the fine-tuning
-updates of scripts/transformer_check.py --part delta (K8, .docs/register.md
-section 5d), with no parameter to tune.
+A sparse delta keeps a few positions of a tensor. This module writes them as
+the gaps between consecutive kept positions, each gap in its Fibonacci code.
+On the delta of the small GPT that scripts/transformer_check.py --part delta
+fine-tunes, that takes fewer bits per kept position than Elias gamma, Elias
+delta or a fixed-length code, at 1% and at 10% of the entries kept, in each
+of the run's three seeds.
 
-The Fibonacci code of n >= 1 is n's Zeckendorf digits, least significant
-first, followed by a closing 1. Zeckendorf digits never hold two adjacent 1s
-and the top digit is always 1, so the closing 1 makes the first '11' in the
-stream, and the stream needs no lengths or separators:
+The Fibonacci code of n >= 1 is the Zeckendorf representation of n, least
+significant digit first, followed by an appended 1. A Zeckendorf
+representation never holds two adjacent 1s and its top digit is always 1, so
+the appended 1 makes the first '11' of each codeword, the comma that ends it.
+The code is therefore a prefix code, and a stream of codewords needs no
+lengths or separators:
 
     1 -> 11    2 -> 011    3 -> 0011    4 -> 1011    5 -> 00011
 
@@ -30,7 +33,7 @@ from phi_prune.register import PHI, from_int
 
 @lru_cache(maxsize=4096)
 def fib_code(n: int) -> str:
-    """Fibonacci code of n >= 1: Zeckendorf digits LSB first, then a closing 1."""
+    """Fibonacci code of n >= 1: its Zeckendorf representation, least significant digit first, then the appended 1."""
     if n < 1:
         raise ValueError(f"Fibonacci codes start at 1, got {n}")
     return "".join(map(str, from_int(n, PHI))) + "1"
@@ -59,7 +62,7 @@ def read_codes(bits: str, start: int = 0, count: Optional[int] = None) -> Tuple[
     while i < len(bits) and (count is None or len(values) < count):
         bit = bits[i]
         i += 1
-        if bit == "1" and prev == "1":  # the closing 1
+        if bit == "1" and prev == "1":  # the comma
             values.append(total)
             total, k, prev = 0, 0, "0"
             continue
@@ -72,7 +75,7 @@ def read_codes(bits: str, start: int = 0, count: Optional[int] = None) -> Tuple[
         k += 1
         prev = bit
     if k:
-        raise ValueError(f"bitstream ends inside a codeword ({k} digits without a closing 1)")
+        raise ValueError(f"bitstream ends inside a codeword, {k} digits read without a comma")
     if count is not None and len(values) < count:
         raise ValueError(f"bitstream holds {len(values)} codes from {start}, expected {count}")
     return values, i
@@ -98,7 +101,7 @@ def gaps_to_positions(gaps: Iterable[int]) -> np.ndarray:
 
 
 def encode_positions(positions) -> str:
-    """Strictly increasing positions as a Fibonacci gap-code bitstream."""
+    """Strictly increasing positions as a Fibonacci-coded bitstream of their gaps."""
     return encode_gaps(positions_to_gaps(positions))
 
 
@@ -108,7 +111,7 @@ def decode_positions(bits: str) -> np.ndarray:
 
 
 def top_positions(tensor: torch.Tensor, keep: float) -> np.ndarray:
-    """Sorted flat positions of the largest keep fraction of |tensor| (at least one)."""
+    """Sorted flat positions of the k largest entries of |tensor|, with k = keep times its size, rounded, at least 1."""
     flat = tensor.detach().abs().flatten()
     k = max(1, round(keep * flat.numel()))
     return np.sort(torch.topk(flat, k).indices.cpu().numpy())
@@ -135,5 +138,6 @@ def gap_bits(gaps, n_positions: int) -> Dict[str, float]:
         "elias-gamma": float(np.mean(2 * lg + 1)),
         "elias-delta": float(np.mean(lg + 2 * np.floor(np.log2(lg + 1)) + 1)),
         "fixed-width": float(math.ceil(math.log2(n_positions))),
-        "entropy": float(-(p * np.log2(p)).sum()),  # floor for any code of these gaps, one gap at a time
+        # zeroth-order empirical entropy: no code that writes each gap on its own averages fewer bits
+        "entropy": float(-(p * np.log2(p)).sum()),
     }
