@@ -297,10 +297,8 @@ def _amp_enabled(amp: bool, device) -> bool:
 
 
 def _grad_scaler(enabled: bool):
-    """torch.amp.GradScaler("cuda") from PyTorch 2.3 on, torch.cuda.amp.GradScaler before it."""
-    if hasattr(torch.amp, "GradScaler"):
-        return torch.amp.GradScaler("cuda", enabled=enabled)
-    return torch.cuda.amp.GradScaler(enabled=enabled)
+    """torch.amp.GradScaler("cuda"), which every torch from the 2.4.1 floor holds."""
+    return torch.amp.GradScaler("cuda", enabled=enabled)
 
 
 # ───────────────────────────────────────────────────────────

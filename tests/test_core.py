@@ -407,6 +407,13 @@ class TestAPI:
         with pytest.raises(ValueError, match="2:4"):
             prune(model, pattern="2:4", density=0.25)
 
+    def test_grad_scaler_is_torch_amp_alone(self):
+        """pyproject floors torch at 2.4.1, where torch.amp.GradScaler always exists, so no older branch is kept."""
+        import inspect
+        from phi_prune import api
+        assert isinstance(api._grad_scaler(False), torch.amp.GradScaler)
+        assert "torch.cuda.amp" not in inspect.getsource(api._grad_scaler)
+
     def test_finetune_keeps_pruned_weights_zero(self):
         """amp=True falls back to fp32 off CUDA, so both settings run on any machine."""
         model = self._make_model()
