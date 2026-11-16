@@ -26,7 +26,7 @@ class TestAdjacencyDP:
             mask = adjacency_dp(scores)
             assert verify_mask(mask), f"Adjacent 1s found in mask for n={len(scores)}"
 
-    def test_density_at_most_half(self):
+    def test_keeps_at_most_half_rounded_up(self):
         """Density never exceeds 50%."""
         for n in [1, 2, 3, 10, 50, 100, 199]:
             scores = np.ones(n)
@@ -226,6 +226,15 @@ class TestIntegrity:
         assert abs(detected / n - exact) < 4 * sigma
         assert 0.40 < exact < 0.42  # ~40.9% over all 8-digit levels
 
+    def test_per_channel_passes_integrity_check(self):
+        """cassini_check reads per-channel (scale, offset) arrays: clean encoded weights all pass."""
+        from phi_prune.integrity import cassini_check
+
+        pruned, masks, enc, scales = encoded_mlp(axis=0)
+        report = cassini_check(pruned, masks, enc, scales)["_aggregate"]
+        assert report["total"] == sum(int(m.sum()) for m in masks.values())
+        assert report["failed"] == 0
+
 
 # ── High-level API ──
 
@@ -351,24 +360,25 @@ class TestAPI:
 
 # ── Export ──
 
-class TestExport:
-    def _encoded_model(self, axis=None):
-        """A pruned MLP with its masked layers encoded in place, plus their (scale, offset) scales."""
-        model = nn.Sequential(nn.Linear(16, 32), nn.ReLU(), nn.Linear(32, 16), nn.ReLU(), nn.Linear(16, 10))
-        pruned, masks = prune(model)
-        enc = FibonacciEncoder(n_digits=8)
-        scales = {}
-        for name, param in pruned.named_parameters():
-            if name in masks:
-                encoded, scale, _, offset = enc.encode_tensor(param.data, mask=masks[name],
-                                                              return_offset=True, axis=axis)
-                param.data.copy_(encoded)
-                scales[name] = (scale, offset)
-        return pruned, masks, enc, scales
+def encoded_mlp(axis=None):
+    """A pruned MLP with its masked layers encoded in place, plus their (scale, offset) scales."""
+    model = nn.Sequential(nn.Linear(16, 32), nn.ReLU(), nn.Linear(32, 16), nn.ReLU(), nn.Linear(16, 10))
+    pruned, masks = prune(model)
+    enc = FibonacciEncoder(n_digits=8)
+    scales = {}
+    for name, param in pruned.named_parameters():
+        if name in masks:
+            encoded, scale, _, offset = enc.encode_tensor(param.data, mask=masks[name],
+                                                          return_offset=True, axis=axis)
+            param.data.copy_(encoded)
+            scales[name] = (scale, offset)
+    return pruned, masks, enc, scales
 
+
+class TestExport:
     def test_bitstream_roundtrip(self, tmp_path):
         """The payload parses back to the encoded levels, level 0 (each layer's minimum) included."""
-        pruned, masks, enc, scales = self._encoded_model()
+        pruned, masks, enc, scales = encoded_mlp()
         expected = []
         for name, param in pruned.named_parameters():
             if name in masks:
@@ -396,7 +406,7 @@ class TestExport:
     @pytest.mark.parametrize("axis", [None, 0])
     def test_load_bitstream_restores_encoded_weights(self, tmp_path, axis):
         """load_bitstream writes the decoded weights back into the masked positions, bit for bit."""
-        pruned, masks, enc, scales = self._encoded_model(axis)
+        pruned, masks, enc, scales = encoded_mlp(axis)
         path = str(tmp_path / "model.phi")
         export_bitstream(pruned, masks, enc, scales, path)
 
@@ -409,18 +419,9 @@ class TestExport:
         for (name, before), after in zip(pruned.named_parameters(), restored.parameters()):
             assert torch.equal(before, after), name
 
-    def test_per_channel_passes_integrity_check(self):
-        """cassini_check reads per-channel (scale, offset) arrays: clean encoded weights all pass."""
-        from phi_prune.integrity import cassini_check
-
-        pruned, masks, enc, scales = self._encoded_model(axis=0)
-        report = cassini_check(pruned, masks, enc, scales)["_aggregate"]
-        assert report["total"] == sum(int(m.sum()) for m in masks.values())
-        assert report["failed"] == 0
-
     def test_load_bitstream_refusals(self, tmp_path):
         """load_bitstream refuses an old header, a short payload or a misfit mask, and writes nothing."""
-        pruned, masks, enc, scales = self._encoded_model()
+        pruned, masks, enc, scales = encoded_mlp()
         path = tmp_path / "model.phi"
         export_bitstream(pruned, masks, enc, scales, str(path))
         header_line, payload = path.read_text().split("\n", 1)
@@ -445,14 +446,18 @@ class TestExport:
                 load_bitstream(target, file_masks, str(path))
         assert all(torch.equal(before[k], v) for k, v in target.state_dict().items())
 
+
+# ── Command ──
+
+class TestCLI:
     @pytest.mark.parametrize("saved_pattern", ["phi", "zeckendorf", None])
-    def test_cli_check_reads_current_and_legacy_checkpoints(self, tmp_path, saved_pattern):
+    def test_cli_check_reads_phi_zeckendorf_and_no_pattern(self, tmp_path, saved_pattern):
         """phi-prune check accepts pattern "phi", the pre-0.3.0 "zeckendorf", and no pattern."""
         import argparse
         from phi_prune.cli import cmd_check
         from phi_prune.export import save_checkpoint
 
-        pruned, masks, _, _ = self._encoded_model()
+        pruned, masks, _, _ = encoded_mlp()
         path = str(tmp_path / "model.pt")
         save_checkpoint(pruned, masks, path)
         data = torch.load(path, weights_only=False)

@@ -15,7 +15,7 @@ import sys
 import torch
 
 # Pattern names that checkpoints saved by older versions carry
-LEGACY_PATTERNS = {"zeckendorf": "phi"}
+PATTERN_ALIASES = {"zeckendorf": "phi"}
 
 
 def cmd_prune(args):
@@ -48,7 +48,7 @@ def cmd_check(args):
     masks = data["masks"]
     # checkpoints saved before 2:4 existed have no pattern, and before 0.3.0 this one was "zeckendorf"
     kind = data.get("pattern", "phi")
-    kind = LEGACY_PATTERNS.get(kind, kind)
+    kind = PATTERN_ALIASES.get(kind, kind)
     verify = get_pattern(kind)[1]
     all_valid = True
 
