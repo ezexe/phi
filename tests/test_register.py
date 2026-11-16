@@ -71,6 +71,15 @@ class TestRewrites:
         n_ones = sum(sum(from_int(l, kind)) for l, x in zip(levels, xs) if x)
         assert len(rounds) == n_ones  # the summed Hamming weights of the levels with a nonzero activation
 
+    @pytest.mark.parametrize("digits, rule, k", [
+        ([1], "merge", 0), ([0], "carry", 0), ([1, 0], "split", 0), ([2], "split", -1), ([0, 0, 2], "merge", 2),
+        ([2], "carry", 1),
+    ])
+    def test_apply_refuses_a_rule_that_cannot_fire(self, digits, rule, k):
+        """A rule fires only where rewrites would list it, so it never leaves a digit below 0."""
+        with pytest.raises(ValueError):
+            apply(digits, rule, k)
+
     def test_phi_carry_runs_down_binary_does_not(self):
         """2·3 = 5 + 1: the removal of 2 digits reaches two places below; a binary carry only goes up."""
         assert apply([0, 0, 2], "split", 2) == [1, 0, 0, 1]

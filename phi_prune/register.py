@@ -95,7 +95,18 @@ def rewrites(digits: List[int], kind: str) -> List[Tuple[str, int]]:
 
 
 def apply(digits: List[int], rule: str, k: int) -> List[int]:
-    """Fire one rule at position k; returns a new list, grown when a carry runs off the top."""
+    """
+    Fire one rule at position k; returns a new list, grown when a carry runs off the top.
+
+    Raises ValueError for an unknown rule, and for a rule that cannot fire at k: a
+    position outside the register, or a digit too small to take from, which would
+    leave a digit below 0. Where rewrites lists a rule, it fires.
+    """
+    if rule not in ("carry", "merge", "split"):
+        raise ValueError(f"Unknown rule {rule!r}")
+    takes = (k, k + 1) if rule == "merge" else (k,)
+    if not 0 <= k < len(digits) or any(i >= len(digits) or digits[i] < (1 if rule == "merge" else 2) for i in takes):
+        raise ValueError(f"{rule} cannot fire at position {k} of {list(digits)}")
     d = list(digits) + [0, 0]
     if rule == "carry":
         d[k] -= 2
@@ -104,15 +115,13 @@ def apply(digits: List[int], rule: str, k: int) -> List[int]:
         d[k] -= 1
         d[k + 1] -= 1
         d[k + 2] += 1
-    elif rule == "split":
+    else:
         d[k] -= 2
         d[k + 1] += 1
         if k >= 2:
             d[k - 2] += 1
         elif k == 1:
             d[0] += 1
-    else:
-        raise ValueError(f"Unknown rule {rule!r}")
     return d[:max(len(digits), _top(d) + 1)]
 
 
