@@ -1,7 +1,7 @@
 name: probe-encoding
 
-# Manual run of scripts/probe_pretrained_encoding.py on ImageNet-pretrained
-# ResNets (GitHub runners can download torchvision weights and CIFAR-10).
+# A manual run of scripts/probe_pretrained_encoding.py on ImageNet-pretrained ResNets,
+# which downloads their torchvision weights and CIFAR-10.
 on:
   workflow_dispatch:
     inputs:
@@ -9,13 +9,13 @@ on:
         description: "comma-separated arch:weights pairs"
         default: "resnet152:IMAGENET1K_V2,resnet152:IMAGENET1K_V1,resnet50:IMAGENET1K_V2"
       images:
-        description: "CIFAR-10 test images (fp32)"
+        description: "CIFAR-10 test images, run in fp32"
         default: "64"
       fp16_images:
         description: "of which run under fp16 autocast"
         default: "32"
       strategies:
-        description: "compare quantization strategies instead (e.g. tensor,channel,clip99.9); empty runs the fp16 probe"
+        description: "compare quantization strategies instead, such as tensor,channel,clip99.9; empty runs the fp16 probe"
         default: "tensor,channel,clip99.9,clip99.99,clip99.999"
 
 jobs:
@@ -29,7 +29,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install (CPU torch)
+      - name: Install phi with CPU torch
         run: |
           pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
           pip install -e .

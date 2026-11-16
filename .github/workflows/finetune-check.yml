@@ -1,7 +1,7 @@
 name: finetune-check
 
-# scripts/finetune_encode_check.py on a CPU runner: fine-tune, prune and
-# encode a ResNet on CIFAR-10, per-layer vs per-channel encoding.
+# A manual run of scripts/finetune_encode_check.py on a CPU runner: fine-tune, prune and
+# quantize a ResNet on CIFAR-10 per tensor and per channel.
 on:
   workflow_dispatch:
     inputs:
@@ -18,11 +18,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install (CPU torch)
+      - name: Install phi with CPU torch
         run: |
           pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
           pip install -e .
-      - name: Fine-tune, prune, encode
+      - name: Fine-tune, prune, quantize
         run: python scripts/finetune_encode_check.py ${{ inputs.args || '--arch resnet152 --weights IMAGENET1K_V2 --ft-epochs 6' }} 2>&1 | grep -v '%|' | tee result.txt
       - uses: actions/upload-artifact@v4
         with:
