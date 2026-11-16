@@ -700,3 +700,14 @@ class TestCLI:
         save_checkpoint(pruned, masks, path, metadata={"t": np.float32(1.0)})
         code, out = run_cli(cmd_check, path)
         assert code == 1 and "weights_only" in out
+
+    def test_checkpoint_records_the_package_version(self, tmp_path, monkeypatch):
+        """save_checkpoint records phi_prune.__version__, so a checkpoint names the release that wrote it."""
+        import phi_prune
+        from phi_prune.export import save_checkpoint
+
+        monkeypatch.setattr(phi_prune, "__version__", "9.9.9")
+        pruned, masks = prune(mlp())
+        path = str(tmp_path / "model.pt")
+        save_checkpoint(pruned, masks, path)
+        assert torch.load(path, weights_only=True)["version"] == "9.9.9"

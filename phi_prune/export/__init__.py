@@ -14,6 +14,7 @@ import numpy as np
 import json
 from typing import Dict, Optional
 
+import phi_prune
 from phi_prune.encoding import FibonacciEncoder
 from phi_prune.masks import mask_stats
 
@@ -37,8 +38,8 @@ def save_checkpoint(
     Save a pruned model as a phi-prune checkpoint.
 
     The file holds the state dict, the masks, the pattern and the axis prune used, the format
-    "phi-prune" and the version, mask_stats of each mask read along that axis and, when given, the
-    encoder's settings, the scales and metadata. Each scale and quantization offset is a float, or a
+    "phi-prune" and phi_prune.__version__, the release that wrote it, mask_stats of each mask read
+    along that axis and, when given, the encoder's settings, the scales and metadata. Each scale and quantization offset is a float, or a
     float64 tensor where encode_tensor(axis=...) returned an array, so the file loads with
     torch.load(path, weights_only=True), which runs no code from it:
     data = torch.load(path, weights_only=True); model.load_state_dict(data['state_dict']).
@@ -54,7 +55,7 @@ def save_checkpoint(
         "pattern": pattern,
         "axis": axis,
         "format": "phi-prune",
-        "version": "0.3.0",
+        "version": phi_prune.__version__,
     }
 
     if encoder is not None:
