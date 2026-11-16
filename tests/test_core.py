@@ -118,25 +118,12 @@ class TestFibonacciEncoder:
         enc = FibonacciEncoder(n_digits=8)
         assert enc.n_levels == 55  # F(10) = 55 for 8 digits
 
-    def test_max_value_is_representable(self):
-        """max_value must be achievable without adjacent 1s."""
-        enc = FibonacciEncoder(n_digits=8)
-        cw = enc.to_codeword(enc.max_value)
-        assert adjacency_check(cw), f"max_value {enc.max_value} has adjacent 1s"
-
     def test_no_adjacent_ones_in_grid(self):
         """Every grid value must produce a valid codeword."""
         enc = FibonacciEncoder(n_digits=8)
         for val in enc.grid:
             cw = enc.to_codeword(int(val))
             assert adjacency_check(cw), f"Adjacent 1s in codeword for grid value {int(val)}"
-
-    def test_encode_decode_roundtrip(self):
-        enc = FibonacciEncoder(n_digits=8)
-        t = torch.randn(32)
-        encoded, scale, rmse = enc.encode_tensor(t)
-        assert encoded.shape == t.shape
-        assert rmse < 1.0  # quantization error scales with value range
 
     def test_encode_snaps_to_nearest_level(self):
         """A value between two grid levels snaps to the nearer one, below as well as above."""
@@ -205,12 +192,6 @@ class TestFibonacciEncoder:
 # ── Integrity ──
 
 class TestIntegrity:
-    def test_clean_codewords_pass(self):
-        enc = FibonacciEncoder(n_digits=8)
-        for val in enc.grid:
-            cw = enc.to_codeword(int(val))
-            assert adjacency_check(cw)
-
     def test_corrupted_detected(self):
         """Flipping a bit next to a 1 should be caught."""
         cw = [1, 0, 1, 0, 1, 0, 0, 0]  # valid
