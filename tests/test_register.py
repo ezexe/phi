@@ -35,7 +35,7 @@ class TestRewrites:
                 assert value(apply(d, rule, k), kind) == value(d, kind)
 
     @pytest.mark.parametrize("kind", KINDS)
-    def test_any_order_reaches_the_same_canonical_form(self, kind):
+    def test_rules_are_confluent(self, kind):
         """Confluence: random firing orders all reach the same normal form."""
         rng = random.Random(1)
         for _ in range(200):
@@ -46,7 +46,7 @@ class TestRewrites:
                 assert is_canonical(out, kind)
                 assert out[:len(expected)] == expected and not any(out[len(expected):])
 
-    def test_phi_canonical_form_matches_encoder(self):
+    def test_phi_normal_form_matches_encoder(self):
         enc = FibonacciEncoder(n_digits=10)
         for v in enc.grid:
             assert from_int(int(v), PHI, 10) == enc.to_codeword(int(v))
@@ -86,7 +86,7 @@ class TestRewrites:
         assert counts[PHI][0] > counts[BINARY][0]
         assert counts[PHI][1] > counts[BINARY][1]
 
-    def test_parallel_rounds_self_timed_phi_against_clocked_binary(self):
+    def test_normalization_rounds_self_timed_phi_against_clocked_binary(self):
         """Over every sum of two values below 144: the Zeckendorf register reaches normal form in about
         2.7 normalization rounds on average, binary in about 2.1, and binary's worst case, which a clock
         must wait for, is 8."""
