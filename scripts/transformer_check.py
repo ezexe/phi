@@ -80,7 +80,9 @@ import argparse
 import copy
 import glob
 import json
+import locale
 import math
+import platform
 import sysconfig
 import time
 
@@ -113,6 +115,13 @@ def read_files(keep):
 
 def load_text():
     return read_files(lambda i: i % 10), read_files(lambda i: i % 10 == 0), len(CHARS)
+
+
+def run_info(**chars):
+    """What a run's numbers depend on that its arguments do not say: the Python, whose standard library is the
+    text, the platform and the encoding open() read it with, torch, and the characters of each split."""
+    return {"python": platform.python_version(), "platform": platform.platform(),
+            "encoding": locale.getpreferredencoding(False), "torch": torch.__version__, "chars": chars}
 
 
 def batch(data, g):
@@ -335,7 +344,8 @@ def run_delta(args):
     tune_train, tune_val = tune[:split], tune[split:]
     val = read_files(lambda i: i % 10 == 0)
     print(f"pretrain {len(pre):,} chars, fine-tune {len(tune_train):,}, held out {len(tune_val):,}, val {len(val):,}")
-    results = {"args": vars(args), "seeds": []}
+    results = {"args": vars(args), "run": run_info(pretrain=len(pre), fine_tune=len(tune_train),
+                                                   held_out=len(tune_val), val=len(val)), "seeds": []}
     t0 = time.time()
     for seed in range(args.seeds):
         torch.manual_seed(seed)
@@ -426,7 +436,7 @@ def main():
 
     train_data, val_data, vocab = load_text()
     print(f"train {len(train_data):,} chars, val {len(val_data):,} chars, vocab {vocab}")
-    results = {"args": vars(args), "seeds": []}
+    results = {"args": vars(args), "run": run_info(train=len(train_data), val=len(val_data)), "seeds": []}
     t0 = time.time()
     for seed in range(args.seeds):
         torch.manual_seed(seed)

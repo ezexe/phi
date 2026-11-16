@@ -2,6 +2,8 @@
 
 import importlib.util
 import json
+import locale
+import platform
 import sys
 from pathlib import Path
 
@@ -76,6 +78,7 @@ def test_one_seed_run_writes_json(check, monkeypatch, tmp_path):
     out = strict_json(run(check, monkeypatch, tmp_path, "--seeds", "1"))
     for name in SIGMA_CRITERIA:
         assert out["verdicts"][name]["sigma"] is None and out["verdicts"][name]["survives"] is None
+    assert out["run"]["chars"] == {"train": 400, "val": 400}
 
 
 def test_write_json_writes_null_for_nan_and_infinity(check, tmp_path):
@@ -88,3 +91,12 @@ def test_write_json_writes_null_for_nan_and_infinity(check, tmp_path):
     assert strict_json(out.read_text()) == {
         "verdicts": {"K1": {"difference": 0.25, "sigma": None}},
         "seeds": [{"gaps": {"0.1": {"fibonacci": None, "elias-gamma": None}}, "bpc": None, "dense": 1.5, "n": 3}]}
+
+
+def test_run_records_what_it_trained_on(check, monkeypatch, tmp_path):
+    """A run's numbers depend on the Python whose standard library is its text, so its file says which Python, on
+    which platform, read in which encoding, with which torch, and how many characters each split held."""
+    info = strict_json(run(check, monkeypatch, tmp_path, "--seeds", "1", "--part", "delta"))["run"]
+    assert info["python"] == platform.python_version() and info["torch"] == torch.__version__
+    assert info["platform"] == platform.platform() and info["encoding"] == locale.getpreferredencoding(False)
+    assert info["chars"] == {"pretrain": 400, "fine_tune": 360, "held_out": 40, "val": 400}
