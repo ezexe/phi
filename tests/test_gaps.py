@@ -97,7 +97,7 @@ class TestDelta:
             assert (new[k] - state[k]).abs().max() < before / 10
         assert delta_stats(header, payload)["kept"] == 32 * 16 + 32
 
-    def test_corrupt_payload_refused(self):
+    def test_truncated_or_extended_payload_refused(self):
         base, new = self.states()
         header, payload = encode_delta(base, new, keep=0.1)
         with pytest.raises(ValueError):
