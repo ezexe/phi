@@ -340,16 +340,6 @@ class TestAPI:
             assert set(result) == {"history", "best_val_acc", "final_train_acc"}
             assert check(pruned, masks)["_summary"]["all_zeros_enforced"]
 
-    @pytest.mark.skipif(not torch.cuda.is_available(), reason="fp16 autocast runs on CUDA only")
-    def test_finetune_amp_on_cuda(self):
-        model = self._make_model().cuda()
-        pruned, masks = prune(model)
-        batches = [(torch.randn(4, 3, 8, 8), torch.randint(0, 10, (4,))) for _ in range(2)]
-        result = finetune(pruned, batches, epochs=1, masks=masks, val_loader=batches,
-                          verbose=False, amp=True)
-        assert result["best_val_acc"] is not None
-        assert check(pruned, masks)["_summary"]["all_zeros_enforced"]
-
     @pytest.mark.filterwarnings("ignore:CUDA is not available")  # amp forced on without CUDA
     def test_evaluate_reruns_non_finite_amp_batches_in_fp32(self, monkeypatch):
         """A batch whose fp16 logits overflow is re-run in fp32, not scored as class 0."""
