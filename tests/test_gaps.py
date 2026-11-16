@@ -115,7 +115,7 @@ class TestDelta:
 
 
 class TestLiveRoundFormat:
-    """The options a live model's rounds ship with: keep over the entries that moved, and packed bits."""
+    """Two options: changed_only counts keep over the entries that changed, and packed=True packs eight bits a byte."""
 
     def test_changed_only_skips_the_still_entries(self):
         base = {"emb": torch.zeros(100, 4), "head": torch.zeros(3)}
