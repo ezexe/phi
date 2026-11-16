@@ -71,6 +71,10 @@ class TestGaps:
     def test_top_positions(self):
         t = torch.tensor([0.0, -5.0, 1.0, 4.0, 0.1])
         assert top_positions(t, 0.4).tolist() == [1, 3]
+        with pytest.raises(ValueError):
+            top_positions(t, 1.5)
+        with pytest.raises(ValueError):
+            top_positions(torch.zeros(0), 0.5)
 
 
 class TestDelta:
@@ -110,6 +114,25 @@ class TestDelta:
             decode_delta(header, payload[:-3])
         with pytest.raises(ValueError):
             decode_delta(header, payload + "011")
+
+    def test_keep_outside_zero_to_one_refused(self):
+        for keep in (2.0, -0.5, float("nan")):
+            with pytest.raises(ValueError, match="keep"):
+                encode_delta({"w": torch.zeros(4)}, {"w": torch.arange(4.0)}, keep=keep)
+
+    def test_change_that_is_not_finite_refused(self):
+        for bad in (float("nan"), float("inf")):
+            for changed_only in (False, True):
+                new = {"layer.weight": torch.tensor([0.0, bad, 1.0, 2.0])}
+                with pytest.raises(ValueError, match="layer.weight"):
+                    encode_delta({"layer.weight": torch.zeros(4)}, new, keep=1.0, changed_only=changed_only)
+
+    def test_empty_tensor_skipped(self):
+        base = {"empty": torch.zeros(0), "w": torch.zeros(4)}
+        new = {"empty": torch.zeros(0), "w": torch.arange(4.0)}
+        header, payload = encode_delta(base, new, keep=1.0)
+        assert header["skipped"] == ["empty"] and [t["name"] for t in header["tensors"]] == ["w"]
+        assert decode_delta(header, payload)["w"][0].tolist() == [0, 1, 2, 3]
 
     def test_shape_mismatch_refused_before_writing(self):
         base, new = self.states()

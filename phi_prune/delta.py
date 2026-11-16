@@ -62,10 +62,16 @@ def encode_delta(
     Header and payload for the top-k entries of each floating tensor of new - base, k a fraction keep of its entries.
 
     Tensors missing from base, of another shape, or not floating point are skipped
-    and named in the header's "skipped". n_digits sets L, the largest quantization
-    level, to FibonacciEncoder(n_digits).max_value. 6 digits give 20, so each kept
-    value decodes as the scale times one of the 41 integers from -20 to 20.
+    and named in the header's "skipped", and so is a tensor with no entries, which
+    changed_only names in "unchanged" instead. keep outside 0 to 1, and a change
+    that is not finite, raise ValueError with the name of what is wrong.
+
+    n_digits sets L, the largest quantization level, to
+    FibonacciEncoder(n_digits).max_value. 6 digits give 20, so each kept value
+    decodes as the scale times one of the 41 integers from -20 to 20.
     """
+    if not 0 <= keep <= 1:
+        raise ValueError(f"keep is a fraction from 0 to 1, got {keep}")
     levels = FibonacciEncoder(n_digits).max_value
     header = {"keep": keep, "n_digits": n_digits, "levels": levels, "tensors": [], "skipped": []}
     if changed_only:
@@ -77,12 +83,18 @@ def encode_delta(
             header["skipped"].append(name)
             continue
         d = (w.detach().float() - b.detach().float()).flatten().cpu()
+        bad = int((~torch.isfinite(d)).sum())
+        if bad:
+            raise ValueError(f"{name}: the change is not finite at {bad} of {d.numel()} entries")
         if changed_only:
             nnz = int(torch.count_nonzero(d))
             if not nnz:
                 header["unchanged"].append(name)
                 continue
             pos = top_positions(d, keep * nnz / d.numel())
+        elif not d.numel():
+            header["skipped"].append(name)
+            continue
         else:
             pos = top_positions(d, keep)
         vals = d[torch.from_numpy(pos)].numpy()

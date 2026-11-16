@@ -113,8 +113,16 @@ def decode_positions(bits: str) -> np.ndarray:
 
 
 def top_positions(tensor: torch.Tensor, keep: float) -> np.ndarray:
-    """Sorted flat positions of the k largest entries of |tensor|, with k = keep times its size, rounded, at least 1."""
+    """
+    Sorted flat positions of the k largest entries of |tensor|, with k = keep times its size, rounded, at least 1.
+
+    keep is a fraction from 0 to 1, and a tensor with no entries has no position to keep: either raises ValueError.
+    """
+    if not 0 <= keep <= 1:
+        raise ValueError(f"keep is a fraction from 0 to 1, got {keep}")
     flat = tensor.detach().abs().flatten()
+    if not flat.numel():
+        raise ValueError("a tensor with no entries has no position to keep")
     k = max(1, round(keep * flat.numel()))
     return np.sort(torch.topk(flat, k).indices.cpu().numpy())
 
