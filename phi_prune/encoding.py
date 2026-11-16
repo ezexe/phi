@@ -81,8 +81,9 @@ class FibonacciEncoder:
                 is per-tensor quantization. Per tensor, a few outlying weights spread the levels
                 thin: on torchvision's ResNet-50, 101 and 152 V2 ImageNet weights, quantizing every
                 convolution per tensor changed the top-1 class of all 64 probed images, while per
-                channel kept 87.5% to 95.3% of them, as results/prune/probe-encoding-36066245824.txt
-                holds. scale and offset then come back as float64 arrays shaped to broadcast against
+                channel kept 87.5% to 95.3% of them, as
+                experiments/phi-prune/results/probe-encoding-36066245824.txt in ezexe/p4-phi holds.
+                scale and offset then come back as float64 arrays shaped to broadcast against
                 tensor, of size 1 except along axis, so (w - offset) * scale works as with scalars
 
         Returns:

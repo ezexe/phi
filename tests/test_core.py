@@ -224,7 +224,9 @@ class TestIntegrity:
         assert total == n
         sigma = np.sqrt(exact * (1 - exact) / n)
         assert abs(detected / n - exact) < 4 * sigma
-        assert 0.40 < exact < 0.42  # 0.4091 over every 8-digit quantization level, as results/prune/measure_detection.txt holds
+        # 0.4091 over every 8-digit quantization level, as experiments/phi-prune/results/measure_detection.txt in
+        # ezexe/p4-phi holds
+        assert 0.40 < exact < 0.42
 
     def test_per_channel_passes_integrity_check(self):
         """cassini_check reads per-channel scale and quantization offset arrays, and passes every quantized weight."""
