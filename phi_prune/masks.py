@@ -120,8 +120,8 @@ def phi_mask(
     so a pruned output channel loses all of its weights.
 
     Args:
-        weight: Parameter tensor, such as a 2D Linear or a 4D Conv2d weight; a 1D tensor's positions
-                are scored by their absolute values
+        weight: Parameter tensor, such as a 2D Linear or a 4D Conv2d weight, read without autograd;
+                a 1D tensor's positions are scored by their absolute values
         axis: Dimension the constraint runs along
         score_fn: How a position is scored; "magnitude", the one value, is the L1 norm of its slice
         density: Keep about this fraction of positions, through adjacency_dp_density, instead of
@@ -134,7 +134,8 @@ def phi_mask(
     if score_fn == "magnitude":
         # The L1 norm of the slice at each position; the slices of a 1D tensor are its entries
         dims_to_reduce = [d for d in range(weight.dim()) if d != axis]
-        scores = weight.abs().sum(dim=dims_to_reduce) if dims_to_reduce else weight.abs()
+        w = weight.detach().abs()
+        scores = w.sum(dim=dims_to_reduce) if dims_to_reduce else w
         scores = scores.cpu().numpy()
     else:
         raise ValueError(f"Unknown score function: {score_fn}")

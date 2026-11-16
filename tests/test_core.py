@@ -95,6 +95,12 @@ class TestPhiMask:
         w = torch.tensor([1.0, 5.0, 1.0, 5.0, 1.0, 5.0])
         assert phi_mask(w).tolist() == [0.0, 1.0, 0.0, 1.0, 0.0, 1.0]
 
+    def test_phi_mask_on_a_parameter(self):
+        """A layer's own weight, which requires grad, gets the mask of its data, and the mask needs no grad."""
+        layer = nn.Linear(16, 32)
+        mask = phi_mask(layer.weight)
+        assert torch.equal(mask, phi_mask(layer.weight.data)) and not mask.requires_grad
+
 
 # ── The baseline that keeps 2 of every 4 channels ──
 
