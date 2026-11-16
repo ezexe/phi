@@ -1,16 +1,14 @@
 """
-Adjacency-constrained mask generation.
+Pruning masks: the φ mask, under the (1,∞)-RLL constraint, and the baseline that keeps 2 of every 4 positions.
 
-The adjacency constraint: no two consecutive positions may both be active.
-This is the same (1,∞)-RLL constraint that governs Fibonacci coding,
-CSD arithmetic, and the golden mean shift. Capacity: log₂(φ) ≈ 0.694
-bits per position, guaranteeing ≤50% density.
+The (1,∞)-RLL constraint: no two adjacent positions are both kept. Zeckendorf representations
+and canonical signed digit forms obey the same rule, and so does the golden mean shift
+over infinite sequences. Of n positions it keeps at most (n + 1) // 2.
 
-Mask selection uses dynamic programming to find the maximum-weight
-independent set under the adjacency constraint — the optimal subset
-of weights to keep, given their magnitudes.
-
-two_four_mask builds the 2-of-4 baseline the constraint is compared against.
+phi_mask keeps the maximum-weight independent set on the path graph of the positions, found by
+dynamic programming: of every subset with no two adjacent, the one with the largest total score.
+With a density below what that set keeps, it keeps instead the set adjacency_dp_density finds nearest that fraction.
+two_four_mask builds the baseline the φ mask is compared against.
 """
 
 import torch
@@ -20,14 +18,16 @@ from typing import Optional
 
 def adjacency_dp(scores: np.ndarray) -> np.ndarray:
     """
-    Find the maximum-weight independent set with no two adjacent elements.
+    The maximum-weight independent set on a path graph: the positions to keep, no two adjacent,
+    with the largest total score.
 
-    Dynamic programming over the 1D score array. At each position i:
-      keep[i] = skip[i-1] + scores[i]   (take this one, must have skipped previous)
-      skip[i] = max(keep[i-1], skip[i-1]) (skip this one, best of either previous)
+    Dynamic programming over the 1D score array, where at each position i
+      keep[i] = skip[i-1] + scores[i]     keeps i, so i-1 was skipped
+      skip[i] = max(keep[i-1], skip[i-1]) skips i, after the better of the two
+    and a backward pass reads the mask off.
 
     Args:
-        scores: 1D array of non-negative importance scores (e.g. weight magnitudes)
+        scores: 1D array of scores, such as the L1 norm of each channel
 
     Returns:
         Binary mask array, same length as scores. 1 = keep, 0 = prune.
@@ -68,17 +68,16 @@ def adjacency_dp(scores: np.ndarray) -> np.ndarray:
 
 def adjacency_dp_density(scores: np.ndarray, density: float, iters: int = 60) -> np.ndarray:
     """
-    adjacency_dp with a density target below the constraint's cap.
+    adjacency_dp keeping about a given fraction of positions, by Lagrangian relaxation.
 
-    Subtracts a threshold from every score and runs adjacency_dp, which then
-    keeps only positions whose score beats it; a bisection on the threshold
-    finds the mask whose kept count is closest to round(density * n). The
-    count can miss by one or two when scores tie, and never exceeds what the
-    constraint allows ((n + 1) // 2).
+    Subtracts a penalty λ from every score and runs adjacency_dp, which then keeps only
+    positions whose score is above λ, and bisects λ until the kept count is closest to
+    round(density * n). Ties can leave the count one or two off, and it never exceeds
+    (n + 1) // 2, the most the constraint allows.
 
     Args:
-        scores: 1D array of non-negative importance scores
-        density: Target fraction of positions to keep, in [0, 1]
+        scores: 1D array of non-negative scores
+        density: Fraction of positions to keep, in [0, 1]
 
     Returns:
         Binary mask array, same length as scores. 1 = keep, 0 = prune.
@@ -110,42 +109,38 @@ def phi_mask(
     density: Optional[float] = None,
 ) -> torch.Tensor:
     """
-    Generate an adjacency-constrained pruning mask for a weight tensor.
+    The φ mask of a weight tensor: no two adjacent positions along `axis` are both kept.
 
-    The mask enforces: no two adjacent positions along `axis` are both active.
-    Active positions are chosen to maximize total importance (weight magnitude
-    by default).
+    Each position is scored by the L1 norm of its slice, and the kept set is the heaviest one the
+    constraint allows, from adjacency_dp, or the one near the asked fraction, from
+    adjacency_dp_density.
 
-    For Conv2d weights (shape: [out_c, in_c, kH, kW]), axis=0 constrains
-    along output channels. For Linear weights (shape: [out, in]), axis=0
-    constrains along output features.
-
-    The mask is broadcast across all other dimensions — if output channel i
-    is pruned, all its weights are zeroed.
+    Along axis 0, a Conv2d weight, shaped [out_c, in_c, kH, kW], and a Linear weight, shaped
+    [out, in], are scored by output channel. The mask is broadcast across every other dimension,
+    so a pruned output channel loses all of its weights.
 
     Args:
-        weight: Parameter tensor (2D or 4D)
-        axis: Dimension to apply the adjacency constraint along
-        score_fn: Importance scoring method. Currently: "magnitude"
-        density: Keep about this fraction of positions (adjacency_dp_density)
-                 instead of the heaviest set the constraint allows, which
-                 lands just under 0.5
+        weight: Parameter tensor, 2D or 4D
+        axis: Dimension the constraint runs along
+        score_fn: How a position is scored; "magnitude", the one value, is the L1 norm of its slice
+        density: Keep about this fraction of positions, through adjacency_dp_density, instead of
+                 the heaviest set the constraint allows
 
     Returns:
         Binary mask tensor, same shape as weight. Ready to multiply.
     """
-    # Compute per-position importance scores along the pruning axis
+    # Score each position along axis
     if score_fn == "magnitude":
-        # Sum of absolute values across all other dimensions
+        # The L1 norm of the slice at each position
         dims_to_reduce = [d for d in range(weight.dim()) if d != axis]
         scores = weight.abs().sum(dim=dims_to_reduce).cpu().numpy()
     else:
         raise ValueError(f"Unknown score function: {score_fn}")
 
-    # Run DP to find optimal mask
+    # The heaviest set with no two adjacent, or the one near the asked fraction
     mask_1d = adjacency_dp(scores) if density is None else adjacency_dp_density(scores, density)
 
-    # Broadcast mask to full tensor shape
+    # Broadcast the mask to the weight's shape
     shape = [1] * weight.dim()
     shape[axis] = weight.shape[axis]
     mask = torch.tensor(mask_1d, dtype=weight.dtype, device=weight.device)
@@ -160,14 +155,12 @@ def two_four_mask(
     score_fn: str = "magnitude",
 ) -> torch.Tensor:
     """
-    Generate a 2-of-4 pruning mask: in every group of 4 consecutive positions
-    along `axis`, keep the 2 with the highest importance.
+    The mask that keeps 2 of every 4 consecutive positions along `axis`: in each group of 4, the 2
+    with the largest L1 norm. A trailing group shorter than 4 is kept whole.
 
-    The baseline that .docs/experiment/Zeckendorf.py compares the φ
-    pattern against. Like phi_mask, it scores whole slices along `axis`
-    and broadcasts, so for axis=0 it keeps or drops whole output channels —
-    unlike NVIDIA's hardware 2:4 sparsity, which keeps 2 of every 4 weights
-    inside each row. A trailing group shorter than 4 is kept whole.
+    It is the baseline the φ mask is compared against. Like phi_mask, it scores whole slices along
+    `axis` and broadcasts, so along axis 0 it keeps or drops whole output channels, unlike NVIDIA's
+    2:4 sparsity, which keeps 2 of every 4 weights inside each row.
 
     Returns:
         Binary mask tensor, same shape as weight. Ready to multiply.
@@ -193,14 +186,13 @@ def two_four_mask(
 
 def verify_mask(mask_1d) -> bool:
     """
-    Verify that a 1D binary pattern satisfies the adjacency constraint:
-    no two consecutive 1s.
+    Whether a 1D binary pattern satisfies the (1,∞)-RLL constraint: no two adjacent 1s.
 
     Args:
         mask_1d: Iterable of 0s and 1s
 
     Returns:
-        True if valid (no adjacent 1s), False otherwise
+        True if no two adjacent values are 1, False otherwise
     """
     prev = 0
     for val in mask_1d:
@@ -212,8 +204,8 @@ def verify_mask(mask_1d) -> bool:
 
 def verify_two_four(mask_1d) -> bool:
     """
-    Verify that a 1D binary pattern keeps exactly 2 of every full group of 4
-    consecutive positions, and all of a trailing group shorter than 4.
+    Whether a 1D binary pattern keeps exactly 2 of every full group of 4 consecutive positions,
+    and all of a trailing group shorter than 4.
 
     Args:
         mask_1d: Iterable of 0s and 1s
@@ -228,18 +220,18 @@ def verify_two_four(mask_1d) -> bool:
 
 def mask_stats(mask: torch.Tensor, axis: int = 0, pattern: str = "phi") -> dict:
     """
-    Compute statistics for a pruning mask.
+    Statistics of a pruning mask, read along `axis` at index 0 of every other dimension.
 
     Args:
         mask: Mask tensor from phi_mask or two_four_mask
         axis: Dimension the pattern runs along
-        pattern: Which rule "valid" checks — a key of PATTERNS
+        pattern: The rule "valid" checks, a key of PATTERNS
 
     Returns:
-        dict with density, sparsity, active_count, total_count,
-        capacity_utilization (actual density / theoretical max of 0.5)
+        dict with density, sparsity, active_count, total_count, capacity_utilization,
+        which is density divided by 0.5, and valid, whether the pattern holds
     """
-    # Extract 1D pattern along axis
+    # The mask along axis, at index 0 of every other dimension
     idx = [0] * mask.dim()
     idx[axis] = slice(None)
     pattern_1d = mask[tuple(idx)]
@@ -260,7 +252,7 @@ def mask_stats(mask: torch.Tensor, axis: int = 0, pattern: str = "phi") -> dict:
     }
 
 
-# Mask patterns by name: (mask generator, 1D verifier)
+# Mask patterns by name, each with its mask generator and its 1D verifier
 PATTERNS = {
     "phi": (phi_mask, verify_mask),
     "2:4": (two_four_mask, verify_two_four),
@@ -268,7 +260,7 @@ PATTERNS = {
 
 
 def get_pattern(name: str):
-    """The (mask generator, 1D verifier) pair for a pattern name; ValueError for an unknown one."""
+    """The mask generator and 1D verifier of a pattern name, as a pair; ValueError for an unknown name."""
     if name not in PATTERNS:
         raise ValueError(f"Unknown pattern {name!r}: expected one of {sorted(PATTERNS)}")
     return PATTERNS[name]
