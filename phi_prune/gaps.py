@@ -40,7 +40,9 @@ def fib_code(n: int) -> str:
 
 
 def fib_code_length(n: int) -> int:
-    """Bits in fib_code(n)."""
+    """Bits in fib_code(n). Like fib_code, it refuses n below 1."""
+    if n < 1:
+        raise ValueError(f"Fibonacci codes start at 1, got {n}")
     return len(from_int(n, PHI)) + 1
 
 
@@ -127,7 +129,7 @@ def pooled_gaps(tensors: Iterable[torch.Tensor], keep: float):
 
 
 def gap_bits(gaps, n_positions: int) -> Dict[str, float]:
-    """Mean bits per kept position for each gap code; gaps are >= 1."""
+    """Mean bits per kept position for each code of the gaps. A gap below 1 has no code and raises ValueError."""
     gaps = np.asarray(gaps)
     fib_len = {g: fib_code_length(int(g)) for g in np.unique(gaps)}
     lg = np.floor(np.log2(gaps))

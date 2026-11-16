@@ -26,6 +26,8 @@ class TestFibCode:
     def test_zero_refused(self):
         with pytest.raises(ValueError):
             fib_code(0)
+        with pytest.raises(ValueError):
+            fib_code_length(0)
 
 
 class TestGaps:
@@ -61,6 +63,10 @@ class TestGaps:
         bits = gap_bits(gaps, n)
         assert bits["fibonacci"] == pytest.approx(len(encode_gaps(gaps)) / len(gaps))
         assert bits["fixed-width"] == 12
+
+    def test_gap_bits_refuses_a_gap_below_one(self):
+        with pytest.raises(ValueError):
+            gap_bits([0, 1, 2], 8)
 
     def test_top_positions(self):
         t = torch.tensor([0.0, -5.0, 1.0, 4.0, 0.1])
