@@ -36,8 +36,9 @@ if importlib.util.find_spec("phi_prune.register") is None:
 cells.append(md("""## 1. One pruned, quantized convolution layer
 
 ResNet-18's `layer3.0.conv1`, with 256 output channels and a fan-in of 128 × 3 × 3 = 1152, with torchvision's ImageNet weights, φ-pruned and quantized per output channel to the 144 levels of 10 Zeckendorf digits, as in the README pipeline.
-When torchvision or the weights cannot be loaded, the cell falls back to Laplace-distributed synthetic weights of the same shape and says so."""))
-cells.append(code("""import math
+When torchvision is not installed or the weights cannot be downloaded, the cell falls back to Laplace-distributed synthetic weights of the same shape and says so; any other error stops it."""))
+cells.append(code("""import http.client
+import math
 import time
 
 import numpy as np
@@ -58,7 +59,7 @@ try:
     import torchvision
     model = torchvision.models.resnet18(weights="DEFAULT").eval()
     SOURCE = "torchvision ResNet-18 ImageNet weights"
-except Exception as exc:  # any failure: no torchvision, no network for the weights, or another error
+except (ImportError, OSError, http.client.HTTPException, RuntimeError) as exc:  # no torchvision, or the download fails
     model = None
     SOURCE = f"synthetic Laplace weights ({type(exc).__name__}: no pretrained weights)"
 
@@ -79,7 +80,9 @@ cells.append(md("""## 2. Activations
 
 The layer's inputs on CIFAR-10 test images at 224 px when the pretrained model and the dataset are available, its inputs on random images when only the model is, and half-normal values with the synthetic weights.
 Each 3 × 3 patch is one activation vector, and activations are quantized to 0–255."""))
-cells.append(code("""N_PATCHES = 4
+cells.append(code("""import http.client
+
+N_PATCHES = 4
 
 def layer_inputs(model, images):
     seen = []
@@ -98,7 +101,7 @@ if model is not None:
         mean, std = torch.tensor([0.485, 0.456, 0.406]), torch.tensor([0.229, 0.224, 0.225])
         imgs = (F.interpolate(imgs, size=224, mode="bilinear") - mean[:, None, None]) / std[:, None, None]
         ACT_SOURCE = "CIFAR-10 test images"
-    except Exception as exc:
+    except (OSError, http.client.HTTPException, RuntimeError) as exc:  # CIFAR-10 cannot be downloaded or checked
         imgs = torch.randn(2, 3, 224, 224)
         ACT_SOURCE = f"random images ({type(exc).__name__}: no CIFAR-10)"
     patches = layer_inputs(model, imgs)
