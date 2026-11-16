@@ -1,12 +1,13 @@
 """
-Command-line interface for phi-prune.
+The phi-prune command, for a checkpoint that save_checkpoint wrote: check reads every mask against its
+pattern, and info prints how many weights each mask keeps. prune loads a saved state dict, prints how to
+prune with the Python API and exits 1, since a model's class cannot be rebuilt from its saved weights.
 
 Usage:
-    phi-prune prune model.pt --output pruned.pt --finetune-epochs 40
     phi-prune check pruned.pt
     phi-prune info pruned.pt
 
-There is no export command yet; use phi_prune.export.export_onnx.
+The command exports nothing; phi_prune.export.export_onnx writes a model to ONNX.
 """
 
 import argparse
@@ -14,46 +15,46 @@ import sys
 
 import torch
 
-# Pattern names that checkpoints saved by older versions carry
+# A saved checkpoint can name the φ pattern "zeckendorf"
 PATTERN_ALIASES = {"zeckendorf": "phi"}
 
 
 def cmd_prune(args):
-    """Prune a saved model checkpoint."""
+    """Load a saved state dict, print how to prune with the Python API, and exit 1."""
     print(f"Loading {args.model}...")
     state_dict = torch.load(args.model, map_location="cpu", weights_only=True)
 
-    # User must provide a model class — we can't infer architecture from weights
-    print("ERROR: Standalone pruning requires --arch flag (not yet implemented).")
-    print("Use the Python API instead:")
+    # A model's class cannot be read from its saved weights, so the command has no model to prune
+    print("ERROR: phi-prune prune cannot rebuild a model from its saved weights, so it cannot prune one.")
+    print("Prune and fine-tune with the Python API instead:")
     print()
     print("    from phi_prune import prune, finetune")
-    print("    model, masks = prune(model, density=0.5)")
+    print("    model, masks = prune(model)")
     print("    finetune(model, train_loader, epochs=40, masks=masks)")
     sys.exit(1)
 
 
 def cmd_check(args):
-    """Verify integrity of a pruned checkpoint."""
+    """Check every mask of a checkpoint against its pattern, read along axis 0; 0 when all hold, 1 otherwise."""
     print(f"Loading {args.model}...")
     data = torch.load(args.model, map_location="cpu", weights_only=False)
 
     if "masks" not in data:
         print("ERROR: Checkpoint does not contain masks.")
-        print("Save with: torch.save({'state_dict': model.state_dict(), 'masks': masks}, path)")
+        print("Save one with phi_prune.export.save_checkpoint(model, masks, path), which records the pattern too.")
         sys.exit(1)
 
     from phi_prune.masks import get_pattern
 
     masks = data["masks"]
-    # checkpoints saved before 2:4 existed have no pattern, and before 0.3.0 this one was "zeckendorf"
+    # A checkpoint with no pattern key is checked as holding φ masks
     kind = data.get("pattern", "phi")
     kind = PATTERN_ALIASES.get(kind, kind)
     verify = get_pattern(kind)[1]
     all_valid = True
 
     for name, mask in masks.items():
-        # Extract 1D pattern
+        # The mask along axis 0, at index 0 of every other dimension
         pattern = mask.flatten()
         if mask.dim() > 1:
             idx = [0] * mask.dim()
@@ -69,7 +70,7 @@ def cmd_check(args):
         if not valid:
             all_valid = False
 
-    rule = "the adjacency constraint" if kind == "phi" else f"the {kind} pattern"
+    rule = "the (1,∞)-RLL constraint" if kind == "phi" else f"the {kind} pattern"
     if all_valid:
         print(f"\n✓ All masks satisfy {rule}.")
     else:
@@ -78,7 +79,7 @@ def cmd_check(args):
 
 
 def cmd_info(args):
-    """Print statistics about a pruned checkpoint."""
+    """Print how many weights each mask of a checkpoint keeps, and the total over all of them."""
     data = torch.load(args.model, map_location="cpu", weights_only=False)
 
     if isinstance(data, dict) and "masks" in data:
@@ -91,33 +92,33 @@ def cmd_info(args):
             total_active += active
             total_params += total
             print(f"  {name}: {active:.0f}/{total} ({100*active/total:.1f}%)")
-        print(f"\n  Overall: {total_active:.0f}/{total_params} "
-              f"({100*total_active/total_params:.1f}% density)")
+        print(f"\n  Overall: {total_active:.0f}/{total_params}, "
+              f"{100*total_active/total_params:.1f}% density")
     else:
-        print("Not a phi-prune checkpoint (no masks found).")
+        print("Not a phi-prune checkpoint: it holds no masks.")
 
 
 def main():
     parser = argparse.ArgumentParser(
         prog="phi-prune",
-        description="φ-pruning: adjacency-constrained structured sparsity",
+        description="φ-pruning: channel pruning under the (1,∞)-RLL constraint",
     )
     sub = parser.add_subparsers(dest="command")
 
     # prune
-    p = sub.add_parser("prune", help="Prune a model")
-    p.add_argument("model", help="Path to model checkpoint (.pt)")
+    p = sub.add_parser("prune", help="Print how to prune with the Python API, and exit 1")
+    p.add_argument("model", help="A saved state dict, a .pt file")
     p.add_argument("--output", "-o", default="pruned.pt")
     p.add_argument("--density", type=float, default=0.5)
     p.add_argument("--finetune-epochs", type=int, default=40)
 
     # check
-    p = sub.add_parser("check", help="Verify mask integrity")
-    p.add_argument("model", help="Path to pruned checkpoint")
+    p = sub.add_parser("check", help="Check every mask against its pattern")
+    p.add_argument("model", help="A checkpoint that save_checkpoint wrote")
 
     # info
-    p = sub.add_parser("info", help="Print pruning statistics")
-    p.add_argument("model", help="Path to pruned checkpoint")
+    p = sub.add_parser("info", help="Print how many weights each mask keeps")
+    p.add_argument("model", help="A checkpoint that save_checkpoint wrote")
 
     args = parser.parse_args()
 
