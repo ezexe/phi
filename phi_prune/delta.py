@@ -26,10 +26,10 @@ and with changed_only, that flag and the names of the tensors that did not
 change. A writer may add keys of its own, as phi_rank adds round and parent
 to every round it ships, and decode_delta passes over them. The payload
 holds the tensors in the header's order, each as its n_kept gaps followed by
-its n_kept values. It is written as '0' and '1' text,
-the layout export_bitstream uses, or with packed=True as bits packed eight to
-a byte, an eighth of the size, with their count in the header's
-"packed_bits". The Fibonacci code is a prefix code, so with the n_kept counts
+its n_kept values. It is written as '0' and '1' text, or with packed=True as
+bits packed eight to a byte, an eighth of the size, with their count in the
+header's "packed_bits", as export_bitstream packs its payload with the count
+in "payload_bits". The Fibonacci code is a prefix code, so with the n_kept counts
 a reader splits the payload without lengths or separators.
 
 save_delta writes a first line before the header, "PHID1 " and the CRC-32 of
