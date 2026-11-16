@@ -38,8 +38,11 @@ def prune(
 
     Args:
         model: Trained PyTorch model
-        density: Not read. A φ mask keeps the heaviest set the constraint allows, at most
-                 (n + 1) // 2 of n positions, and pattern="2:4" keeps 2 of every full group of 4
+        density: The fraction of positions along `axis` each φ mask keeps. Below 0.5 it reaches
+                 phi_mask(density=...), which keeps about that fraction; at 0.5 or above each mask is
+                 the heaviest set the constraint allows, at most (n + 1) // 2 of n positions.
+                 pattern="2:4" keeps 2 of every full group of 4 and raises ValueError for a density
+                 below 0.5
         axis: Dimension the pattern runs along; 0 is the output channels
         layer_types: Module types whose weights are pruned
         min_dim: A weight with fewer positions than this along `axis` stays dense
@@ -64,6 +67,11 @@ def prune(
         included
     """
     make_mask = get_pattern(pattern)[0]
+    mask_kw = {}
+    if density < 0.5:
+        if pattern != "phi":
+            raise ValueError(f"pattern {pattern!r} keeps half of the positions, so it takes no density below 0.5")
+        mask_kw["density"] = density
     if not inplace:
         model = copy.deepcopy(model)
 
@@ -91,7 +99,7 @@ def prune(
                 stats["active_params"] += param.numel()
                 continue
 
-            mask = make_mask(param.data, axis=axis, score_fn=score_fn)
+            mask = make_mask(param.data, axis=axis, score_fn=score_fn, **mask_kw)
             masks[pname] = mask
 
             # Zero the pruned weights

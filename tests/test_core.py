@@ -363,6 +363,20 @@ class TestAPI:
         with pytest.raises(ValueError, match="Unknown pattern"):
             prune(self._make_model(), pattern="3:4")
 
+    def test_prune_density_below_half_reaches_the_target(self):
+        """A density below 0.5 keeps about that fraction of each layer, 0.5 keeps the default's masks, and 2:4 refuses it."""
+        torch.manual_seed(0)
+        model = self._make_model()
+        pruned, masks = prune(model, density=0.25, prune_head=True)
+        for mask in masks.values():
+            kept = int(mask.flatten(1).amax(1).sum())  # one value per output channel
+            assert abs(kept - round(0.25 * mask.shape[0])) <= 2
+        full = prune(model, prune_head=True)[1]
+        half = prune(model, density=0.5, prune_head=True)[1]
+        assert all(torch.equal(full[k], half[k]) for k in full)
+        with pytest.raises(ValueError, match="2:4"):
+            prune(model, pattern="2:4", density=0.25)
+
     def test_finetune_keeps_pruned_weights_zero(self):
         """amp=True falls back to fp32 off CUDA, so both settings run on any machine."""
         model = self._make_model()
