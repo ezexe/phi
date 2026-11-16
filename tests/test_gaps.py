@@ -65,6 +65,17 @@ class TestGaps:
         assert bits["fibonacci"] == pytest.approx(len(encode_gaps(gaps)) / len(gaps))
         assert bits["fixed-width"] == 12
 
+    def test_gap_bits_prices_each_code_by_its_codewords(self):
+        gamma = ["1", "010", "011", "00100", "00101", "00110", "00111", "0001000", "0001001"]
+        delta = ["1", "0100", "0101", "01100", "01101", "01110", "01111", "00100000", "00100001"]
+        fibonacci = ["11", "011", "0011", "1011", "00011", "10011", "01011", "000011", "100011"]
+        bits = gap_bits(list(range(1, 10)), 100)
+        assert bits["elias-gamma"] == pytest.approx(np.mean([len(c) for c in gamma]))
+        assert bits["elias-delta"] == pytest.approx(np.mean([len(c) for c in delta]))
+        assert bits["fibonacci"] == pytest.approx(np.mean([len(c) for c in fibonacci]))
+        assert bits["fixed-width"] == 7
+        assert bits["entropy"] == pytest.approx(np.log2(9))
+
     def test_gap_bits_refuses_a_gap_below_one(self):
         with pytest.raises(ValueError):
             gap_bits([0, 1, 2], 8)
