@@ -5,7 +5,6 @@
    share uniquely correctable; rules fired per random addition (random order).
 2. Rules fired per sum, for every pair of values below 21, 55, 144.
 3. Parallel settling rounds (normalize_rounds) for every pair below 21 .. 610.
-4. GPU-style lockstep: expected rounds when 32 lanes wait for the slowest.
 """
 
 import random
@@ -57,22 +56,15 @@ def all_rounds(n, kind):
     return [normalize_rounds(pour(from_int(a, kind), from_int(b, kind)), kind)[1] for a in range(n) for b in range(n)]
 
 
-def rounds_and_lockstep():
+def rounds():
     print("\n3. parallel settling rounds per sum")
     for n in (21, 55, 144, 610):
         for kind in KINDS:
             r = all_rounds(n, kind)
             print(f"  values < {n:<4} {kind:<6} width {len(from_int(n - 1, kind)):>2}  mean {st.mean(r):.2f} worst {max(r)}")
-    print("\n4. lockstep: expected rounds when lanes wait for the slowest (values < 144)")
-    rng = random.Random(0)
-    for kind in KINDS:
-        r = all_rounds(144, kind)
-        for lanes in (1, 32):
-            m = [max(rng.choice(r) for _ in range(lanes)) for _ in range(3000)]
-            print(f"  {kind:<6} {lanes:>2} lanes  {st.mean(m):.2f}")
 
 
 if __name__ == "__main__":
     flips_and_steps()
     equal_values()
-    rounds_and_lockstep()
+    rounds()
