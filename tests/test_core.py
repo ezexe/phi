@@ -610,3 +610,14 @@ class TestCLI:
         assert run_cli(cmd_info, path)[0] == 1
         assert run_main(monkeypatch, "info", path)[0] == 1
         assert run_main(monkeypatch)[0] == 2
+
+    def test_cli_info_on_a_checkpoint_with_no_masked_layer(self, tmp_path):
+        """info on the checkpoint of a model that prune left dense prints that no layer is masked and exits 0."""
+        from phi_prune.cli import cmd_info
+        from phi_prune.export import save_checkpoint
+
+        pruned, masks = prune(nn.Sequential(nn.Linear(16, 4)))
+        assert masks == {}
+        path = str(tmp_path / "dense.pt")
+        save_checkpoint(pruned, masks, path)
+        assert run_cli(cmd_info, path)[0] == 0

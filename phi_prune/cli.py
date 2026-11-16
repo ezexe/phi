@@ -3,8 +3,8 @@ The phi-prune command, for a checkpoint that save_checkpoint wrote: check reads 
 pattern and checks that each pruned weight in the state dict is zero, and info prints how many weights
 each mask keeps. prune loads a saved state dict, prints how to prune with the Python API and exits 1,
 since a model's class cannot be rebuilt from its saved weights.
-check and info exit 1 for a file that holds no masks, check also when a mask or a pruned weight fails,
-and a command line that argparse cannot read exits 2.
+check and info exit 1 for a file without a masks entry, check also when a mask or a pruned weight
+fails, and a command line that argparse cannot read exits 2.
 
 Usage:
     phi-prune check pruned.pt
@@ -90,8 +90,8 @@ def cmd_check(args):
 
 def cmd_info(args):
     """
-    Print how many weights each mask of a checkpoint keeps, and the total over all of them; 0, or 1
-    for a file that holds no masks.
+    Print how many weights each mask of a checkpoint keeps, and the total over all of them, or that no
+    layer is masked; 0, or 1 for a file without a masks entry.
     """
     data = torch.load(args.model, map_location="cpu", weights_only=False)
 
@@ -105,8 +105,11 @@ def cmd_info(args):
             total_active += active
             total_params += total
             print(f"  {name}: {active:.0f}/{total} ({100*active/total:.1f}%)")
-        print(f"\n  Overall: {total_active:.0f}/{total_params}, "
-              f"{100*total_active/total_params:.1f}% density")
+        if total_params:
+            print(f"\n  Overall: {total_active:.0f}/{total_params}, "
+                  f"{100*total_active/total_params:.1f}% density")
+        else:
+            print("  No layer is masked.")
         return 0
     print("Not a phi-prune checkpoint: it holds no masks.")
     return 1
