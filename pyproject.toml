@@ -16,7 +16,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-export = ["onnx>=1.14", "onnxruntime>=1.15"]
+export = ["onnx>=1.17", "onnxruntime>=1.15", "onnxscript>=0.7.2"]
 dev = ["pytest>=7.0"]
 
 [project.scripts]
