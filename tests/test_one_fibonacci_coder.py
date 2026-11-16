@@ -1,9 +1,11 @@
 """export_bitstream and load_bitstream write and read with phi_prune.gaps, the one Fibonacci coder: a fixed model's
-exported file keeps its bytes, FibonacciEncoder holds no stream methods, and a payload with a level above the grid or
-bits past its last codeword is refused."""
+exported file has pinned bytes and loads back bit for bit, a text payload from before the packing still loads,
+FibonacciEncoder holds no stream methods, and a payload with a level above the grid or bits past its last codeword is
+refused."""
 import hashlib
 import json
 
+import numpy as np
 import pytest
 import torch
 
@@ -11,7 +13,7 @@ from phi_prune.encoding import FibonacciEncoder
 from phi_prune.export import export_bitstream, load_bitstream
 from phi_prune.gaps import encode_gaps
 
-EXPORT_SHA256 = "2b22346e10bbfe5f65694bd227eaf903d5fccd77691bd4c55c21f4adb81edc9d"
+EXPORT_SHA256 = "d974f9dce2cd589bb5f1f4487c0d9f3dfb653f3ecfb65d770393e405f6bb4dbc"  # the packed payload, ezexe/phi#77
 
 
 def _mlp():
@@ -58,9 +60,28 @@ def test_exported_file_keeps_its_bytes(tmp_path):
 
 
 def _rewrite(path, change):
-    head, payload = open(path).read().split("\n", 1)
-    with open(path, "w", newline="\n") as f:
-        f.write(head + "\n" + change(json.loads(head), payload))
+    """Unpack the payload to '0'/'1' text, change it, and pack it back with payload_bits set to its new length."""
+    head, rest = open(path, "rb").read().split(b"\n", 1)
+    header = json.loads(head)
+    bits = np.unpackbits(np.frombuffer(rest, dtype=np.uint8))[:header["payload_bits"]]
+    payload = change(header, (bits + ord("0")).tobytes().decode())
+    packed = np.packbits(np.frombuffer(payload.encode(), dtype=np.uint8) - ord("0")).tobytes()
+    with open(path, "wb") as f:
+        f.write(json.dumps({**header, "payload_bits": len(payload)}).encode() + b"\n" + packed)
+
+
+def test_text_payload_from_before_the_packing_loads(tmp_path):
+    """A file exported before the payload was packed, '0'/'1' text with no payload_bits, loads to the same weights."""
+    model, masks, _, path = _exported(tmp_path)
+    head, rest = open(path, "rb").read().split(b"\n", 1)
+    header = json.loads(head)
+    text = (np.unpackbits(np.frombuffer(rest, dtype=np.uint8))[:header.pop("payload_bits")] + ord("0")).tobytes()
+    with open(path, "wb") as f:
+        f.write(json.dumps(header).encode() + b"\n" + text)
+    restored = _restored(model, masks)
+    load_bitstream(restored, masks, path)
+    for (name, before), after in zip(model.named_parameters(), restored.parameters()):
+        assert torch.equal(before, after), name
 
 
 def test_level_above_the_grid_refused(tmp_path):

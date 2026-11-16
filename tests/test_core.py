@@ -504,6 +504,20 @@ def encoded_mlp(axis=None):
     return pruned, masks, enc, scales
 
 
+def _read_phi(path):
+    """The header line and the payload as '0'/'1' text of a file export_bitstream wrote."""
+    head, rest = path.read_bytes().split(b"\n", 1)
+    n = json.loads(head)["payload_bits"]
+    return head.decode(), (np.unpackbits(np.frombuffer(rest, dtype=np.uint8))[:n] + ord("0")).tobytes().decode()
+
+
+def _write_phi(path, header_line, payload):
+    """Write a header line and a '0'/'1' payload as export_bitstream lays them out, packed, with payload_bits set."""
+    header = {**json.loads(header_line), "payload_bits": len(payload)}
+    bits = np.frombuffer(payload.encode(), dtype=np.uint8) - ord("0")
+    path.write_bytes(json.dumps(header).encode() + b"\n" + np.packbits(bits).tobytes())
+
+
 class TestExport:
     def test_bitstream_roundtrip(self, tmp_path):
         """The payload parses back to the quantization levels, level 0, each layer's minimum, included."""
@@ -519,8 +533,8 @@ class TestExport:
 
         path = tmp_path / "model.phi"
         stats = export_bitstream(pruned, masks, enc, scales, str(path))
-        assert b"\r" not in path.read_bytes()  # the header line ends in "\n" on every platform
-        header_line, payload = path.read_text().split("\n", 1)
+        assert b"\r" not in path.read_bytes().split(b"\n", 1)[0]  # the header line ends in "\n" on every platform
+        header_line, payload = _read_phi(path)
         header = json.loads(header_line)
         assert sum(layer["n_active"] for layer in header["layers"]) == stats["n_weights"] == len(expected)
 
@@ -530,6 +544,35 @@ class TestExport:
         assert width == enc.n_digits + 1
         recovered = [code - bias for code in decode_gaps(payload)]
         assert recovered == expected
+
+    def test_payload_packs_eight_bits_a_byte(self, tmp_path):
+        """The payload holds its bits eight to a byte, with their count in the header, and loads back bit for bit."""
+        pruned, masks, enc, scales = encoded_mlp()
+        path = tmp_path / "model.phi"
+        stats = export_bitstream(pruned, masks, enc, scales, str(path))
+        head, payload = path.read_bytes().split(b"\n", 1)
+        assert json.loads(head)["payload_bits"] == stats["bitstream_length"]
+        assert len(payload) == (stats["bitstream_length"] + 7) // 8
+        restored = copy.deepcopy(pruned)
+        for name, param in restored.named_parameters():
+            if name in masks:
+                param.data[masks[name].bool()] = 0.0
+        load_bitstream(restored, masks, str(path))
+        for (name, before), after in zip(pruned.named_parameters(), restored.parameters()):
+            assert torch.equal(before, after), name
+
+    def test_payload_refuses_a_bit_count_or_padding_that_does_not_fit(self, tmp_path):
+        """A payload_bits the bytes cannot hold, or a set bit in the padding of the last byte, raises ValueError."""
+        pruned, masks, enc, scales = encoded_mlp()
+        path = tmp_path / "model.phi"
+        n = export_bitstream(pruned, masks, enc, scales, str(path))["bitstream_length"]
+        head, payload = path.read_bytes().split(b"\n", 1)
+        header = json.loads(head)
+        # n + 8 asks for a byte more than the file holds; n - 2 leaves the last codeword's comma, 11, as padding
+        for bits in (n + 8, n - 2):
+            path.write_bytes(json.dumps({**header, "payload_bits": bits}).encode() + b"\n" + payload)
+            with pytest.raises(ValueError):
+                load_bitstream(copy.deepcopy(pruned), masks, str(path))
 
     @pytest.mark.parametrize("axis", [None, 0])
     def test_load_bitstream_restores_encoded_weights(self, tmp_path, axis):
@@ -552,7 +595,7 @@ class TestExport:
         pruned, masks, enc, scales = encoded_mlp()
         path = tmp_path / "model.phi"
         export_bitstream(pruned, masks, enc, scales, str(path))
-        header_line, payload = path.read_text().split("\n", 1)
+        header_line, payload = _read_phi(path)
         old = json.loads(header_line)
         del old["encoder"]["codeword_digits"], old["encoder"]["level_bias"]
         last = list(masks)[-1]
@@ -569,7 +612,7 @@ class TestExport:
                 param.data[masks[name].bool()] = 0.0
         before = copy.deepcopy(target.state_dict())
         for text, file_masks, message in refusals:
-            path.write_text(text)
+            _write_phi(path, *text.split("\n", 1))
             with pytest.raises(ValueError, match=message):
                 load_bitstream(target, file_masks, str(path))
         assert all(torch.equal(before[k], v) for k, v in target.state_dict().items())

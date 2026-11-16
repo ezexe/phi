@@ -128,10 +128,12 @@ def export_bitstream(
     Write the quantization levels of a model's kept weights as a Fibonacci-coded bitstream.
 
     The file holds:
-    1. A JSON line: each layer's name, shape, kept count, scale and quantization offset, and the encoder's
-       n_digits, codeword_digits and level_bias
-    2. The payload: the Fibonacci code of every kept weight's level, in parameter order, written
-       as the characters 0 and 1, one byte per bit. Each codeword is level + level_bias in up to
+    1. A JSON line: each layer's name, shape, kept count, scale and quantization offset, the encoder's
+       n_digits, codeword_digits and level_bias, and payload_bits, the payload's count of bits
+    2. The payload: the Fibonacci code of every kept weight's level, in parameter order, its bits
+       packed eight to a byte, the first bit the high bit, and the last byte padded with zero bits.
+       load_bitstream also reads a file exported before the packing, whose header has no
+       payload_bits and whose payload is the characters 0 and 1. Each codeword is level + level_bias in up to
        codeword_digits digits, as phi_prune.gaps.encode_gaps writes it, so level 0 still ends in 11
 
     A reader splits the payload at each 11 with no shapes and takes level_bias off each value to get
@@ -149,7 +151,7 @@ def export_bitstream(
         scales[name] = (scale, offset)
 
     load_bitstream reads the file back into a model. The returned dict counts the stream in bits,
-    and the file holds one byte for each.
+    and the file holds one byte for each eight of them.
     """
     # The payload's layout: each quantization level + 1 in n_digits + 1 digits, so level 0 still ends in 11
     header = {
@@ -182,11 +184,11 @@ def export_bitstream(
         all_levels.extend(layer_levels)
 
     bitstream = encode_gaps(v + 1 for v in all_levels)
-
-    # Write header + payload, with a "\n" newline on every platform
-    with open(path, "w", newline="\n") as f:
-        f.write(json.dumps(header) + "\n")
-        f.write(bitstream)
+    header["payload_bits"] = len(bitstream)
+    bits = np.frombuffer(bitstream.encode("ascii"), dtype=np.uint8) - ord("0")
+    with open(path, "wb") as f:
+        f.write((json.dumps(header) + "\n").encode("utf-8"))
+        f.write(np.packbits(bits).tobytes())
 
     bits_per_weight = len(bitstream) / len(all_levels) if all_levels else 0
     return {
@@ -212,16 +214,24 @@ def load_bitstream(
     save_checkpoint stores.
 
     ValueError is raised before any weight is written for a header whose codeword_digits and
-    level_bias are not n_digits + 1 and 1, for a payload whose count of levels differs from the
-    header's, for a layer missing from the model or from masks, and for a layer whose shape, mask
+    level_bias are not n_digits + 1 and 1, for packed bytes that do not hold payload_bits bits
+    with zero padding, for a payload whose count of levels differs from the header's, for a layer missing from the model or from masks, and for a layer whose shape, mask
     shape, kept count or scale shape does not fit.
 
     Returns:
         The file's JSON header
     """
-    with open(path) as f:
-        header = json.loads(f.readline())
-        payload = f.read().strip()
+    with open(path, "rb") as f:
+        header = json.loads(f.readline().decode("utf-8"))
+        rest = f.read()
+    n = header.get("payload_bits")
+    if n is None:  # a file exported before the payload was packed holds '0' and '1' text
+        payload = rest.decode("ascii").strip()
+    else:
+        bits = np.unpackbits(np.frombuffer(rest, dtype=np.uint8))
+        if not 0 <= bits.size - n < 8 or bits[n:].any():
+            raise ValueError(f"{path}: the payload's {len(rest)} bytes do not hold the header's {n} bits and zero padding")
+        payload = (bits[:n] + ord("0")).tobytes().decode("ascii")
 
     layout = header["encoder"]
     n_digits = layout["n_digits"]
