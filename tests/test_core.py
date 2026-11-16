@@ -212,6 +212,36 @@ class TestFibonacciEncoder:
         # Any axis, negative ones included
         assert enc.encode_tensor(t, axis=-1, return_offset=True)[1].shape == (1, 1, 3)
 
+    @pytest.mark.parametrize("n_digits", range(6, 15))
+    def test_levels_by_rounding_match_the_grid_search(self, n_digits):
+        """Each kept weight goes to the level the nearest-of-two grid search picked, ties going up, at every width."""
+        enc = FibonacciEncoder(n_digits)
+        t = torch.cat([torch.randn(20000), torch.rand(2000) * 1e-3, torch.tensor([0.0, 1.0, -1.0, 0.5])])
+        mask = torch.rand_like(t) > 0.2
+        for m in (None, mask):
+            active = t if m is None else t[m]
+            vmin, vmax = active.min().item(), active.max().item()
+            scale = enc.max_value / (vmax - vmin)
+            scaled = (active.numpy() - vmin) * scale
+            idx = np.clip(np.searchsorted(enc.grid, scaled, side="left"), 0, len(enc.grid) - 1)
+            upper, lower = enc.grid[idx], enc.grid[np.maximum(idx - 1, 0)]
+            searched = np.where(np.abs(scaled - lower) < np.abs(scaled - upper), lower, upper)
+            want = torch.tensor(searched / scale + vmin, dtype=t.dtype)
+            got = enc.encode_tensor(t, mask=m)[0]
+            assert torch.equal(got if m is None else got[m], want)
+
+    @pytest.mark.parametrize("weights, dtype, want", [
+        ([0.0, 0.49999997, 143.0], torch.float32, [0.0, 0.0, 143.0]),  # 0.49999997 + 0.5 rounds to 1.0 in float32
+        ([0.0, 0.5 - 2 ** -54, 143.0], torch.float64, [0.0, 0.0, 143.0]),  # the float64 twin
+        ([0.0, 0.5, 143.0], torch.float32, [0.0, 1.0, 143.0]),  # an exact tie goes up
+        ([0.0, 1.0, float("inf")], torch.float32, [float("nan"), float("nan"), float("inf")]),  # as the grid search gave
+    ])
+    def test_levels_round_exactly_near_a_half(self, weights, dtype, want):
+        """A scaled value just under a half goes down in every dtype, a half goes up, and an inf weight decodes as before."""
+        got = FibonacciEncoder(10).encode_tensor(torch.tensor(weights, dtype=dtype))[0]
+        assert torch.equal(got.isnan(), torch.tensor(want).isnan()), got
+        assert torch.equal(got.nan_to_num(), torch.tensor(want, dtype=dtype).nan_to_num()), got
+
     def test_stream_all_grid_values(self):
         """Every quantization level, written plus 1 as export_bitstream writes it, reads back from the Fibonacci code."""
         enc = FibonacciEncoder(n_digits=8)

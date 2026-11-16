@@ -116,15 +116,13 @@ class FibonacciEncoder:
             quantized = np.zeros(active_np.shape)
         else:
             scale = self.max_value / span
-            # Round each value to the nearest quantization level
+            # The levels are every integer from 0 to max_value, so the nearest is a rounding, ties going up.
+            # floor plus a compare of the remainder is exact in every dtype, where scaled + 0.5 can round up
+            # past the half. A NaN, which an infinite weight gives, goes to max_value as the grid search sent it
             scaled = (active_np - offset) * scale
-            indices = np.searchsorted(self.grid, scaled, side="left")
-            indices = np.clip(indices, 0, len(self.grid) - 1)
-            # The nearest level is grid[indices] or the one below it
-            upper = self.grid[indices]
-            lower = self.grid[np.maximum(indices - 1, 0)]
-            use_lower = np.abs(scaled - lower) < np.abs(scaled - upper)
-            quantized = np.where(use_lower, lower, upper)
+            low = np.floor(scaled)
+            quantized = np.clip(low + (scaled - low >= 0.5), 0, self.max_value).astype(np.float64)
+            quantized[np.isnan(scaled)] = self.max_value
 
         # Scale back
         decoded = (quantized / scale) + offset
