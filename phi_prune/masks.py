@@ -15,7 +15,7 @@ two_four_mask builds the 2-of-4 baseline the constraint is compared against.
 
 import torch
 import numpy as np
-from typing import Tuple, Optional
+from typing import Optional
 
 
 def adjacency_dp(scores: np.ndarray) -> np.ndarray:

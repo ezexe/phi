@@ -10,7 +10,6 @@ Supports:
 import torch
 import numpy as np
 import json
-import os
 from typing import Dict, Optional
 
 from phi_prune.encoding import FibonacciEncoder

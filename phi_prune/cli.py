@@ -10,7 +10,6 @@ There is no export command yet; use phi_prune.export.export_onnx.
 """
 
 import argparse
-import json
 import sys
 
 import torch
@@ -21,8 +20,6 @@ LEGACY_PATTERNS = {"zeckendorf": "phi"}
 
 def cmd_prune(args):
     """Prune a saved model checkpoint."""
-    from phi_prune.api import prune
-
     print(f"Loading {args.model}...")
     state_dict = torch.load(args.model, map_location="cpu", weights_only=True)
 

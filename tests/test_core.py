@@ -8,7 +8,7 @@ import torch.nn as nn
 import pytest
 
 from phi_prune.masks import (
-    adjacency_dp, adjacency_dp_density, phi_mask, verify_mask, mask_stats, two_four_mask, verify_two_four,
+    adjacency_dp, adjacency_dp_density, phi_mask, verify_mask, two_four_mask, verify_two_four,
 )
 from phi_prune.encoding import FibonacciEncoder
 from phi_prune.integrity import adjacency_check, simulate_corruption

@@ -9,7 +9,7 @@ High-level API for φ-pruning.
 """
 
 import copy
-from typing import Dict, Tuple, Optional, List, Iterable
+from typing import Dict, Tuple, Optional, Iterable
 
 import torch
 import torch.nn as nn

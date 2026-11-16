@@ -9,7 +9,7 @@ provides self-delimiting bitstreams for serialization.
 
 import torch
 import numpy as np
-from typing import Tuple, Dict, Union, Optional
+from typing import Tuple, Union, Optional
 
 
 # Pre-compute Fibonacci sequence
