@@ -1,4 +1,4 @@
-"""Tests for phi_prune.register: the φ-register's local rewrites against a binary register's carries."""
+"""Tests for phi_prune.register: the Zeckendorf register's local rewrites against a binary register's carries."""
 
 import random
 
@@ -12,13 +12,13 @@ from phi_prune.register import (
 
 
 def canonical_words(kind, n):
-    """Every canonical n-digit register of a kind."""
+    """Every n-digit register of a kind in normal form."""
     top = (1 << n) if kind == BINARY else place_values(PHI, n + 1)[-1]
     return [from_int(v, kind, n) for v in range(top)]
 
 
 def single_flips(word):
-    """(bit position, flipped word) for every single-bit flip of word."""
+    """Every single-bit flip of word, as its bit position and the flipped word."""
     for i in range(len(word)):
         flipped = list(word)
         flipped[i] ^= 1
@@ -36,7 +36,7 @@ class TestRewrites:
 
     @pytest.mark.parametrize("kind", KINDS)
     def test_any_order_reaches_the_same_canonical_form(self, kind):
-        """No global sweep order is needed: random firing orders all agree."""
+        """Confluence: random firing orders all reach the same normal form."""
         rng = random.Random(1)
         for _ in range(200):
             d = [rng.randint(0, 3) for _ in range(rng.randint(1, 10))]
@@ -69,15 +69,16 @@ class TestRewrites:
         assert is_canonical(acc, kind)
         assert value(acc, kind) == sum(l * x for l, x in zip(levels, xs))
         n_ones = sum(sum(from_int(l, kind)) for l, x in zip(levels, xs) if x)
-        assert len(rounds) == n_ones  # one addition per 1 digit of each weight level
+        assert len(rounds) == n_ones  # the summed Hamming weights of the levels with a nonzero activation
 
     def test_phi_carry_runs_down_binary_does_not(self):
-        """2·3 = 5 + 1: a φ split reaches two places below; a binary carry only goes up."""
+        """2·3 = 5 + 1: the removal of 2 digits reaches two places below; a binary carry only goes up."""
         assert apply([0, 0, 2], "split", 2) == [1, 0, 0, 1]
         assert apply([0, 0, 2], "carry", 2) == [0, 0, 0, 1]
 
     def test_phi_needs_more_rewrites_than_binary_for_the_same_values(self):
-        """Over every sum of two values below 55, φ fires more rules, mean and worst case."""
+        """Over every sum of two values below 55, the Zeckendorf register takes more rewrite steps,
+        mean and worst case."""
         counts = {}
         for kind in KINDS:
             steps = [add(from_int(a, kind), from_int(b, kind), kind)[1] for a in range(55) for b in range(55)]
@@ -86,8 +87,9 @@ class TestRewrites:
         assert counts[PHI][1] > counts[BINARY][1]
 
     def test_parallel_rounds_self_timed_phi_against_clocked_binary(self):
-        """Over every sum of two values below 144: φ settles in ~2.7 rounds on average,
-        binary in ~2.1, and binary's worst case, which a clock must wait for, is 8."""
+        """Over every sum of two values below 144: the Zeckendorf register reaches normal form in about
+        2.7 normalization rounds on average, binary in about 2.1, and binary's worst case, which a clock
+        must wait for, is 8."""
         stats = {}
         for kind in KINDS:
             rounds = []
@@ -99,7 +101,7 @@ class TestRewrites:
             stats[kind] = (sum(rounds) / len(rounds), max(rounds))
         assert 2.6 < stats[PHI][0] < 2.8 and stats[PHI][1] == 8
         assert 2.0 < stats[BINARY][0] < 2.2 and stats[BINARY][1] == 8
-        assert stats[BINARY][1] / stats[PHI][0] > 2.9  # clocked binary worst case vs self-timed φ average
+        assert stats[BINARY][1] / stats[PHI][0] > 2.9  # clocked binary worst case over self-timed Zeckendorf mean
 
 
 class TestCorruption:
@@ -116,10 +118,10 @@ class TestCorruption:
                 if flip_detected(flipped, PHI):
                     caught += 1
                     assert word[i] == 0
-        assert 0.40 < caught / total < 0.42  # ~40.9%, as in test_core's exhaustive count
+        assert 0.40 < caught / total < 0.42  # about 40.9%, as test_core asserts for simulate_corruption
 
     def test_normalizing_keeps_the_corrupted_value(self):
-        """The rewrites make a corrupt register canonical again but do not undo the flip."""
+        """The rewrites bring a corrupt register back to normal form but do not undo the flip."""
         places = place_values(PHI, 8)
         for word in canonical_words(PHI, 8):
             for i, flipped in single_flips(word):
@@ -140,4 +142,4 @@ class TestCorruption:
                     candidates = correction_candidates(flipped)
                     assert word in candidates
                     corrected += len(candidates) == 1
-        assert 0.08 < corrected / total < 0.09  # ~8.6% of all flips can be corrected, not just caught
+        assert 0.08 < corrected / total < 0.09  # about 8.6% of all flips can be corrected, not just caught
