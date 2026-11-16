@@ -555,3 +555,17 @@ class TestCLI:
         save_checkpoint(pruned, masks, path)
         assert torch.load(path, weights_only=False)["axis"] == 1
         assert run_cli(cmd_check, path)[0] == 0
+
+    def test_cli_check_fails_when_pruned_weights_are_not_zero(self, tmp_path):
+        """phi-prune check exits 1 on a checkpoint whose pruned weights were overwritten, as check reports them."""
+        from phi_prune.cli import cmd_check
+        from phi_prune.export import save_checkpoint
+
+        pruned, masks = prune(mlp())
+        for name, param in pruned.named_parameters():
+            if name in masks:
+                param.data.fill_(1.0)
+        assert not check(pruned, masks)["_summary"]["all_zeros_enforced"]
+        path = str(tmp_path / "overwritten.pt")
+        save_checkpoint(pruned, masks, path)
+        assert run_cli(cmd_check, path)[0] == 1

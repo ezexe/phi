@@ -1,7 +1,8 @@
 """
 The phi-prune command, for a checkpoint that save_checkpoint wrote: check reads every mask against its
-pattern, and info prints how many weights each mask keeps. prune loads a saved state dict, prints how to
-prune with the Python API and exits 1, since a model's class cannot be rebuilt from its saved weights.
+pattern and checks that each pruned weight in the state dict is zero, and info prints how many weights
+each mask keeps. prune loads a saved state dict, prints how to prune with the Python API and exits 1,
+since a model's class cannot be rebuilt from its saved weights.
 
 Usage:
     phi-prune check pruned.pt
@@ -35,7 +36,10 @@ def cmd_prune(args):
 
 
 def cmd_check(args):
-    """Check every mask of a checkpoint against its pattern, along the axis it records; 0 when all hold, 1 otherwise."""
+    """
+    Check every mask of a checkpoint against its pattern, along the axis it records, and that each
+    pruned weight in its state dict is zero; 0 when all hold, 1 otherwise.
+    """
     print(f"Loading {args.model}...")
     data = torch.load(args.model, map_location="cpu", weights_only=False)
 
@@ -47,27 +51,39 @@ def cmd_check(args):
     from phi_prune.masks import mask_stats
 
     masks = data["masks"]
+    state = data.get("state_dict", {})
     # A checkpoint with no pattern key is checked as holding φ masks, and one with no axis key
     # as pruned along axis 0
     kind = data.get("pattern", "phi")
     kind = PATTERN_ALIASES.get(kind, kind)
     axis = data.get("axis", 0)
     all_valid = True
+    all_zero = True
 
     for name, mask in masks.items():
         valid = mask_stats(mask, axis=axis, pattern=kind)["valid"]
+        # Every pruned weight is within 1e-10 of zero, as phi_prune.check reads it; a mask whose weight
+        # the state dict lacks, or holds in another shape, fails
+        weight = state.get(name)
+        zeros = (weight is not None and weight.shape == mask.shape
+                 and bool((weight[~mask.bool()].abs() < 1e-10).all()))
         density = mask.float().mean().item()
-        status = "✓" if valid else "✗"
-        print(f"  {status} {name}: density={density:.3f} valid={valid}")
+        status = "✓" if valid and zeros else "✗"
+        print(f"  {status} {name}: density={density:.3f} valid={valid} zeros={zeros}")
         if not valid:
             all_valid = False
+        if not zeros:
+            all_zero = False
 
     rule = "the (1,∞)-RLL constraint" if kind == "phi" else f"the {kind} pattern"
-    if all_valid:
-        print(f"\n✓ All masks satisfy {rule}.")
-    else:
-        print(f"\n✗ CORRUPTION DETECTED: some masks break {rule}.")
-    return 0 if all_valid else 1
+    print()
+    if all_valid and all_zero:
+        print(f"✓ All masks satisfy {rule}, and every pruned weight is zero.")
+    if not all_valid:
+        print(f"✗ CORRUPTION DETECTED: some masks break {rule}.")
+    if not all_zero:
+        print("✗ CORRUPTION DETECTED: some pruned weights are not zero.")
+    return 0 if all_valid and all_zero else 1
 
 
 def cmd_info(args):
@@ -105,7 +121,7 @@ def main():
     p.add_argument("--finetune-epochs", type=int, default=40)
 
     # check
-    p = sub.add_parser("check", help="Check every mask against its pattern")
+    p = sub.add_parser("check", help="Check every mask against its pattern, and that every pruned weight is zero")
     p.add_argument("model", help="A checkpoint that save_checkpoint wrote")
 
     # info
