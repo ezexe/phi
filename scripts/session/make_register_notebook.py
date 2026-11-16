@@ -68,7 +68,7 @@ if model is not None:
     weight = dict(pruned.named_parameters())[LAYER + ".weight"].data
     mask = masks[LAYER + ".weight"]
 else:
-    u = torch.rand(256, 128, 3, 3) - 0.5
+    u = torch.rand(256, 128, 3, 3, generator=torch.Generator().manual_seed(SEED)) - 0.5
     weight = -torch.sign(u) * torch.log1p(-2 * u.abs())
     mask = phi_mask(weight)
 
@@ -102,11 +102,11 @@ if model is not None:
         imgs = (F.interpolate(imgs, size=224, mode="bilinear") - mean[:, None, None]) / std[:, None, None]
         ACT_SOURCE = "CIFAR-10 test images"
     except (OSError, http.client.HTTPException, RuntimeError) as exc:  # CIFAR-10 cannot be downloaded or checked
-        imgs = torch.randn(2, 3, 224, 224)
+        imgs = torch.randn(2, 3, 224, 224, generator=torch.Generator().manual_seed(SEED))
         ACT_SOURCE = f"random images ({type(exc).__name__}: no CIFAR-10)"
     patches = layer_inputs(model, imgs)
 else:
-    patches = torch.randn(1024, FAN_IN).abs()
+    patches = torch.randn(1024, FAN_IN, generator=torch.Generator().manual_seed(SEED)).abs()
     ACT_SOURCE = "half-normal synthetic activations"
 
 g = torch.Generator().manual_seed(SEED)
@@ -207,12 +207,12 @@ cells.append(code("""for kind in KINDS:
     print(f"{kind:>6}: {caught / total:.1%} of {total} single-bit flips detected")"""))
 cells.append(md("""## 7. What this run shows
 
-The run saved in this notebook used the synthetic fallback, Laplace weights and half-normal activations, since the pretrained weights could not be downloaded where it ran. At 10 digits:
+The run saved in this notebook used the synthetic fallback, Laplace weights and half-normal activations, since torchvision was not installed where it ran; with torchvision present and its download out of reach, the fallback draws the same and the figures are the same. At 10 digits:
 
-- **Fewer additions** is the first saving and does not depend on timing: the Zeckendorf representations of the levels have a lower Hamming weight than binary ones, 3,495 additions per dot product against 4,132, which is 15% fewer.
-- **Against a clocked binary adder** the self-timed Zeckendorf accumulator needs fewer rounds per dot product at each width of section 5: at 10 digits 8.76× fewer than a ripple adder and 1.68× fewer than a lookahead adder.
-- **Against a self-timed binary adder** it does not win: binary additions reach normal form in 2.45 rounds against 3.44, which outweighs the Zeckendorf side's fewer additions, and self-timed binary needs 0.82× the Zeckendorf rounds.
-- **Single-bit error detection** comes on the Zeckendorf side only: 45.3% of single-bit flips in accumulators in normal form are caught, against none.
+- **Fewer additions** is the first saving and does not depend on timing: the Zeckendorf representations of the levels have a lower Hamming weight than binary ones, 3,464 additions per dot product against 4,007, which is 14% fewer.
+- **Against a clocked binary adder** the self-timed Zeckendorf accumulator needs fewer rounds per dot product at each width of section 5: at 10 digits 8.64× fewer than a ripple adder and 1.66× fewer than a lookahead adder.
+- **Against a self-timed binary adder** it does not win: binary additions reach normal form in 2.46 rounds against 3.41, which outweighs the Zeckendorf side's fewer additions, and self-timed binary needs 0.82× the Zeckendorf rounds.
+- **Single-bit error detection** comes on the Zeckendorf side only: 43.3% of single-bit flips in accumulators in normal form are caught, against none.
 
 So the saving is real where the alternative is a clocked binary multiply-accumulate unit, and it comes from two places at once: the low Hamming weight of Zeckendorf levels and paying each addition's own Zeckendorf normalization time. It disappears against binary hardware that is also self-timed, and none of this is a gate-level or silicon measurement."""))
 nb = nbf.v4.new_notebook(cells=cells, metadata={"kernelspec": {"name": "python3", "display_name": "Python 3"}, "language_info": {"name": "python"}})

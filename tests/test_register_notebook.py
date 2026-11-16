@@ -120,3 +120,26 @@ def test_weights_cell_asks_for_the_weights_it_describes(monkeypatch):
     tv = stand_in(monkeypatch, resnet18=record)
     run(cell("resnet18"))
     assert asked == [tv.models.ResNet18_Weights.IMAGENET1K_V1]
+
+
+def test_synthetic_weights_do_not_depend_on_torchvision(monkeypatch):
+    """The fallback draws the same synthetic weights whether torchvision is missing or present with its download
+    out of reach; building ResNet-18 before the download fails draws from torch's global generator."""
+    monkeypatch.setitem(sys.modules, "torchvision", None)
+    without = run(cell("resnet18"))["weight"]
+
+    def build_then_fail(weights=None):
+        torch.nn.Conv2d(64, 64, 3)
+        raise urllib.error.URLError("no network")
+    stand_in(monkeypatch, resnet18=build_then_fail)
+    present = run(cell("resnet18"))["weight"]
+    assert torch.equal(without, present)
+
+
+def test_synthetic_activations_do_not_depend_on_the_global_generator():
+    """With the synthetic weights the activations are drawn the same, whatever drew from torch's generator before."""
+    acts = []
+    for draws in (0, 1000):
+        torch.rand(draws)
+        acts.append(run(cell("CIFAR10"), {**activations_namespace(None), "model": None})["acts"])
+    assert all(np.array_equal(a, b) for a, b in zip(*acts))
