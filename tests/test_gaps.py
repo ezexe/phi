@@ -114,7 +114,7 @@ class TestDelta:
         assert torch.equal(state["a.weight"], base["a.weight"])
 
 
-class TestLiveRoundFormat:
+class TestChangedOnlyAndPacked:
     """Two options: changed_only counts keep over the entries that changed, and packed=True packs eight bits a byte."""
 
     def test_changed_only_skips_the_still_entries(self):
