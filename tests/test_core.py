@@ -1,4 +1,4 @@
-"""Tests for phi-prune core functionality."""
+"""Tests of the pruning core: the masks, quantization and the Fibonacci code, the minimal-form check, the API and the command."""
 
 import copy
 import json
@@ -16,31 +16,31 @@ from phi_prune.api import prune, finetune, check, evaluate
 from phi_prune.export import export_bitstream, load_bitstream
 
 
-# ── Mask DP ──
+# ── The maximum-weight independent set ──
 
 class TestAdjacencyDP:
     def test_no_adjacent_ones(self):
-        """Core invariant: output never has consecutive 1s."""
+        """The mask never holds two adjacent 1s."""
         for _ in range(100):
             scores = np.random.rand(np.random.randint(1, 200))
             mask = adjacency_dp(scores)
             assert verify_mask(mask), f"Adjacent 1s found in mask for n={len(scores)}"
 
     def test_keeps_at_most_half_rounded_up(self):
-        """Density never exceeds 50%."""
+        """Of n positions at most (n + 1) // 2 are kept."""
         for n in [1, 2, 3, 10, 50, 100, 199]:
             scores = np.ones(n)
             mask = adjacency_dp(scores)
             assert mask.sum() <= (n + 1) // 2
 
     def test_optimal_uniform(self):
-        """On uniform scores, DP should pick alternating pattern (maximum independent set)."""
+        """On equal scores 5 of 10 positions are kept."""
         scores = np.ones(10)
         mask = adjacency_dp(scores)
         assert mask.sum() == 5  # ⌊10/2⌋ = 5
 
     def test_prefers_high_scores(self):
-        """DP should keep higher-scored positions."""
+        """The heavier positions are kept."""
         scores = np.array([0.1, 10.0, 0.1, 10.0, 0.1])
         mask = adjacency_dp(scores)
         assert mask[1] == 1 and mask[3] == 1
@@ -55,7 +55,7 @@ class TestAdjacencyDP:
 
 
     def test_density_target(self):
-        """adjacency_dp_density keeps about the asked fraction, valid and at most the cap."""
+        """adjacency_dp_density keeps about the asked fraction, no two adjacent and never more than the constraint allows."""
         rng = np.random.default_rng(0)
         for density in (0.1, 0.25, 0.28, 0.38):
             scores = rng.random(512)
@@ -65,7 +65,7 @@ class TestAdjacencyDP:
         assert adjacency_dp_density(np.ones(10), 0.9).sum() == 5  # capped by the constraint
 
 
-# ── Mask on tensors ──
+# ── φ masks of weight tensors ──
 
 class TestPhiMask:
     def test_conv2d_shape(self):
@@ -79,7 +79,7 @@ class TestPhiMask:
         assert mask.shape == w.shape
 
     def test_broadcast_consistency(self):
-        """All elements along non-pruned dims should share the same mask value."""
+        """Every weight of an output channel shares the channel's mask value."""
         w = torch.randn(16, 8, 3, 3)
         mask = phi_mask(w, axis=0)
         for i in range(16):
@@ -87,7 +87,7 @@ class TestPhiMask:
             assert len(vals) == 1  # all 0 or all 1
 
 
-# ── 2-of-4 baseline mask ──
+# ── The baseline that keeps 2 of every 4 channels ──
 
 class TestTwoFourMask:
     def test_keeps_top_two_of_every_four(self):
@@ -111,7 +111,7 @@ class TestTwoFourMask:
         assert not verify_two_four([1, 1, 0, 0, 0, 1])  # a trailing partial group must be kept whole
 
 
-# ── Fibonacci Encoding ──
+# ── Quantization and the Fibonacci code ──
 
 class TestFibonacciEncoder:
     def test_grid_size(self):
@@ -119,16 +119,16 @@ class TestFibonacciEncoder:
         assert enc.n_levels == 55  # F(10) = 55 for 8 digits
 
     def test_no_adjacent_ones_in_grid(self):
-        """Every grid value must produce a valid codeword."""
+        """No quantization level's Zeckendorf digits hold two adjacent 1s."""
         enc = FibonacciEncoder(n_digits=8)
         for val in enc.grid:
             cw = enc.to_codeword(int(val))
             assert adjacency_check(cw), f"Adjacent 1s in codeword for grid value {int(val)}"
 
     def test_encode_snaps_to_nearest_level(self):
-        """A value between two grid levels snaps to the nearer one, below as well as above."""
-        enc = FibonacciEncoder(n_digits=10)  # grid: every integer 0..143
-        # 0 and 143 pin the min-max scaling to the identity, so 4.3 and 4.7 reach the grid as-is
+        """A value between two quantization levels goes to the nearer one, below as well as above."""
+        enc = FibonacciEncoder(n_digits=10)  # levels: every integer from 0 to 143
+        # 0 and 143 pin the min-max scaling to the identity, so 4.3 and 4.7 reach the levels unscaled
         t = torch.tensor([0.0, 4.3, 4.7, 143.0])
         encoded, scale, rmse = enc.encode_tensor(t)
         assert scale == 1.0
@@ -136,7 +136,7 @@ class TestFibonacciEncoder:
         assert rmse == pytest.approx(0.3 / np.sqrt(2), abs=1e-6)
 
     def test_encode_return_offset(self):
-        """return_offset adds the smallest kept value, which level 0 decodes back to unchanged."""
+        """return_offset adds the quantization offset, the smallest kept value, which level 0 decodes back to unchanged."""
         enc = FibonacciEncoder(n_digits=8)
         t = torch.randn(8, 4)
         mask = torch.zeros_like(t)
@@ -151,11 +151,11 @@ class TestFibonacciEncoder:
         assert enc.encode_tensor(t, mask=torch.zeros_like(t), return_offset=True)[3] == 0.0
 
     def test_encode_per_channel(self):
-        """axis= encodes each slice as encode_tensor would alone, with broadcastable scale/offset."""
+        """axis quantizes each slice as encode_tensor would alone, with a scale and offset that broadcast."""
         enc = FibonacciEncoder(n_digits=8)
         torch.manual_seed(0)
         t = torch.randn(6, 5, 3)
-        t[0, 0, 0] = 40.0  # one outlier would stretch a whole-tensor range
+        t[0, 0, 0] = 40.0  # one outlier would stretch a per-tensor range
         mask = torch.ones_like(t)
         mask[3] = 0  # a fully pruned channel
         encoded, scale, rmse, offset = enc.encode_tensor(t, mask=mask, return_offset=True, axis=0)
@@ -167,13 +167,13 @@ class TestFibonacciEncoder:
         # Every kept channel's minimum lands on level 0, and levels() inverts the scale-back
         levels = enc.levels(encoded, scale, offset, mask).reshape(5, -1)
         assert (levels.min(axis=1) == 0).all() and levels.max() <= enc.max_value
-        # Per channel, the outlier no longer coarsens the other channels
+        # Per channel, the outlier leaves the other channels' levels fine
         assert rmse < enc.encode_tensor(t, mask=mask)[2] / 2
         # Any axis, negative ones included
         assert enc.encode_tensor(t, axis=-1, return_offset=True)[1].shape == (1, 1, 3)
 
     def test_stream_roundtrip(self):
-        """Encode values to bitstream and decode back."""
+        """Levels written as a Fibonacci code read back unchanged."""
         enc = FibonacciEncoder(n_digits=8)
         values = [0, 1, 5, 12, 33]
         stream = enc.encode_to_stream(values)
@@ -181,7 +181,7 @@ class TestFibonacciEncoder:
         assert recovered == values
 
     def test_stream_all_grid_values(self):
-        """Every grid value survives a stream roundtrip."""
+        """Every quantization level reads back from the Fibonacci code."""
         enc = FibonacciEncoder(n_digits=8)
         values = [int(v) for v in enc.grid]
         stream = enc.encode_to_stream(values)
@@ -189,18 +189,18 @@ class TestFibonacciEncoder:
         assert recovered == values
 
 
-# ── Integrity ──
+# ── The minimal-form check ──
 
 class TestIntegrity:
     def test_corrupted_detected(self):
-        """Flipping a bit next to a 1 should be caught."""
-        cw = [1, 0, 1, 0, 1, 0, 0, 0]  # valid
+        """A digit flipped to 1 beside a 1 is caught."""
+        cw = [1, 0, 1, 0, 1, 0, 0, 0]  # no two adjacent 1s
         assert adjacency_check(cw)
-        cw_corrupt = [1, 1, 1, 0, 1, 0, 0, 0]  # bit 1 flipped
+        cw_corrupt = [1, 1, 1, 0, 1, 0, 0, 0]  # digit 1 flipped
         assert not adjacency_check(cw_corrupt)
 
     def test_simulate_corruption_matches_exact_rate(self):
-        """Simulated detection rate agrees with enumerating every single-bit flip."""
+        """The simulated share of caught flips agrees with counting every single-digit flip."""
         import random
 
         enc = FibonacciEncoder(n_digits=8)
@@ -224,10 +224,10 @@ class TestIntegrity:
         assert total == n
         sigma = np.sqrt(exact * (1 - exact) / n)
         assert abs(detected / n - exact) < 4 * sigma
-        assert 0.40 < exact < 0.42  # ~40.9% over all 8-digit levels
+        assert 0.40 < exact < 0.42  # 0.4091 over every 8-digit level, as results/prune/measure_detection.txt holds
 
     def test_per_channel_passes_integrity_check(self):
-        """cassini_check reads per-channel (scale, offset) arrays: clean encoded weights all pass."""
+        """cassini_check reads per-channel scale and offset arrays, and passes every quantized weight."""
         from phi_prune.integrity import cassini_check
 
         pruned, masks, enc, scales = encoded_mlp(axis=0)
@@ -236,7 +236,7 @@ class TestIntegrity:
         assert report["failed"] == 0
 
 
-# ── High-level API ──
+# ── prune, finetune, evaluate and check ──
 
 class TestAPI:
     def _make_model(self):
@@ -275,10 +275,10 @@ class TestAPI:
     def test_density_under_half(self):
         model = self._make_model()
         pruned, masks = prune(model, prune_head=True)  # every eligible layer pruned, head included
-        assert pruned._phi_prune_stats["density"] <= 0.51  # ≤50% + float tolerance
+        assert pruned._phi_prune_stats["density"] <= 0.51  # every width here is even, so no mask keeps more than half
 
     def test_head_left_dense_by_default(self):
-        """The last eligible layer (the 10-class head here) keeps every row."""
+        """The last eligible layer, the 10-class head here, keeps every row."""
         model = self._make_model()
         pruned, masks = prune(model)
         assert "6.weight" not in masks
@@ -332,7 +332,7 @@ class TestAPI:
 
     @pytest.mark.filterwarnings("ignore:CUDA is not available")  # amp forced on without CUDA
     def test_evaluate_reruns_non_finite_amp_batches_in_fp32(self, monkeypatch):
-        """A batch whose fp16 logits overflow is re-run in fp32, not scored as class 0."""
+        """A batch whose fp16 logits overflow is run again in fp32, not scored as class 0."""
         import phi_prune.api as api
 
         class OverflowsOnce(nn.Module):
@@ -358,10 +358,10 @@ class TestAPI:
         assert model.calls == 1  # no re-run without amp
 
 
-# ── Export ──
+# ── The Fibonacci-coded bitstream ──
 
 def encoded_mlp(axis=None):
-    """A pruned MLP with its masked layers encoded in place, plus their (scale, offset) scales."""
+    """A pruned MLP with its masked layers quantized in place, and the scale and quantization offset of each."""
     model = nn.Sequential(nn.Linear(16, 32), nn.ReLU(), nn.Linear(32, 16), nn.ReLU(), nn.Linear(16, 10))
     pruned, masks = prune(model)
     enc = FibonacciEncoder(n_digits=8)
@@ -377,7 +377,7 @@ def encoded_mlp(axis=None):
 
 class TestExport:
     def test_bitstream_roundtrip(self, tmp_path):
-        """The payload parses back to the encoded levels, level 0 (each layer's minimum) included."""
+        """The payload parses back to the quantization levels, level 0, each layer's minimum, included."""
         pruned, masks, enc, scales = encoded_mlp()
         expected = []
         for name, param in pruned.named_parameters():
@@ -395,7 +395,7 @@ class TestExport:
         header = json.loads(header_line)
         assert sum(layer["n_active"] for layer in header["layers"]) == stats["n_weights"] == len(expected)
 
-        # A header without codeword_digits / level_bias holds bare levels in n_digits-wide codewords
+        # codeword_digits and level_bias give each codeword's width and what it adds to its level
         width = header["encoder"].get("codeword_digits", header["encoder"]["n_digits"])
         bias = header["encoder"].get("level_bias", 0)
         fibs = FibonacciEncoder(n_digits=width).fibs
@@ -405,7 +405,7 @@ class TestExport:
 
     @pytest.mark.parametrize("axis", [None, 0])
     def test_load_bitstream_restores_encoded_weights(self, tmp_path, axis):
-        """load_bitstream writes the decoded weights back into the masked positions, bit for bit."""
+        """load_bitstream writes the de-quantized weights back into the kept positions, bit for bit."""
         pruned, masks, enc, scales = encoded_mlp(axis)
         path = str(tmp_path / "model.phi")
         export_bitstream(pruned, masks, enc, scales, path)
@@ -420,7 +420,7 @@ class TestExport:
             assert torch.equal(before, after), name
 
     def test_load_bitstream_refusals(self, tmp_path):
-        """load_bitstream refuses an old header, a short payload or a misfit mask, and writes nothing."""
+        """load_bitstream refuses a header without codeword_digits and level_bias, a short payload or a mask that does not fit, and writes nothing."""
         pruned, masks, enc, scales = encoded_mlp()
         path = tmp_path / "model.phi"
         export_bitstream(pruned, masks, enc, scales, str(path))
@@ -447,12 +447,12 @@ class TestExport:
         assert all(torch.equal(before[k], v) for k, v in target.state_dict().items())
 
 
-# ── Command ──
+# ── The phi-prune command ──
 
 class TestCLI:
     @pytest.mark.parametrize("saved_pattern", ["phi", "zeckendorf", None])
     def test_cli_check_reads_phi_zeckendorf_and_no_pattern(self, tmp_path, saved_pattern):
-        """phi-prune check accepts pattern "phi", the pre-0.3.0 "zeckendorf", and no pattern."""
+        """phi-prune check reads the pattern "phi", its other name "zeckendorf", and a checkpoint with no pattern key."""
         import argparse
         from phi_prune.cli import cmd_check
         from phi_prune.export import save_checkpoint
