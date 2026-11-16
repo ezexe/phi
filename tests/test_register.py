@@ -46,6 +46,24 @@ class TestRewrites:
                 assert is_canonical(out, kind)
                 assert out[:len(expected)] == expected and not any(out[len(expected):])
 
+    @pytest.mark.parametrize("kind", KINDS)
+    def test_from_int_matches_the_greedy_reference(self, kind):
+        """from_int gives, for every value below 610 and every n_digits, the digits of the plain greedy
+        search that rebuilds its place values for each width, which it replaces for speed."""
+        def reference(v, n_digits=None):
+            n = 1
+            while place_values(kind, n)[-1] <= v:
+                n += 1
+            places, digits = place_values(kind, n), [0] * n
+            for k in range(n - 1, -1, -1):
+                if places[k] <= v:
+                    digits[k], v = 1, v - places[k]
+            top = max((k for k, d in enumerate(digits) if d), default=-1)
+            return (digits + [0] * (n_digits or 1))[:max(n_digits or 1, top + 1)]
+        for v in range(610):
+            for n_digits in (None, 1, 8, 30):
+                assert from_int(v, kind, n_digits) == reference(v, n_digits)
+
     def test_phi_normal_form_matches_encoder(self):
         enc = FibonacciEncoder(n_digits=10)
         for v in enc.grid:

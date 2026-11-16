@@ -64,12 +64,11 @@ def from_int(v: int, kind: str, n_digits: Optional[int] = None) -> List[int]:
     """
     if v < 0:
         raise ValueError("registers hold non-negative integers")
-    n = 1
-    while place_values(kind, n)[-1] <= v:
-        n += 1
-    places = place_values(kind, n)
-    digits = [0] * n
-    for k in range(n - 1, -1, -1):
+    places = place_values(kind, 1)
+    while places[-1] <= v:
+        places.append(places[-1] * 2 if kind == BINARY else places[-1] + (places[-2] if len(places) > 1 else 1))
+    digits = [0] * len(places)
+    for k in range(len(places) - 1, -1, -1):
         if places[k] <= v:
             digits[k] = 1
             v -= places[k]
