@@ -231,8 +231,10 @@ def mask_stats(mask: torch.Tensor, axis: int = 0, pattern: str = "phi") -> dict:
         pattern: The rule "valid" checks, a key of PATTERNS
 
     Returns:
-        dict with density, sparsity, active_count, total_count, capacity_utilization,
-        which is density divided by 0.5, and valid, whether the pattern holds
+        dict with density, sparsity, active_count, total_count, capacity_utilization, the kept count
+        over the most the pattern keeps along the axis, and valid, whether the pattern holds. The
+        most is (n + 1) // 2 of n positions for "phi", and for "2:4" 2 of every full group of 4 and
+        all of a trailing group shorter than 4
     """
     # The mask along axis, at index 0 of every other dimension
     idx = [0] * mask.dim()
@@ -244,13 +246,15 @@ def mask_stats(mask: torch.Tensor, axis: int = 0, pattern: str = "phi") -> dict:
     active = pattern_1d.sum().item()
     total = pattern_1d.numel()
     density = active / total if total > 0 else 0
+    # The most positions of total the pattern keeps
+    most = 2 * (total // 4) + total % 4 if pattern == "2:4" else (total + 1) // 2
 
     return {
         "density": density,
         "sparsity": 1.0 - density,
         "active_count": int(active),
         "total_count": total,
-        "capacity_utilization": density / 0.5 if density > 0 else 0,
+        "capacity_utilization": active / most if most > 0 else 0,
         "valid": get_pattern(pattern)[1](pattern_1d.cpu().numpy()),
     }
 

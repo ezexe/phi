@@ -12,7 +12,7 @@ import torch.nn as nn
 import pytest
 
 from phi_prune.masks import (
-    adjacency_dp, adjacency_dp_density, phi_mask, verify_mask, two_four_mask, verify_two_four,
+    adjacency_dp, adjacency_dp_density, mask_stats, phi_mask, verify_mask, two_four_mask, verify_two_four,
 )
 from phi_prune.encoding import FibonacciEncoder
 from phi_prune.integrity import adjacency_check, simulate_corruption
@@ -124,6 +124,14 @@ class TestTwoFourMask:
         assert verify_two_four([1, 1, 0, 0, 0, 1, 0, 1])
         assert not verify_two_four([1, 1, 1, 0])
         assert not verify_two_four([1, 1, 0, 0, 0, 1])  # a trailing partial group must be kept whole
+
+    def test_capacity_utilization_is_kept_over_the_most_the_pattern_allows(self):
+        """A full φ mask and a full 2:4 mask use all of their capacity, at an even and an odd width."""
+        for n in (8, 9):
+            assert mask_stats(phi_mask(torch.ones(n, 3)))["capacity_utilization"] == pytest.approx(1.0), n
+        for n in (6, 7):
+            stats = mask_stats(two_four_mask(torch.randn(n, 3)), pattern="2:4")
+            assert stats["capacity_utilization"] == pytest.approx(1.0), n
 
 
 # ── Quantization and the Fibonacci code ──
