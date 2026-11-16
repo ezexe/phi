@@ -317,8 +317,8 @@ def check(
     Check every mask against its pattern, and that every pruned weight is zero.
 
     For each masked parameter it reports mask_stats, whose "valid" reads the pattern along the axis
-    the masks were made along, and zeros_enforced, whether every pruned weight is within 1e-10 of
-    zero.
+    the masks were made along and holds the whole mask to that pattern broadcast over the other
+    dimensions, and zeros_enforced, whether every pruned weight is within 1e-10 of zero.
 
     Args:
         model: Pruned model

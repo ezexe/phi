@@ -225,6 +225,9 @@ def mask_stats(mask: torch.Tensor, axis: int = 0, pattern: str = "phi") -> dict:
     """
     Statistics of a pruning mask, read along `axis` at index 0 of every other dimension.
 
+    valid also holds the whole mask to that slice broadcast over the other dimensions, the form
+    phi_mask and two_four_mask return, so a bit flipped anywhere in the mask fails it.
+
     Args:
         mask: Mask tensor from phi_mask or two_four_mask
         axis: Dimension the pattern runs along
@@ -232,9 +235,9 @@ def mask_stats(mask: torch.Tensor, axis: int = 0, pattern: str = "phi") -> dict:
 
     Returns:
         dict with density, sparsity, active_count, total_count, capacity_utilization, the kept count
-        over the most the pattern keeps along the axis, and valid, whether the pattern holds. The
-        most is (n + 1) // 2 of n positions for "phi", and for "2:4" 2 of every full group of 4 and
-        all of a trailing group shorter than 4
+        over the most the pattern keeps along the axis, and valid, whether the pattern holds and the
+        mask is its slice broadcast. The most is (n + 1) // 2 of n positions for "phi", and for "2:4"
+        2 of every full group of 4 and all of a trailing group shorter than 4
     """
     # The mask along axis, at index 0 of every other dimension
     idx = [0] * mask.dim()
@@ -248,6 +251,10 @@ def mask_stats(mask: torch.Tensor, axis: int = 0, pattern: str = "phi") -> dict:
     density = active / total if total > 0 else 0
     # The most positions of total the pattern keeps
     most = 2 * (total // 4) + total % 4 if pattern == "2:4" else (total + 1) // 2
+    # The whole mask is the slice broadcast over the other dimensions
+    shape = [1] * mask.dim()
+    shape[axis] = total
+    broadcast = torch.equal(mask, pattern_1d.reshape(shape).expand_as(mask))
 
     return {
         "density": density,
@@ -255,7 +262,7 @@ def mask_stats(mask: torch.Tensor, axis: int = 0, pattern: str = "phi") -> dict:
         "active_count": int(active),
         "total_count": total,
         "capacity_utilization": active / most if most > 0 else 0,
-        "valid": get_pattern(pattern)[1](pattern_1d.cpu().numpy()),
+        "valid": bool(get_pattern(pattern)[1](pattern_1d.cpu().numpy())) and broadcast,
     }
 
 

@@ -711,3 +711,20 @@ class TestCLI:
         path = str(tmp_path / "model.pt")
         save_checkpoint(pruned, masks, path)
         assert torch.load(path, weights_only=True)["version"] == "9.9.9"
+
+    def test_check_fails_a_mask_bit_flipped_outside_the_slice_it_reads(self, tmp_path):
+        """check and phi-prune check fail a mask with a bit flipped from 0 to 1 outside the slice mask_stats reads."""
+        from phi_prune.cli import cmd_check
+        from phi_prune.export import save_checkpoint
+
+        torch.manual_seed(0)
+        pruned, masks = prune(mlp())
+        name = next(iter(masks))
+        mask = masks[name].clone()
+        i = int((mask[:, 0] == 0).nonzero()[0])  # a pruned output channel
+        mask[i, 3] = 1.0
+        flipped = {**masks, name: mask}
+        assert not check(pruned, flipped)["_summary"]["all_masks_valid"]
+        path = str(tmp_path / "flipped.pt")
+        save_checkpoint(pruned, flipped, path)
+        assert run_cli(cmd_check, path)[0] == 1
