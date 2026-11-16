@@ -107,3 +107,16 @@ def test_activations_cell_stops_on_any_other_error(monkeypatch):
     tv = stand_in(monkeypatch, cifar10=raising(TypeError("a fault in the code, not a missing download")))
     with pytest.raises(TypeError):
         run(cell("CIFAR10"), activations_namespace(tv))
+
+
+def test_weights_cell_asks_for_the_weights_it_describes(monkeypatch):
+    """The cell names ResNet18_Weights.IMAGENET1K_V1, the ImageNet weights its text describes, where the alias
+    DEFAULT is one torchvision's documentation says may change across versions."""
+    asked = []
+
+    def record(weights=None):
+        asked.append(weights)
+        raise urllib.error.URLError("no network")
+    tv = stand_in(monkeypatch, resnet18=record)
+    run(cell("resnet18"))
+    assert asked == [tv.models.ResNet18_Weights.IMAGENET1K_V1]

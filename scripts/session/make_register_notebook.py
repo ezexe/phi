@@ -57,7 +57,7 @@ torch.manual_seed(SEED)
 
 try:
     import torchvision
-    model = torchvision.models.resnet18(weights="DEFAULT").eval()
+    model = torchvision.models.resnet18(weights=torchvision.models.ResNet18_Weights.IMAGENET1K_V1).eval()
     SOURCE = "torchvision ResNet-18 ImageNet weights"
 except (ImportError, OSError, http.client.HTTPException, RuntimeError) as exc:  # no torchvision, or the download fails
     model = None
