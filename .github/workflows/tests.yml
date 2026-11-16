@@ -31,14 +31,14 @@ jobs:
           pip install -e ".[dev]" "${{ matrix.numpy }}"
       - run: python -m pytest
 
-  # export_onnx with the packages the export extra installs, on the newest torch; the test may not skip.
+  # export_onnx with the packages the export extra installs, on the newest torch and the newest Python onnxruntime has wheels for; the test may not skip.
   export:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.15"
+          python-version: "3.14"
       - name: Install torch from its CPU wheels, then phi with its export extra
         run: |
           pip install torch --index-url https://download.pytorch.org/whl/cpu
