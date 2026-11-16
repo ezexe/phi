@@ -1,19 +1,19 @@
 """
-phi-prune: Structured sparsity via the adjacency constraint.
+phi-prune: channel pruning under the (1,∞)-RLL constraint, which never keeps two adjacent output channels of a layer.
 
     from phi_prune import prune, finetune, check
     from phi_prune.export import export_onnx
 
-    # Prune a model
-    pruned_model, masks = prune(model, density=0.5)
+    # Prune: each eligible layer keeps the output channels with the largest total L1 norm, no two adjacent
+    pruned_model, masks = prune(model)
 
-    # Fine-tune with mask enforcement
+    # Fine-tune with the masks held fixed, so pruned weights stay zero
     finetune(pruned_model, train_loader, epochs=40, masks=masks)
 
-    # Verify integrity
+    # Check every mask against its pattern, and that every pruned weight is zero
     report = check(pruned_model, masks)
 
-    # Export to ONNX (pruned weights stay as zeros in the graph)
+    # Export to ONNX through torch.onnx.export, with the pruned weights as zeros in the graph
     export_onnx(pruned_model, "model_sparse.onnx")
 """
 
