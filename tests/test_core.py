@@ -5,6 +5,7 @@ import contextlib
 import copy
 import io
 import json
+import sys
 import numpy as np
 import torch
 import torch.nn as nn
@@ -525,6 +526,23 @@ def run_cli(fn, path):
     return code or 0, out.getvalue()
 
 
+def run_main(monkeypatch, *args, encoding="utf-8"):
+    """phi-prune run in this process with args, on streams in encoding as a console's are; its exit code and printed text."""
+    from phi_prune.cli import main
+
+    out = io.TextIOWrapper(io.BytesIO(), encoding=encoding)
+    monkeypatch.setattr(sys, "stdout", out)
+    monkeypatch.setattr(sys, "stderr", out)
+    monkeypatch.setattr(sys, "argv", ["phi-prune", *args])
+    try:
+        main()
+        code = 0
+    except SystemExit as e:
+        code = e.code or 0
+    out.flush()
+    return code, out.buffer.getvalue().decode(encoding)
+
+
 class TestCLI:
     @pytest.mark.parametrize("saved_pattern", ["phi", "zeckendorf", None])
     def test_cli_check_reads_phi_zeckendorf_and_no_pattern(self, tmp_path, saved_pattern):
@@ -569,3 +587,16 @@ class TestCLI:
         path = str(tmp_path / "overwritten.pt")
         save_checkpoint(pruned, masks, path)
         assert run_cli(cmd_check, path)[0] == 1
+
+    def test_cli_runs_on_a_console_that_is_not_utf8(self, tmp_path, monkeypatch):
+        """phi-prune --help, check and info exit 0 on a cp1252 console, which has no φ, ∞, ✓ or ✗, and print a ? for each."""
+        from phi_prune.export import save_checkpoint
+
+        pruned, masks = prune(mlp())
+        path = str(tmp_path / "model.pt")
+        save_checkpoint(pruned, masks, path)
+        printed = {}
+        for args in (["--help"], ["check", path], ["info", path]):
+            code, printed[args[0]] = run_main(monkeypatch, *args, encoding="cp1252")
+            assert code == 0, (args, printed[args[0]][-300:])
+        assert "?" in printed["--help"] and "?" in printed["check"]

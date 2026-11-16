@@ -107,6 +107,11 @@ def cmd_info(args):
 
 
 def main():
+    # φ, ∞, ✓ and ✗ print as ? on a console whose encoding lacks them, in place of UnicodeEncodeError
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(errors="replace")
+
     parser = argparse.ArgumentParser(
         prog="phi-prune",
         description="φ-pruning: channel pruning under the (1,∞)-RLL constraint",
