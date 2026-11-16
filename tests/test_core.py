@@ -123,7 +123,7 @@ class TestFibonacciEncoder:
         enc = FibonacciEncoder(n_digits=8)
         for val in enc.grid:
             cw = enc.to_codeword(int(val))
-            assert adjacency_check(cw), f"Adjacent 1s in codeword for grid value {int(val)}"
+            assert adjacency_check(cw), f"Adjacent 1s in the digits of quantization level {int(val)}"
 
     def test_encode_snaps_to_nearest_level(self):
         """A value between two quantization levels goes to the nearer one, below as well as above."""

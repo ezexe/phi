@@ -242,7 +242,7 @@ def load_bitstream(
     start = 0
     for param, keep, layer, scale, offset in targets:
         n_active = layer["n_active"]
-        # encode_tensor's scale-back arithmetic, so encoded weights come back bit for bit
+        # encode_tensor's scale-back arithmetic, so quantized weights come back bit for bit
         layer_levels = np.asarray(levels[start:start + n_active], dtype=np.float64)
         decoded = layer_levels / scale + offset
         param.data[keep] = torch.tensor(decoded, dtype=param.dtype, device=param.device)
