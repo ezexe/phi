@@ -15,6 +15,7 @@ from phi_prune.masks import (
     adjacency_dp, adjacency_dp_density, mask_stats, phi_mask, verify_mask, two_four_mask, verify_two_four,
 )
 from phi_prune.encoding import FibonacciEncoder
+from phi_prune.gaps import decode_gaps, encode_gaps
 from phi_prune.integrity import adjacency_check, simulate_corruption
 from phi_prune.api import prune, finetune, check, evaluate
 from phi_prune.export import export_bitstream, load_bitstream
@@ -195,21 +196,11 @@ class TestFibonacciEncoder:
         # Any axis, negative ones included
         assert enc.encode_tensor(t, axis=-1, return_offset=True)[1].shape == (1, 1, 3)
 
-    def test_stream_roundtrip(self):
-        """Quantization levels written as a Fibonacci code read back unchanged."""
-        enc = FibonacciEncoder(n_digits=8)
-        values = [0, 1, 5, 12, 33]
-        stream = enc.encode_to_stream(values)
-        recovered = enc.decode_from_stream(stream)
-        assert recovered == values
-
     def test_stream_all_grid_values(self):
-        """Every quantization level reads back from the Fibonacci code."""
+        """Every quantization level, written plus 1 as export_bitstream writes it, reads back from the Fibonacci code."""
         enc = FibonacciEncoder(n_digits=8)
         values = [int(v) for v in enc.grid]
-        stream = enc.encode_to_stream(values)
-        recovered = enc.decode_from_stream(stream)
-        assert recovered == values
+        assert [code - 1 for code in decode_gaps(encode_gaps(v + 1 for v in values))] == values
 
 
 # ── The minimal-form check ──
@@ -483,9 +474,8 @@ class TestExport:
         # codeword_digits and level_bias give each codeword's width and what it adds to its quantization level
         width = header["encoder"].get("codeword_digits", header["encoder"]["n_digits"])
         bias = header["encoder"].get("level_bias", 0)
-        fibs = FibonacciEncoder(n_digits=width).fibs
-        recovered = [sum(f * d for f, d in zip(fibs, cw)) - bias
-                     for cw in FibonacciEncoder.parse_bitstream(payload, width)]
+        assert width == enc.n_digits + 1
+        recovered = [code - bias for code in decode_gaps(payload)]
         assert recovered == expected
 
     @pytest.mark.parametrize("axis", [None, 0])
@@ -516,7 +506,7 @@ class TestExport:
         misfit = {**masks, last: torch.ones_like(masks[last])}
         refusals = [
             (json.dumps(old) + "\n" + payload, masks, "level_bias"),
-            (header_line + "\n" + payload[:-2], masks, "payload holds"),  # the last codeword cut off
+            (header_line + "\n" + payload[:-2], masks, "inside a codeword"),  # the last codeword cut off
             (header_line + "\n" + payload, misfit, "does not match"),
         ]
 

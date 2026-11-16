@@ -17,8 +17,9 @@ lengths or separators:
 
     1 -> 11    2 -> 011    3 -> 0011    4 -> 1011    5 -> 00011
 
-Bitstreams are strings of '0' and '1', as FibonacciEncoder.encode_to_stream
-writes them.
+Bitstreams are strings of '0' and '1'. This is phi_prune's one Fibonacci coder:
+export_bitstream writes each quantization level plus 1 with encode_gaps, and
+load_bitstream reads them with read_codes.
 """
 
 import math

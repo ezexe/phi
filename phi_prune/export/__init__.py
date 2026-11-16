@@ -16,6 +16,7 @@ from typing import Dict, Optional
 
 import phi_prune
 from phi_prune.encoding import FibonacciEncoder
+from phi_prune.gaps import encode_gaps, read_codes
 from phi_prune.masks import mask_stats
 
 
@@ -131,10 +132,10 @@ def export_bitstream(
        n_digits, codeword_digits and level_bias
     2. The payload: the Fibonacci code of every kept weight's level, in parameter order, written
        as the characters 0 and 1, one byte per bit. Each codeword is level + level_bias in up to
-       codeword_digits digits, as encode_to_stream writes it, so level 0 still ends in 11
+       codeword_digits digits, as phi_prune.gaps.encode_gaps writes it, so level 0 still ends in 11
 
-    A reader splits the payload at each 11 with no shapes, takes level_bias off each value to get
-    the level, and FibonacciEncoder(n_digits).decode_from_stream(payload) does both. Level l of a
+    A reader splits the payload at each 11 with no shapes and takes level_bias off each value to get
+    the level, as phi_prune.gaps.read_codes and load_bitstream do. Level l of a
     layer is the weight l / scale + offset, and the layers' kept counts split the levels in
     payload order.
 
@@ -150,7 +151,7 @@ def export_bitstream(
     load_bitstream reads the file back into a model. The returned dict counts the stream in bits,
     and the file holds one byte for each.
     """
-    # encode_to_stream's layout: each quantization level + 1 in n_digits + 1 digits, so level 0 still ends in 11
+    # The payload's layout: each quantization level + 1 in n_digits + 1 digits, so level 0 still ends in 11
     header = {
         "layers": [],
         "encoder": {
@@ -180,7 +181,7 @@ def export_bitstream(
         header["layers"].append(layer)
         all_levels.extend(layer_levels)
 
-    bitstream = encoder.encode_to_stream(all_levels)
+    bitstream = encode_gaps(v + 1 for v in all_levels)
 
     # Write header + payload, with a "\n" newline on every platform
     with open(path, "w", newline="\n") as f:
@@ -229,7 +230,10 @@ def load_bitstream(
             f"{path}: header lacks codeword_digits {n_digits + 1} / level_bias 1; files exported "
             "before those fields cannot be parsed past level 0, so export again"
         )
-    levels = FibonacciEncoder(n_digits).decode_from_stream(payload)
+    levels = [code - 1 for code in read_codes(payload)[0]]
+    top = FibonacciEncoder(n_digits).max_value
+    if levels and max(levels) > top:
+        raise ValueError(f"{path}: the payload holds level {max(levels)}, above the grid's {top}")
     total = sum(layer["n_active"] for layer in header["layers"])
     if total != len(levels):
         raise ValueError(f"{path}: the payload holds {len(levels)} levels, the header counts {total}")
