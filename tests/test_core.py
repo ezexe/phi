@@ -1,6 +1,9 @@
 """Tests of the pruning core: the masks, quantization and the Fibonacci code, the minimal-form check, the API and the command."""
 
+import argparse
+import contextlib
 import copy
+import io
 import json
 import numpy as np
 import torch
@@ -418,10 +421,14 @@ class TestAPI:
 
 # ── The Fibonacci-coded bitstream ──
 
+def mlp():
+    """The small MLP the export and command tests prune."""
+    return nn.Sequential(nn.Linear(16, 32), nn.ReLU(), nn.Linear(32, 16), nn.ReLU(), nn.Linear(16, 10))
+
+
 def encoded_mlp(axis=None):
     """A pruned MLP with its masked layers quantized in place, and the scale and quantization offset of each."""
-    model = nn.Sequential(nn.Linear(16, 32), nn.ReLU(), nn.Linear(32, 16), nn.ReLU(), nn.Linear(16, 10))
-    pruned, masks = prune(model)
+    pruned, masks = prune(mlp())
     enc = FibonacciEncoder(n_digits=8)
     scales = {}
     for name, param in pruned.named_parameters():
@@ -507,11 +514,21 @@ class TestExport:
 
 # ── The phi-prune command ──
 
+def run_cli(fn, path):
+    """A command function's exit code and printed text, for the file at path."""
+    out = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(out):
+            code = fn(argparse.Namespace(model=path))
+    except SystemExit as e:
+        code = e.code
+    return code or 0, out.getvalue()
+
+
 class TestCLI:
     @pytest.mark.parametrize("saved_pattern", ["phi", "zeckendorf", None])
     def test_cli_check_reads_phi_zeckendorf_and_no_pattern(self, tmp_path, saved_pattern):
         """phi-prune check reads the pattern "phi", its other name "zeckendorf", and a checkpoint with no pattern key."""
-        import argparse
         from phi_prune.cli import cmd_check
         from phi_prune.export import save_checkpoint
 
@@ -526,3 +543,15 @@ class TestCLI:
             data["pattern"] = saved_pattern
         torch.save(data, path)
         assert cmd_check(argparse.Namespace(model=path)) == 0
+
+    def test_check_reads_the_axis_prune_used(self, tmp_path):
+        """check and phi-prune check read the masks of a model pruned along axis 1 along axis 1."""
+        from phi_prune.cli import cmd_check
+        from phi_prune.export import save_checkpoint
+
+        pruned, masks = prune(mlp(), axis=1)
+        assert check(pruned, masks)["_summary"]["all_masks_valid"]
+        path = str(tmp_path / "axis1.pt")
+        save_checkpoint(pruned, masks, path)
+        assert torch.load(path, weights_only=False)["axis"] == 1
+        assert run_cli(cmd_check, path)[0] == 0

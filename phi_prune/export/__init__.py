@@ -2,8 +2,9 @@
 Save a pruned model, export it to ONNX, and write its quantized weights as a Fibonacci-coded bitstream
 and read them back.
 
-save_checkpoint writes a PyTorch checkpoint holding the state dict, the masks, the pattern, the format
-and version, mask_stats of each mask and, when given, the encoder's settings, the scales and metadata.
+save_checkpoint writes a PyTorch checkpoint holding the state dict, the masks, the pattern and the axis
+prune used, the format and version, mask_stats of each mask along that axis and, when given, the
+encoder's settings, the scales and metadata.
 export_onnx writes the model to ONNX through torch.onnx.export, with the pruned weights as zeros in the
 graph. export_bitstream writes every kept weight's quantization level, and load_bitstream reads them back into a model.
 """
@@ -28,18 +29,20 @@ def save_checkpoint(
     """
     Save a pruned model as a phi-prune checkpoint.
 
-    The file holds the state dict, the masks, the pattern, the format "phi-prune" and the version,
-    mask_stats of each mask read along axis 0 and, when given, the encoder's settings, the scales and
-    metadata. Load it with
+    The file holds the state dict, the masks, the pattern and the axis prune used, the format
+    "phi-prune" and the version, mask_stats of each mask read along that axis and, when given, the
+    encoder's settings, the scales and metadata. Load it with
     data = torch.load(path, weights_only=False); model.load_state_dict(data['state_dict']).
     weights_only=False is needed when scales hold the per-channel arrays of encode_tensor(axis=...),
     which are numpy arrays, and is safe only for a file you trust.
     """
     pattern = getattr(model, "_phi_prune_stats", {}).get("pattern", "phi")
+    axis = getattr(model, "_phi_prune_stats", {}).get("axis", 0)
     checkpoint = {
         "state_dict": model.state_dict(),
         "masks": masks,
         "pattern": pattern,
+        "axis": axis,
         "format": "phi-prune",
         "version": "0.3.0",
     }
@@ -60,10 +63,10 @@ def save_checkpoint(
     if metadata is not None:
         checkpoint["metadata"] = metadata
 
-    # mask_stats of each mask, read along axis 0
+    # mask_stats of each mask, read along the axis prune used
     stats = {}
     for name, mask in masks.items():
-        stats[name] = mask_stats(mask, pattern=pattern)
+        stats[name] = mask_stats(mask, axis=axis, pattern=pattern)
     checkpoint["prune_stats"] = stats
 
     torch.save(checkpoint, path)

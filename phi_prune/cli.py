@@ -35,7 +35,7 @@ def cmd_prune(args):
 
 
 def cmd_check(args):
-    """Check every mask of a checkpoint against its pattern, read along axis 0; 0 when all hold, 1 otherwise."""
+    """Check every mask of a checkpoint against its pattern, along the axis it records; 0 when all hold, 1 otherwise."""
     print(f"Loading {args.model}...")
     data = torch.load(args.model, map_location="cpu", weights_only=False)
 
@@ -44,26 +44,18 @@ def cmd_check(args):
         print("Save one with phi_prune.export.save_checkpoint(model, masks, path), which records the pattern too.")
         sys.exit(1)
 
-    from phi_prune.masks import get_pattern
+    from phi_prune.masks import mask_stats
 
     masks = data["masks"]
-    # A checkpoint with no pattern key is checked as holding φ masks
+    # A checkpoint with no pattern key is checked as holding φ masks, and one with no axis key
+    # as pruned along axis 0
     kind = data.get("pattern", "phi")
     kind = PATTERN_ALIASES.get(kind, kind)
-    verify = get_pattern(kind)[1]
+    axis = data.get("axis", 0)
     all_valid = True
 
     for name, mask in masks.items():
-        # The mask along axis 0, at index 0 of every other dimension
-        pattern = mask.flatten()
-        if mask.dim() > 1:
-            idx = [0] * mask.dim()
-            idx[0] = slice(None)
-            pattern = mask[tuple(idx)]
-            while pattern.dim() > 1:
-                pattern = pattern[0]
-
-        valid = verify(pattern.numpy())
+        valid = mask_stats(mask, axis=axis, pattern=kind)["valid"]
         density = mask.float().mean().item()
         status = "✓" if valid else "✗"
         print(f"  {status} {name}: density={density:.3f} valid={valid}")

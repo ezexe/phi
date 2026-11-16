@@ -62,9 +62,9 @@ def prune(
 
     Returns:
         pruned_model and masks, as a pair; masks maps each pruned parameter's name to its mask.
-        pruned_model._phi_prune_stats holds total_params, active_params, pruned_layers, pattern,
-        density and sparsity, counted over every weight of the layer_types modules, the dense ones
-        included
+        pruned_model._phi_prune_stats holds the pattern and the axis, and total_params, active_params,
+        pruned_layers, density and sparsity, counted over every weight of the layer_types modules, the
+        dense ones included
     """
     make_mask = get_pattern(pattern)[0]
     mask_kw = {}
@@ -88,7 +88,7 @@ def prune(
             keep_dense.add(weight_layers[-1])
 
     masks = {}
-    stats = {"total_params": 0, "active_params": 0, "pruned_layers": 0, "pattern": pattern}
+    stats = {"total_params": 0, "active_params": 0, "pruned_layers": 0, "pattern": pattern, "axis": axis}
 
     for name, module in targets:
         for pname, param in module.named_parameters(prefix=name):
@@ -311,25 +311,31 @@ def check(
     model: nn.Module,
     masks: Dict[str, torch.Tensor],
     pattern: Optional[str] = None,
+    axis: Optional[int] = None,
 ) -> Dict:
     """
     Check every mask against its pattern, and that every pruned weight is zero.
 
-    For each masked parameter it reports mask_stats, whose "valid" reads the pattern along
-    axis 0, and zeros_enforced, whether every pruned weight is within 1e-10 of zero.
+    For each masked parameter it reports mask_stats, whose "valid" reads the pattern along the axis
+    the masks were made along, and zeros_enforced, whether every pruned weight is within 1e-10 of
+    zero.
 
     Args:
         model: Pruned model
         masks: Parameter name to mask
         pattern: The pattern to check, "phi" or "2:4"; None reads it from the stats prune
                  attached, else "phi"
+        axis: The axis the pattern runs along; None reads it from the stats prune attached, else 0
 
     Returns:
         dict of each masked parameter's report, and "_summary" with all_masks_valid,
-        all_zeros_enforced, n_layers and pattern
+        all_zeros_enforced, n_layers, pattern and axis
     """
+    stats = getattr(model, "_phi_prune_stats", {})
     if pattern is None:
-        pattern = getattr(model, "_phi_prune_stats", {}).get("pattern", "phi")
+        pattern = stats.get("pattern", "phi")
+    if axis is None:
+        axis = stats.get("axis", 0)
     results = {}
     all_valid = True
     all_zeros_enforced = True
@@ -339,7 +345,7 @@ def check(
             continue
 
         mask = masks[name].to(param.device)
-        ms = mask_stats(mask, pattern=pattern)
+        ms = mask_stats(mask, axis=axis, pattern=pattern)
 
         # Every pruned weight is zero
         pruned_vals = param.data[~mask.bool()]
@@ -360,6 +366,7 @@ def check(
         "all_zeros_enforced": all_zeros_enforced,
         "n_layers": len(results) - 1,
         "pattern": pattern,
+        "axis": axis,
     }
 
     return results
