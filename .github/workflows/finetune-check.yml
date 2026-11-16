@@ -2,10 +2,7 @@ name: finetune-check
 
 # scripts/finetune_encode_check.py on a CPU runner: fine-tune, prune and
 # encode a ResNet on CIFAR-10, per-layer vs per-channel encoding.
-# A push to the finetune-check branch runs it with the defaults below.
 on:
-  push:
-    branches: [finetune-check]
   workflow_dispatch:
     inputs:
       args:
