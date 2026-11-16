@@ -16,7 +16,7 @@ dependencies = [
 
 [project.optional-dependencies]
 export = ["onnx>=1.14", "onnxruntime>=1.15"]
-dev = ["pytest>=7.0", "pytest-cov"]
+dev = ["pytest>=7.0"]
 
 [project.scripts]
 phi-prune = "phi_prune.cli:main"
