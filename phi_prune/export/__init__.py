@@ -211,8 +211,8 @@ def load_bitstream(
 
     ValueError is raised before any weight is written for a header whose codeword_digits and
     level_bias are not n_digits + 1 and 1, for a payload whose count of levels differs from the
-    header's, and for a layer whose shape, kept count or scale shape does not fit. A layer missing from the model or from masks
-    raises KeyError.
+    header's, for a layer missing from the model or from masks, and for a layer whose shape, mask
+    shape, kept count or scale shape does not fit.
 
     Returns:
         The file's JSON header
@@ -237,9 +237,14 @@ def load_bitstream(
     params = dict(model.named_parameters())
     targets = []
     for layer in header["layers"]:
+        if layer["name"] not in params:
+            raise ValueError(f"{path}: layer {layer['name']} is not a parameter of the model")
+        if layer["name"] not in masks:
+            raise ValueError(f"{path}: layer {layer['name']} has no mask in masks")
         param = params[layer["name"]]
         keep = masks[layer["name"]].bool().to(param.device)
-        if list(param.shape) != layer["shape"] or int(keep.sum()) != layer["n_active"]:
+        if (list(param.shape) != layer["shape"] or keep.shape != param.shape
+                or int(keep.sum()) != layer["n_active"]):
             raise ValueError(f"{path}: layer {layer['name']} does not match the model's shape or mask")
         scale = np.asarray(layer["scale"], dtype=np.float64)
         offset = np.asarray(layer["offset"], dtype=np.float64)

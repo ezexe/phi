@@ -512,6 +512,26 @@ class TestExport:
                 load_bitstream(target, file_masks, str(path))
         assert all(torch.equal(before[k], v) for k, v in target.state_dict().items())
 
+    def test_load_bitstream_refuses_a_model_or_masks_without_a_layer_of_the_file(self, tmp_path):
+        """load_bitstream raises ValueError naming a layer the model or masks lack or whose mask has another shape, and writes nothing."""
+        pruned, masks, enc, scales = encoded_mlp()
+        path = str(tmp_path / "model.phi")
+        export_bitstream(pruned, masks, enc, scales, path)
+        with pytest.raises(ValueError, match="2.weight"):
+            load_bitstream(nn.Sequential(nn.Linear(16, 32)), masks, path)
+        with pytest.raises(ValueError, match="0.weight"):
+            load_bitstream(pruned, {}, path)
+
+        target = copy.deepcopy(pruned)
+        for name, param in target.named_parameters():
+            if name in masks:
+                param.data[masks[name].bool()] = 0.0
+        before = copy.deepcopy(target.state_dict())
+        last = list(masks)[-1]
+        with pytest.raises(ValueError, match=last):
+            load_bitstream(target, {**masks, last: masks[last].reshape(1, -1)}, path)
+        assert all(torch.equal(before[k], v) for k, v in target.state_dict().items())
+
 
 # ── The phi-prune command ──
 
