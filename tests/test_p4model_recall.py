@@ -49,8 +49,9 @@ def write_store(p4, n_tasks=8):
         t = TOPICS[i % len(TOPICS)]
         text = f"please check the {t} in the engine and tell me what was decided about the {t} last week"
         time = f"2026-11-05 {11 + i // 6:02d}:{(i * 7) % 60:02d}"
-        rid = f"messages/aaaa1111.md:{time}:{hashlib.sha1(f'\"{text}\"'.encode()).hexdigest()[:8]}"
-        rows += entry([("fingerprint", f'"{text}"'), ("time", time), ("arrival", "turn"), ("state", "FRESH"),
+        quoted = f'"{text}"'
+        rid = f"messages/aaaa1111.md:{time}:{hashlib.sha1(quoted.encode()).hexdigest()[:8]}"
+        rows += entry([("fingerprint", quoted),("time", time), ("arrival", "turn"), ("state", "FRESH"),
                        ("addressed", f"Done: the {t} follows the rule.")])
         tasks += f"{rid}\taaaa1111\t{time}\t{text}\tnew\n"
         labels += f"{rid}\t{ids[i % len(TOPICS)]}\t1\tusage\t0.3\t{time}\t\t\tused; shown\n"
