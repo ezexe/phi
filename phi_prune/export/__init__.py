@@ -18,6 +18,13 @@ from phi_prune.encoding import FibonacciEncoder
 from phi_prune.masks import mask_stats
 
 
+def _storable(value):
+    """A scale or quantization offset as torch.load(weights_only=True) reads it: a float, or a float64 tensor of an array."""
+    if np.ndim(value) == 0:
+        return float(value)
+    return torch.as_tensor(np.asarray(value, dtype=np.float64))
+
+
 def save_checkpoint(
     model: torch.nn.Module,
     masks: Dict[str, torch.Tensor],
@@ -31,10 +38,13 @@ def save_checkpoint(
 
     The file holds the state dict, the masks, the pattern and the axis prune used, the format
     "phi-prune" and the version, mask_stats of each mask read along that axis and, when given, the
-    encoder's settings, the scales and metadata. Load it with
-    data = torch.load(path, weights_only=False); model.load_state_dict(data['state_dict']).
-    weights_only=False is needed when scales hold the per-channel arrays of encode_tensor(axis=...),
-    which are numpy arrays, and is safe only for a file you trust.
+    encoder's settings, the scales and metadata. Each scale and quantization offset is a float, or a
+    float64 tensor where encode_tensor(axis=...) returned an array, so the file loads with
+    torch.load(path, weights_only=True), which runs no code from it:
+    data = torch.load(path, weights_only=True); model.load_state_dict(data['state_dict']).
+    metadata that holds objects other than str, int, float, bool, None, lists, tuples, dicts and
+    tensors makes that load, and phi-prune, refuse the file; weights_only=False reads it, and is safe
+    only for a file you trust.
     """
     pattern = getattr(model, "_phi_prune_stats", {}).get("pattern", "phi")
     axis = getattr(model, "_phi_prune_stats", {}).get("axis", 0)
@@ -55,9 +65,9 @@ def save_checkpoint(
         }
 
     if scales is not None:
-        # Each layer's scale and quantization offset, as encode_tensor returned them
+        # Each layer's scale and quantization offset, a float or a float64 tensor of encode_tensor's array
         checkpoint["scales"] = {
-            name: {"scale": s, "offset": o} for name, (s, o) in scales.items()
+            name: {"scale": _storable(s), "offset": _storable(o)} for name, (s, o) in scales.items()
         }
 
     if metadata is not None:

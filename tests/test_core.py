@@ -553,7 +553,7 @@ class TestCLI:
         pruned, masks, _, _ = encoded_mlp()
         path = str(tmp_path / "model.pt")
         save_checkpoint(pruned, masks, path)
-        data = torch.load(path, weights_only=False)
+        data = torch.load(path, weights_only=True)
         assert data["pattern"] == "phi" and data["format"] == "phi-prune"
         if saved_pattern is None:
             del data["pattern"]
@@ -571,7 +571,7 @@ class TestCLI:
         assert check(pruned, masks)["_summary"]["all_masks_valid"]
         path = str(tmp_path / "axis1.pt")
         save_checkpoint(pruned, masks, path)
-        assert torch.load(path, weights_only=False)["axis"] == 1
+        assert torch.load(path, weights_only=True)["axis"] == 1
         assert run_cli(cmd_check, path)[0] == 0
 
     def test_cli_check_fails_when_pruned_weights_are_not_zero(self, tmp_path):
@@ -621,3 +621,35 @@ class TestCLI:
         path = str(tmp_path / "dense.pt")
         save_checkpoint(pruned, masks, path)
         assert run_cli(cmd_info, path)[0] == 0
+
+    def test_cli_reads_a_checkpoint_whose_scales_are_numpy_arrays(self, tmp_path):
+        """check and info read a checkpoint whose per-channel scales are numpy arrays, as save_checkpoint stored them before."""
+        from phi_prune.cli import cmd_check, cmd_info
+        from phi_prune.export import save_checkpoint
+
+        pruned, masks, enc, scales = encoded_mlp(axis=0)
+        path = str(tmp_path / "model.pt")
+        save_checkpoint(pruned, masks, path, encoder=enc, scales=scales)
+        data = torch.load(path, weights_only=False)  # the test's own file, read as the base read every file
+        data["scales"] = {name: {"scale": s, "offset": o} for name, (s, o) in scales.items()}
+        assert all(isinstance(pair["scale"], np.ndarray) for pair in data["scales"].values())
+        torch.save(data, path)
+        assert run_cli(cmd_check, path)[0] == 0 and run_cli(cmd_info, path)[0] == 0
+
+    def test_per_channel_checkpoint_loads_under_weights_only(self, tmp_path):
+        """A checkpoint with per-channel scales loads under weights_only=True with the same values, and check and info read it."""
+        from phi_prune.cli import cmd_check, cmd_info
+        from phi_prune.export import save_checkpoint
+
+        pruned, masks, enc, scales = encoded_mlp(axis=0)
+        path = str(tmp_path / "model.pt")
+        save_checkpoint(pruned, masks, path, encoder=enc, scales=scales)
+        data = torch.load(path, weights_only=True)
+        for name, (scale, offset) in scales.items():
+            assert np.array_equal(np.asarray(data["scales"][name]["scale"]), scale)
+            assert np.array_equal(np.asarray(data["scales"][name]["offset"]), offset)
+        assert run_cli(cmd_check, path)[0] == 0 and run_cli(cmd_info, path)[0] == 0
+        # metadata that weights_only refuses ends the command with exit 1 and a message, not a traceback
+        save_checkpoint(pruned, masks, path, metadata={"t": np.float32(1.0)})
+        code, out = run_cli(cmd_check, path)
+        assert code == 1 and "weights_only" in out

@@ -3,8 +3,10 @@ The phi-prune command, for a checkpoint that save_checkpoint wrote: check reads 
 pattern and checks that each pruned weight in the state dict is zero, and info prints how many weights
 each mask keeps. prune loads a saved state dict, prints how to prune with the Python API and exits 1,
 since a model's class cannot be rebuilt from its saved weights.
-check and info exit 1 for a file without a masks entry, check also when a mask or a pruned weight
-fails, and a command line that argparse cannot read exits 2.
+check and info read the file with torch.load(weights_only=True), which runs no code from it, and exit
+1 for a file that load refuses or that has no masks entry, check also when a mask or a pruned weight
+fails; a command line that argparse cannot read exits 2.
+Checkpoints that save_checkpoint wrote before it stored scales as tensors hold numpy arrays, which that load allows.
 
 Usage:
     phi-prune check pruned.pt
@@ -14,12 +16,46 @@ The command exports nothing; phi_prune.export.export_onnx writes a model to ONNX
 """
 
 import argparse
+import pickle
 import sys
 
+import numpy as np
 import torch
 
 # A saved checkpoint can name the φ pattern "zeckendorf"
 PATTERN_ALIASES = {"zeckendorf": "phi"}
+
+
+def _numpy_arrays():
+    """
+    The globals a numpy array rebuilds itself by, which a checkpoint holds whose per-channel scales are numpy arrays, as
+    save_checkpoint wrote them before it stored float64 tensors, and the float dtype classes whose state the unpickler
+    restores.
+    """
+    multiarray = np._core.multiarray if hasattr(np, "_core") else np.core.multiarray
+    return [multiarray._reconstruct, np.ndarray, np.dtype] + [type(np.dtype(t)) for t in (np.float64, np.float32)]
+
+
+def _load(path):
+    """
+    The file at path, read with torch.load(weights_only=True), which runs no code from it, with numpy arrays allowed;
+    exit 1 when it refuses.
+    """
+    try:
+        if hasattr(torch.serialization, "safe_globals"):
+            with torch.serialization.safe_globals(_numpy_arrays()):
+                return torch.load(path, map_location="cpu", weights_only=True)
+        # torch 2.4 has no safe_globals, so the allowance holds for the rest of the process
+        torch.serialization.add_safe_globals(_numpy_arrays())
+        return torch.load(path, map_location="cpu", weights_only=True)
+    except pickle.UnpicklingError as e:
+        # torch gives its reason after "WeightsUnpickler error:", on the same line or the next
+        reason = str(e).partition("WeightsUnpickler error:")[2].strip().split("\n")[0]
+        print(f"ERROR: torch.load(weights_only=True) refuses {path}.")
+        if reason:
+            print(reason)
+        print("phi-prune reads what save_checkpoint writes; a file you trust loads in Python with weights_only=False.")
+        sys.exit(1)
 
 
 def cmd_prune(args):
@@ -43,7 +79,7 @@ def cmd_check(args):
     pruned weight in its state dict is zero; 0 when all hold, 1 otherwise.
     """
     print(f"Loading {args.model}...")
-    data = torch.load(args.model, map_location="cpu", weights_only=False)
+    data = _load(args.model)
 
     if "masks" not in data:
         print("ERROR: Checkpoint does not contain masks.")
@@ -91,9 +127,10 @@ def cmd_check(args):
 def cmd_info(args):
     """
     Print how many weights each mask of a checkpoint keeps, and the total over all of them, or that no
-    layer is masked; 0, or 1 for a file without a masks entry.
+    layer is masked; 0, or 1 for a file that torch.load(weights_only=True) refuses or that has no masks
+    entry.
     """
-    data = torch.load(args.model, map_location="cpu", weights_only=False)
+    data = _load(args.model)
 
     if isinstance(data, dict) and "masks" in data:
         masks = data["masks"]
