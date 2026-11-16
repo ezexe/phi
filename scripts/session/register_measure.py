@@ -2,23 +2,20 @@
 φ-register against binary register measurements (.docs/register.md, sections 3 and 6).
 
 1. Single-bit flips over every canonical register of a width: share detected,
-   share uniquely correctable; rules fired per random addition (random order).
+   share uniquely correctable.
 2. Rules fired per sum, for every pair of values below 21, 55, 144.
 3. Parallel settling rounds (normalize_rounds) for every pair below 21 .. 610.
 """
 
-import random
 import statistics as st
 
 from phi_prune.register import (
-    BINARY, KINDS, PHI, add, correction_candidates, flip_detected, from_int, is_canonical,
-    normalize_rounds, place_values, pour, value,
+    BINARY, KINDS, PHI, add, correction_candidates, flip_detected, from_int, normalize_rounds, place_values, pour,
 )
 
 
-def flips_and_steps():
-    print("1. flips and rules fired per random addition (random firing order)")
-    rng = random.Random(0)
+def flips():
+    print("1. single-bit flips")
     for n in (4, 6, 8, 10, 13):
         for kind in KINDS:
             top = (1 << n) if kind == BINARY else place_values(PHI, n + 1)[-1]
@@ -34,14 +31,8 @@ def flips_and_steps():
                         c = correction_candidates(f)
                         assert w in c
                         cor += len(c) == 1
-            steps = []
-            for _ in range(2000):
-                a, b = rng.choice(words), rng.choice(words)
-                s, k = add(a, b, kind, rng)
-                assert value(s, kind) == value(a, kind) + value(b, kind) and is_canonical(s, kind)
-                steps.append(k)
             print(f"  {n:>2} digits {kind:<6} {len(words):>5} values  detected {det / tot:.3f}  "
-                  f"correctable {cor / tot:.3f}  rules fired mean {st.mean(steps):.2f} max {max(steps)}")
+                  f"correctable {cor / tot:.3f}")
 
 
 def equal_values():
@@ -65,6 +56,6 @@ def rounds():
 
 
 if __name__ == "__main__":
-    flips_and_steps()
+    flips()
     equal_values()
     rounds()
