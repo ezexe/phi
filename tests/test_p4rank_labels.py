@@ -3,6 +3,10 @@ index.json (its on-disk shape: doc_fields and rows), and `train` / `eval` with n
 
 import json
 
+import torch
+
+torch.set_num_threads(1)
+
 import phi_rank as p4rank
 
 TOPICS = ["ring buffer drain", "midi transport playhead", "toolbar latency readout", "crash dump symbols",

@@ -10,6 +10,8 @@ import urllib.request
 import pytest
 import torch
 
+torch.set_num_threads(1)
+
 import phi_rank as p4rank
 from phi_serve import serve
 
