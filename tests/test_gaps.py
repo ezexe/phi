@@ -77,6 +77,16 @@ class TestGaps:
             top_positions(torch.zeros(0), 0.5)
 
 
+class Tied(torch.nn.Module):
+    """An embedding and an output layer that share one weight, as tied language models do."""
+
+    def __init__(self):
+        super().__init__()
+        self.emb = torch.nn.Embedding(5, 3)
+        self.head = torch.nn.Linear(3, 5, bias=False)
+        self.head.weight = self.emb.weight
+
+
 class TestDelta:
     def states(self, seed=0):
         g = torch.Generator().manual_seed(seed)
@@ -144,6 +154,29 @@ class TestDelta:
         for t in header["tensors"]:
             off = float((state[t["name"]] - new[t["name"]]).abs().max())
             assert off <= t["scale"] / 2 + 1e-6, f"{t['name']} is off by {off:.4f}"
+
+    def test_tied_weight_takes_its_delta_once(self):
+        torch.manual_seed(0)
+        model = Tied()
+        base = {k: v.clone() for k, v in model.state_dict().items()}
+        new = {k: v + 0.5 for k, v in base.items()}
+        header, payload = encode_delta(base, new, keep=1.0, n_digits=8)
+        state = model.state_dict()
+        assert state["emb.weight"].data_ptr() == state["head.weight"].data_ptr()
+        apply_delta(state, header, payload)
+        model.load_state_dict(state)
+        off = float((model.emb.weight.detach() - new["emb.weight"]).abs().max())
+        assert off <= header["tensors"][0]["scale"] / 2 + 1e-6, f"the tied weight is off by {off:.4f}"
+
+    def test_tied_weight_given_two_changes_refused(self):
+        torch.manual_seed(0)
+        model = Tied()
+        base = {k: v.clone() for k, v in model.state_dict().items()}
+        new = {"emb.weight": base["emb.weight"] + 0.5, "head.weight": base["head.weight"] - 0.5}
+        header, payload = encode_delta(base, new, keep=1.0, n_digits=8)
+        with pytest.raises(ValueError):
+            apply_delta(model.state_dict(), header, payload)
+        assert torch.equal(model.state_dict()["emb.weight"], base["emb.weight"])
 
     def test_shape_mismatch_refused_before_writing(self):
         base, new = self.states()

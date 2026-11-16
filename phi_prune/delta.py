@@ -137,15 +137,24 @@ def apply_delta(state: Dict[str, torch.Tensor], header: Dict, payload: str) -> D
     A contiguous tensor takes the values through its flat view, and a non-contiguous one, a transposed one included,
     through Tensor.put_, which indexes a tensor of any strides as if it were one-dimensional. Under
     torch.use_deterministic_algorithms(True), put_ with accumulate=True raises RuntimeError on a CUDA tensor, so in
-    that mode a non-contiguous CUDA tensor is refused.
+    that mode a non-contiguous CUDA tensor is refused. Names over one memory, as a state_dict gives a tied weight,
+    take the delta once, and raise ValueError when the delta changes them differently.
     """
     decoded = decode_delta(header, payload)
     for t in header["tensors"]:
         if t["name"] not in state or list(state[t["name"]].shape) != t["shape"]:
             raise ValueError(f"{t['name']}: not in state, or not of shape {t['shape']}")
+    first, targets = {}, []
+    for name, (pos, vals) in decoded.items():
+        x = state[name]
+        other = first.setdefault((x.device, x.dtype, x.data_ptr(), tuple(x.shape), tuple(x.stride())), name)
+        if other == name:
+            targets.append(name)
+        elif not (np.array_equal(pos, decoded[other][0]) and np.array_equal(vals, decoded[other][1])):
+            raise ValueError(f"{name} and {other} are one tensor in state, and the delta changes them differently")
     with torch.no_grad():
-        for name, (pos, vals) in decoded.items():
-            x = state[name]
+        for name in targets:
+            x, (pos, vals) = state[name], decoded[name]
             idx, add = torch.from_numpy(pos).to(x.device), torch.from_numpy(vals).to(x.device, x.dtype)
             if x.is_contiguous():
                 x.view(-1)[idx] += add
