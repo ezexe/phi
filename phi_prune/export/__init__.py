@@ -1,10 +1,11 @@
 """
-Export pruned models to deployment formats.
+Save a pruned model, export it to ONNX, and write its quantized weights as a Fibonacci-coded bitstream
+and read them back.
 
-Supports:
-- PyTorch checkpoint (with masks and encoding metadata)
-- ONNX (with sparse weight representation)
-- Raw bitstream (self-delimiting Fibonacci-encoded weights)
+save_checkpoint writes a PyTorch checkpoint holding the state dict, the masks, the pattern, the format
+and version, mask_stats of each mask and, when given, the encoder's settings, the scales and metadata.
+export_onnx writes the model to ONNX through torch.onnx.export, with the pruned weights as zeros in the
+graph. export_bitstream writes every kept weight's level, and load_bitstream reads them back into a model.
 """
 
 import torch
@@ -27,8 +28,12 @@ def save_checkpoint(
     """
     Save a pruned model as a phi-prune checkpoint.
 
-    Includes masks, encoding info, and metadata in a single file.
-    Load with: data = torch.load(path); model.load_state_dict(data['state_dict'])
+    The file holds the state dict, the masks, the pattern, the format "phi-prune" and the version,
+    mask_stats of each mask read along axis 0 and, when given, the encoder's settings, the scales and
+    metadata. Load it with
+    data = torch.load(path, weights_only=False); model.load_state_dict(data['state_dict']).
+    weights_only=False is needed when scales hold the per-channel arrays of encode_tensor(axis=...),
+    which are numpy arrays, and is safe only for a file you trust.
     """
     pattern = getattr(model, "_phi_prune_stats", {}).get("pattern", "phi")
     checkpoint = {
@@ -47,7 +52,7 @@ def save_checkpoint(
         }
 
     if scales is not None:
-        # Convert to serializable format
+        # Each layer's scale and offset, as encode_tensor returned them
         checkpoint["scales"] = {
             name: {"scale": s, "offset": o} for name, (s, o) in scales.items()
         }
@@ -55,7 +60,7 @@ def save_checkpoint(
     if metadata is not None:
         checkpoint["metadata"] = metadata
 
-    # Compute and attach stats
+    # mask_stats of each mask, read along axis 0
     stats = {}
     for name, mask in masks.items():
         stats[name] = mask_stats(mask, pattern=pattern)
@@ -72,14 +77,11 @@ def export_onnx(
     opset: int = 17,
 ):
     """
-    Export pruned model to ONNX format.
+    Export a pruned model to ONNX through torch.onnx.export.
 
-    Zeroed weights are preserved in the ONNX graph — the sparsity
-    pattern is baked into the weight values. Compatible with any
-    ONNX runtime.
-
-    For sparse-aware runtimes, the mask can be extracted post-export
-    by scanning for zero weights.
+    The pruned weights stay in the graph as zeros, so the exported graph is as dense as the model.
+    The model is traced on a random input of input_shape at the given opset, with its first axis
+    named batch and dynamic through dynamic_axes. ImportError is raised when onnx is not installed.
     """
     try:
         import onnx
@@ -108,40 +110,33 @@ def export_bitstream(
     path: str,
 ):
     """
-    Export weights as a self-delimiting Fibonacci bitstream.
+    Write the levels of a model's kept weights as a Fibonacci-coded bitstream.
 
-    Output format:
-    1. JSON header: layer names, shapes, scale/offset per layer, and the
-       encoder's n_digits, codeword_digits and level_bias
-    2. Binary payload: concatenated self-delimiting Fibonacci codewords
-       for all active weights, in parameter order. Each codeword is
-       level + level_bias in up to codeword_digits digits, as
-       encode_to_stream writes it, so level 0 still ends in '11'
+    The file holds:
+    1. A JSON line: each layer's name, shape, kept count, scale and offset, and the encoder's
+       n_digits, codeword_digits and level_bias
+    2. The payload: the Fibonacci code of every kept weight's level, in parameter order, written
+       as the characters 0 and 1, one byte per bit. Each codeword is level + level_bias in up to
+       codeword_digits digits, as encode_to_stream writes it, so level 0 still ends in 11
 
-    The bitstream is parseable without knowing tensor shapes —
-    each codeword boundary is found by scanning for '11'. A reader
-    subtracts level_bias from each parsed value to get the level;
-    FibonacciEncoder(n_digits).decode_from_stream(payload) does both.
-    Level l of a layer is the weight l / scale + offset, and the
-    layers' n_active counts split the levels in payload order.
+    A reader splits the payload at each 11 with no shapes, takes level_bias off each value to get
+    the level, and FibonacciEncoder(n_digits).decode_from_stream(payload) does both. Level l of a
+    layer is the weight l / scale + offset, and the layers' kept counts split the levels in
+    payload order.
 
-    scales maps each parameter name to (scale, offset), the pair
-    encode_tensor returns with return_offset=True: floats, or with
-    axis=... per-slice arrays, which the header stores flattened with
-    their shape as scale_shape. The offset is the
-    layer's smallest kept weight, which encode_tensor maps to level 0
-    and leaves unchanged, so a caller holding only the 3-value result
-    can take param.data[mask.bool()].min().item() before or after
-    encoding.
+    scales maps each parameter name to the scale and offset encode_tensor returns with
+    return_offset=True: floats, or with axis set, per-slice arrays, which the header stores
+    flattened with their shape as scale_shape.
 
         encoded, scale, _, offset = encoder.encode_tensor(
             param.data, mask=mask, return_offset=True)
         param.data.copy_(encoded)
         scales[name] = (scale, offset)
 
-    load_bitstream reads the file back into a model.
+    load_bitstream reads the file back into a model. The returned dict counts the stream in bits,
+    and the file holds one byte for each.
     """
-    # encode_to_stream's layout: level + 1 in n_digits + 1 digits, so level 0 keeps a '11' delimiter
+    # encode_to_stream's layout: level + 1 in n_digits + 1 digits, so level 0 still ends in 11
     header = {
         "layers": [],
         "encoder": {
@@ -194,15 +189,17 @@ def load_bitstream(
     path: str,
 ) -> Dict:
     """
-    Read a bitstream written by export_bitstream back into a model.
+    Read a bitstream that export_bitstream wrote back into a model.
 
-    Decodes the payload's levels and writes each layer's weights,
-    level / scale + offset, into its masked positions in place; the
-    other positions keep their values. The header holds each layer's
-    shape, n_active, scale and offset but not its mask, so pass the
-    masks the export used (save_checkpoint stores them). A file that
-    the model or masks don't fit raises ValueError before any weight
-    is written.
+    Decodes the payload's levels and writes each layer's weights, level / scale + offset, into its
+    kept positions in place; the other positions keep their values. The header holds each layer's
+    shape, kept count, scale and offset but not its mask, so pass the masks the export used, which
+    save_checkpoint stores.
+
+    ValueError is raised before any weight is written for a header whose codeword_digits and
+    level_bias are not n_digits + 1 and 1, for a payload whose count of levels differs from the
+    header's, and for a layer whose shape, kept count or scale shape does not fit. A layer missing from the model or from masks
+    raises KeyError.
 
     Returns:
         The file's JSON header
