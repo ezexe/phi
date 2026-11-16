@@ -20,7 +20,7 @@ def test_site_builds(tmp_path):
     listed, missing = build.build(str(out))
     assert not missing
     kinds = {k for _, _, k in listed}
-    assert kinds == {"doc", "notebook", "interactive", "artifact"}
+    assert kinds == {"doc", "interactive", "artifact"}
     index = (out / "index.html").read_text(encoding="utf-8")
     for site, _, _ in listed:
         assert (out / site).exists() and f'href="{site}"' in index
