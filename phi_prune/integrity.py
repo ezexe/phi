@@ -138,7 +138,7 @@ def simulate_corruption(
     detected = 0
 
     for _ in range(n_flips):
-        # The Zeckendorf digits of a random kept weight's level
+        # The Zeckendorf digits of a random kept weight's quantization level
         cw = encoder.to_codeword(int(levels[random.randrange(len(levels))]))
 
         # Flip a random digit

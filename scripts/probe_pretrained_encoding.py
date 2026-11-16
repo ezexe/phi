@@ -2,12 +2,13 @@
 Probe per-tensor quantization of ImageNet-pretrained ResNets, in fp32 and under fp16 autocast.
 
 It needs no fine-tuned checkpoint and no GPU: it loads torchvision's ImageNet weights, and for each
-model compares four variants on CIFAR-10 test images upscaled as the notebook does:
+model compares four variants on CIFAR-10 test images upscaled as the Colab notebook
+notebooks/quickstart_gpu.ipynb does:
 
   dense            the pretrained weights
   dense+enc        every convolution quantized per tensor under an all-ones mask, which keeps
                    quantization apart from pruning
-  pruned           the convolutions φ-pruned, as the notebook prunes them
+  pruned           the convolutions φ-pruned, as the Colab notebook prunes them
   pruned+enc       the pruned convolutions quantized per tensor
 
 For each variant it prints the share of images whose logits are not finite in fp32 and under CPU

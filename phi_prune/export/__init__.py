@@ -5,7 +5,7 @@ and read them back.
 save_checkpoint writes a PyTorch checkpoint holding the state dict, the masks, the pattern, the format
 and version, mask_stats of each mask and, when given, the encoder's settings, the scales and metadata.
 export_onnx writes the model to ONNX through torch.onnx.export, with the pruned weights as zeros in the
-graph. export_bitstream writes every kept weight's level, and load_bitstream reads them back into a model.
+graph. export_bitstream writes every kept weight's quantization level, and load_bitstream reads them back into a model.
 """
 
 import torch
@@ -52,7 +52,7 @@ def save_checkpoint(
         }
 
     if scales is not None:
-        # Each layer's scale and offset, as encode_tensor returned them
+        # Each layer's scale and quantization offset, as encode_tensor returned them
         checkpoint["scales"] = {
             name: {"scale": s, "offset": o} for name, (s, o) in scales.items()
         }
@@ -110,10 +110,10 @@ def export_bitstream(
     path: str,
 ):
     """
-    Write the levels of a model's kept weights as a Fibonacci-coded bitstream.
+    Write the quantization levels of a model's kept weights as a Fibonacci-coded bitstream.
 
     The file holds:
-    1. A JSON line: each layer's name, shape, kept count, scale and offset, and the encoder's
+    1. A JSON line: each layer's name, shape, kept count, scale and quantization offset, and the encoder's
        n_digits, codeword_digits and level_bias
     2. The payload: the Fibonacci code of every kept weight's level, in parameter order, written
        as the characters 0 and 1, one byte per bit. Each codeword is level + level_bias in up to
@@ -136,7 +136,7 @@ def export_bitstream(
     load_bitstream reads the file back into a model. The returned dict counts the stream in bits,
     and the file holds one byte for each.
     """
-    # encode_to_stream's layout: level + 1 in n_digits + 1 digits, so level 0 still ends in 11
+    # encode_to_stream's layout: each quantization level + 1 in n_digits + 1 digits, so level 0 still ends in 11
     header = {
         "layers": [],
         "encoder": {
@@ -191,9 +191,9 @@ def load_bitstream(
     """
     Read a bitstream that export_bitstream wrote back into a model.
 
-    Decodes the payload's levels and writes each layer's weights, level / scale + offset, into its
+    Decodes the payload's quantization levels and writes each layer's weights, level / scale + offset, into its
     kept positions in place; the other positions keep their values. The header holds each layer's
-    shape, kept count, scale and offset but not its mask, so pass the masks the export used, which
+    shape, kept count, scale and quantization offset but not its mask, so pass the masks the export used, which
     save_checkpoint stores.
 
     ValueError is raised before any weight is written for a header whose codeword_digits and

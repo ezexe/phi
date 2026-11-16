@@ -127,7 +127,7 @@ class TestFibonacciEncoder:
 
     def test_encode_snaps_to_nearest_level(self):
         """A value between two quantization levels goes to the nearer one, below as well as above."""
-        enc = FibonacciEncoder(n_digits=10)  # levels: every integer from 0 to 143
+        enc = FibonacciEncoder(n_digits=10)  # quantization levels: every integer from 0 to 143
         # 0 and 143 pin the min-max scaling to the identity, so 4.3 and 4.7 reach the levels unscaled
         t = torch.tensor([0.0, 4.3, 4.7, 143.0])
         encoded, scale, rmse = enc.encode_tensor(t)
@@ -151,7 +151,7 @@ class TestFibonacciEncoder:
         assert enc.encode_tensor(t, mask=torch.zeros_like(t), return_offset=True)[3] == 0.0
 
     def test_encode_per_channel(self):
-        """axis quantizes each slice as encode_tensor would alone, with a scale and offset that broadcast."""
+        """axis quantizes each slice as encode_tensor would alone, with a scale and quantization offset that broadcast."""
         enc = FibonacciEncoder(n_digits=8)
         torch.manual_seed(0)
         t = torch.randn(6, 5, 3)
@@ -164,7 +164,7 @@ class TestFibonacciEncoder:
             alone, s, _, o = enc.encode_tensor(t[c], mask=mask[c], return_offset=True)
             assert torch.equal(encoded[c], alone) and scale[c].item() == s and offset[c].item() == o
         assert torch.equal(encoded[3], t[3]) and (scale[3].item(), offset[3].item()) == (1.0, 0.0)
-        # Every kept channel's minimum lands on level 0, and levels() inverts the scale-back
+        # Every kept channel's minimum lands on quantization level 0, and levels() inverts the scale-back
         levels = enc.levels(encoded, scale, offset, mask).reshape(5, -1)
         assert (levels.min(axis=1) == 0).all() and levels.max() <= enc.max_value
         # Per channel, the outlier leaves the other channels' levels fine
@@ -173,7 +173,7 @@ class TestFibonacciEncoder:
         assert enc.encode_tensor(t, axis=-1, return_offset=True)[1].shape == (1, 1, 3)
 
     def test_stream_roundtrip(self):
-        """Levels written as a Fibonacci code read back unchanged."""
+        """Quantization levels written as a Fibonacci code read back unchanged."""
         enc = FibonacciEncoder(n_digits=8)
         values = [0, 1, 5, 12, 33]
         stream = enc.encode_to_stream(values)
@@ -204,7 +204,7 @@ class TestIntegrity:
         import random
 
         enc = FibonacciEncoder(n_digits=8)
-        tensor = torch.tensor(enc.grid, dtype=torch.float64)  # one weight per level
+        tensor = torch.tensor(enc.grid, dtype=torch.float64)  # one weight per quantization level
         mask = torch.ones_like(tensor)
 
         rates = []
@@ -224,10 +224,10 @@ class TestIntegrity:
         assert total == n
         sigma = np.sqrt(exact * (1 - exact) / n)
         assert abs(detected / n - exact) < 4 * sigma
-        assert 0.40 < exact < 0.42  # 0.4091 over every 8-digit level, as results/prune/measure_detection.txt holds
+        assert 0.40 < exact < 0.42  # 0.4091 over every 8-digit quantization level, as results/prune/measure_detection.txt holds
 
     def test_per_channel_passes_integrity_check(self):
-        """cassini_check reads per-channel scale and offset arrays, and passes every quantized weight."""
+        """cassini_check reads per-channel scale and quantization offset arrays, and passes every quantized weight."""
         from phi_prune.integrity import cassini_check
 
         pruned, masks, enc, scales = encoded_mlp(axis=0)
@@ -395,7 +395,7 @@ class TestExport:
         header = json.loads(header_line)
         assert sum(layer["n_active"] for layer in header["layers"]) == stats["n_weights"] == len(expected)
 
-        # codeword_digits and level_bias give each codeword's width and what it adds to its level
+        # codeword_digits and level_bias give each codeword's width and what it adds to its quantization level
         width = header["encoder"].get("codeword_digits", header["encoder"]["n_digits"])
         bias = header["encoder"].get("level_bias", 0)
         fibs = FibonacciEncoder(n_digits=width).fibs

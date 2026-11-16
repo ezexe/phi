@@ -38,12 +38,12 @@ class FibonacciEncoder:
         self.n_digits = n_digits
         self.fibs = _FIB_CACHE[:n_digits]
 
-        # The levels: every sum of non-adjacent place values, which is every integer up to F(n + 2) - 1
+        # The quantization levels: every sum of non-adjacent place values, every integer up to F(n + 2) - 1
         grid = set()
         self._enumerate(0, 0, False, grid)
         self.grid = np.array(sorted(grid), dtype=np.float64)
         self.n_levels = len(self.grid)
-        self.max_value = int(self.grid[-1])  # the highest level
+        self.max_value = int(self.grid[-1])  # the highest quantization level
 
     def _enumerate(self, idx: int, current_sum: int, prev_used: bool, out: set):
         """Add to out every sum of non-adjacent place values from idx on, recursively."""
@@ -73,9 +73,9 @@ class FibonacciEncoder:
         Args:
             tensor: Weight tensor to quantize
             mask: Optional binary mask; only its kept positions are quantized
-            return_offset: Also return the offset, the smallest kept weight, which lands on level 0,
-                or 0.0 when the mask keeps nothing. The scale and offset are the pair that
-                export_bitstream, save_checkpoint and cassini_check take in scales
+            return_offset: Also return the quantization offset, the smallest kept weight, which
+                lands on level 0, or 0.0 when the mask keeps nothing. The scale and offset are the
+                pair that export_bitstream, save_checkpoint and cassini_check take in scales
             axis: Give each slice along this axis, 0 for output channels, its own scale and offset,
                 which is per-channel quantization, instead of one pair for the whole tensor, which
                 is per-tensor quantization. Per tensor, a few outlying weights spread the levels
@@ -115,7 +115,7 @@ class FibonacciEncoder:
         # Quantize
         active_np = active.cpu().numpy()
         scaled = (active_np - offset) * scale
-        # Round each value to the nearest level
+        # Round each value to the nearest quantization level
         indices = np.searchsorted(self.grid, scaled, side="left")
         indices = np.clip(indices, 0, len(self.grid) - 1)
 
@@ -179,7 +179,7 @@ class FibonacciEncoder:
 
     def to_codeword(self, grid_value: int) -> list:
         """
-        A level's Zeckendorf representation, as a list of digits.
+        A quantization level's Zeckendorf representation, as a list of digits.
 
         Args:
             grid_value: A level, an integer from 0 to max_value
@@ -202,8 +202,9 @@ class FibonacciEncoder:
 
         A Zeckendorf representation never holds 11, so the appended 1 and the highest set digit make
         the only 11 of each codeword, its comma, and a reader splits the stream there with no lengths.
-        A digit list with no set digit, level 0, comes out as 01 with no 11 of its own and runs into
-        the codeword after it, which is why encode_to_stream writes each level plus 1.
+        A digit list with no set digit, quantization level 0, comes out as 01 with no 11 of its
+        own and runs into the codeword after it, which is why encode_to_stream writes each level
+        plus 1.
 
         Args:
             codewords: Zeckendorf digit lists, as to_codeword returns them
@@ -226,7 +227,7 @@ class FibonacciEncoder:
 
     def encode_to_stream(self, grid_values: list) -> str:
         """
-        Write levels as a Fibonacci code of each level plus 1, so that level 0 has a codeword too.
+        Write quantization levels as a Fibonacci code of each level plus 1, so that level 0 has a codeword too.
 
         max_value + 1 needs one more digit, so the codewords run up to n_digits + 1 digits.
         decode_from_stream reads the stream back.
@@ -247,7 +248,7 @@ class FibonacciEncoder:
 
     def decode_from_stream(self, bitstream: str) -> list:
         """
-        Read a stream that encode_to_stream wrote back to levels, taking off the 1 it added.
+        Read a stream that encode_to_stream wrote back to quantization levels, taking off the 1 it added.
         """
         codewords = self.parse_bitstream(bitstream, self.n_digits + 1)
         fibs_ext = _FIB_CACHE[:self.n_digits + 1]

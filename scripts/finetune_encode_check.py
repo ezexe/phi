@@ -1,11 +1,11 @@
 """
 Fine-tune, prune and quantize a ResNet on CIFAR-10, then compare per-tensor and per-channel quantization.
 
-The steps of the notebook's variant cells on a CPU: a dense fine-tune, φ-pruning of the
-convolutions and a fine-tune with the masks held fixed. The pruned convolutions are then quantized
-once per tensor and once per output channel. Each model is scored in fp32 and, on the first
---fp16-test images, under CPU fp16 autocast, with the share of those images whose logits are not
-all finite.
+The steps of the variant cells of the Colab notebook notebooks/quickstart_gpu.ipynb, on a CPU: a
+dense fine-tune, φ-pruning of the convolutions and a fine-tune with the masks held fixed. The pruned
+convolutions are then quantized once per tensor and once per output channel. Each model is scored
+in fp32 and, on the first --fp16-test images, under CPU fp16 autocast, with the share of those
+images whose logits are not all finite.
 
 With the defaults, 128 px images, 5000 training and 2000 test images and one epoch per fine-tune,
 the fine-tunes, pruning, quantization and scoring of ResNet-152 took 50.9 minutes on a GitHub runner
@@ -33,7 +33,7 @@ STD = torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1)
 
 
 class Batches:
-    """CIFAR-10 uint8 images, normalized, optionally flipped and resized per batch, as the notebook does."""
+    """CIFAR-10 uint8 images, normalized, optionally flipped and resized per batch, as the Colab notebook does."""
 
     def __init__(self, x, y, batch, size, train):
         self.x, self.y, self.batch, self.size, self.train = x, y, batch, size, train
@@ -119,7 +119,7 @@ def main():
     train = Batches(xtr, ytr, args.batch, args.img_size, True)
     test = Batches(xte, yte, 256, args.img_size, False)
     test16 = Batches(xte[:args.fp16_test], yte[:args.fp16_test], 256, args.img_size, False)
-    lr_scale = args.batch / 128  # the notebook's learning rates are for batch 128
+    lr_scale = args.batch / 128  # the Colab notebook's learning rates are for batch 128
 
     weights = None if args.weights.lower() == "none" else args.weights
     net = torchvision.models.get_model(args.arch, weights=weights)
