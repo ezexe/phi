@@ -67,7 +67,7 @@ def write_store(p4, n_tasks=8):
     subprocess.run(["git", "init", "-q", p4], check=True)
 
 
-def test_p4_root_and_plugin_kind(tmp_path):
+def test_p4_root_and_explicit_plugin(tmp_path):
     p4 = str(tmp_path / ".claude" / "p4")
     os.makedirs(os.path.join(p4, "store"))
     os.makedirs(layout.sub(p4, "models"))
@@ -77,7 +77,6 @@ def test_p4_root_and_plugin_kind(tmp_path):
     (fake / "scripts").mkdir(parents=True)
     for n in ("p4.py", "train.py"):
         (fake / "scripts" / n).write_text("", encoding="utf-8")
-    assert p4model.plugin_kind(str(fake)) == "p4-recall"
     assert p4model.find_plugin(str(fake), str(tmp_path)) == str(fake)
 
 
@@ -98,7 +97,6 @@ def test_find_plugin_reads_claude_codes_marketplace_registry(tmp_path, monkeypat
     for var in ("HOME", "USERPROFILE"):
         monkeypatch.setenv(var, str(home))
     monkeypatch.delenv("P4_RECALL_PLUGIN_ROOT", raising=False)
-    monkeypatch.delenv("VLDS_PLUGIN_ROOT", raising=False)
     project = tmp_path / "elsewhere" / "proj"
     (project / ".claude" / "p4" / "store").mkdir(parents=True)
     assert p4model.find_plugin("", str(project)) == str(plugin)

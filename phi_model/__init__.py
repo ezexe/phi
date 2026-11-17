@@ -35,18 +35,9 @@ import os
 import re
 import subprocess
 import sys
-import tempfile
 import time
 from typing import Dict, List, Optional
 from phi_store import layout  # noqa: E402  (the store's layout: recall/, temportal/)
-
-MODES = {
-    "shadow": {"pool-road": "model-shadow", "dispatch-model": "shadow"},
-    "active": {"pool-road": "model", "pool-audit": "5", "dispatch-model": "on"},   # pool-audit: 5 only where unset
-    "off": {"pool-road": "children", "dispatch-model": "off"},
-}
-MODE_KEYS = ("pool-road", "pool-audit", "dispatch-model")
-
 
 # ─── where things are ──────────────────────────────────────────────────────────────────────────────────
 
@@ -68,24 +59,13 @@ from . import recall  # noqa: E402  (the p4-recall branch)
 
 
 def p4_root(project: str) -> str:
-    """The store's root: <project>/.claude/p4, or the path itself when it is a store repository: sessions/ at its
-    top (the vlds layout, as ezexe/AudioPlugin-p4 and ezexe/p4-p4 are), or store/ and models/ (the p4-recall
-    layout, as ezexe/ap-p4 is)."""
+    """The store's root: <project>/.claude/p4, or the path itself when it is a store repository: store/ and models/
+    (the p4-recall layout, as ezexe/ap-p4 is)."""
     project = os.path.abspath(project)
     for cand in (os.path.join(project, ".claude", "p4"), project):
-        if os.path.isdir(os.path.join(cand, "sessions")) or (os.path.isdir(layout.sub(cand, "store"))
-                                                             and os.path.isdir(layout.sub(cand, "models"))):
+        if os.path.isdir(layout.sub(cand, "store")) and os.path.isdir(layout.sub(cand, "models")):
             return cand
-    raise SystemExit(f"p4model — no .claude/p4 store at or under {project} (looked for sessions/, or store/ and "
-                     "models/)")
-
-
-def session_store(p4: str) -> str:
-    """Any session's store: the plugin's scripts read every session's store from any one of them."""
-    stores = sorted(glob.glob(os.path.join(p4, "sessions", "*", "vlds")))
-    if not stores:
-        raise SystemExit(f"p4model — {p4} has no sessions/*/vlds store yet: run one session with the vlds plugin")
-    return stores[0]
+    raise SystemExit(f"p4model — no .claude/p4 store at or under {project} (looked for store/ and models/)")
 
 
 def plugin_version(root: str) -> tuple:
@@ -97,26 +77,19 @@ def plugin_version(root: str) -> tuple:
 
 
 def is_plugin(path: str) -> bool:
-    return bool(path) and (os.path.exists(os.path.join(path, "scripts", "pick_model.py")) or recall.is_plugin(path))
-
-
-def plugin_kind(path: str) -> str:
-    return "p4-recall" if recall.is_plugin(path) else "vlds" if is_plugin(path) else ""
+    return recall.is_plugin(path)
 
 
 def find_plugin(given: str = "", project: str = "") -> str:
     """The plugin's root: p4-recall for a store with store/ at its top, vlds for one with sessions/. --plugin, then
-    $P4_RECALL_PLUGIN_ROOT / $VLDS_PLUGIN_ROOT, win outright when they name a plugin; otherwise the newest of the
-    installed copies (~/.claude/plugins) and of a marketplace checkout beside the project, of the kind the store
-    wants — never a wider sweep of the home directory, whose code this would import."""
-    for explicit in (given, os.environ.get("P4_RECALL_PLUGIN_ROOT", ""), os.environ.get("VLDS_PLUGIN_ROOT", "")):
+    $P4_RECALL_PLUGIN_ROOT, win outright when they name a plugin; otherwise the newest of the
+    installed copies (~/.claude/plugins) and of a marketplace checkout beside the project
+    — never a wider sweep of the home directory, whose code this would import."""
+    for explicit in (given, os.environ.get("P4_RECALL_PLUGIN_ROOT", "")):
         if explicit:
             if not is_plugin(explicit):
-                raise SystemExit(f"p4model — {explicit} is neither recall's plugin, p4-phi or p4-recall (scripts/p4.py and train.py), "
-                                 "nor the vlds plugin (scripts/pick_model.py)")
+                raise SystemExit(f"p4model — {explicit} is not recall's plugin, p4-phi or p4-recall (scripts/p4.py and train.py)")
             return os.path.abspath(explicit)
-    base = os.path.abspath(project or ".")
-    want = "p4-recall" if any(recall.is_store(c) for c in (os.path.join(base, ".claude", "p4"), base)) else "vlds"
     home = os.path.expanduser("~")
     cands = []
     # a marketplace checkout beside the project, or beside one of its four nearest ancestors (a store checked out
@@ -128,7 +101,7 @@ def find_plugin(given: str = "", project: str = "") -> str:
         if up == d:
             break
         d = up
-    for name in ("p4-phi", "p4-recall", "vlds"):
+    for name in ("p4-phi", "p4-recall"):
         for pattern in (os.path.join(home, ".claude", "plugins", "**", name, ".claude-plugin", "plugin.json"),
                         # the marketplace's directory is lbiza (Ibiza in a checkout from before the rename)
                         *(os.path.join(a, "*", m, "plugins", name, ".claude-plugin", "plugin.json")
@@ -147,23 +120,12 @@ def find_plugin(given: str = "", project: str = "") -> str:
                 loc = rec.get(key, "") if isinstance(rec, dict) else ""
                 if not loc:
                     continue
-                cands += [loc] if is_plugin(loc) else [os.path.join(loc, "plugins", n) for n in ("p4-phi", "p4-recall", "vlds")]
+                cands += [loc] if is_plugin(loc) else [os.path.join(loc, "plugins", n) for n in ("p4-phi", "p4-recall")]
     found = [c for c in dict.fromkeys(cands) if is_plugin(c)]
-    right = [c for c in found if plugin_kind(c) == want] or found
-    if not right:
-        raise SystemExit(f"p4model — no {want} plugin was found: pass --plugin <…/lbiza/plugins/{'p4-phi' if want == 'p4-recall' else want}> or set "
-                         f"{'P4_RECALL_PLUGIN_ROOT' if want == 'p4-recall' else 'VLDS_PLUGIN_ROOT'}")
-    return max(right, key=plugin_version)
-
-
-def plugin_modules(plugin: str):
-    """The plugin's pick_model and dispatch_model modules, imported from its scripts/ (standard library only)."""
-    for d in (os.path.join(plugin, "scripts"), os.path.join(plugin, "hooks")):
-        if d not in sys.path:
-            sys.path.insert(0, d)
-    import dispatch_model  # noqa: E402
-    import pick_model  # noqa: E402
-    return pick_model, dispatch_model
+    if not found:
+        raise SystemExit("p4model — no p4-recall plugin was found: pass --plugin <…/lbiza/plugins/p4-phi> or set "
+                         "P4_RECALL_PLUGIN_ROOT")
+    return max(found, key=plugin_version)
 
 
 def run(cmd: List[str], cwd: Optional[str] = None, env: Optional[Dict] = None) -> subprocess.CompletedProcess:
@@ -173,202 +135,33 @@ def run(cmd: List[str], cwd: Optional[str] = None, env: Optional[Dict] = None) -
 # ─── the recall config ─────────────────────────────────────────────────────────────────────────────────
 
 def recall_path(p4: str) -> str:
-    """vindex/phi-index.md (a vlds store), or p4.json (a p4-recall store: phi_model.recall)."""
-    return recall.config_path(p4) if recall.is_store(p4) else os.path.join(p4, "vindex", "phi-index.md")
+    """p4.json (phi_model.recall)."""
+    return recall.config_path(p4)
 
 
 def read_recall(p4: str) -> Dict[str, str]:
-    """The `## recall` section's key: value lines (a vlds store), or p4.json's recall mode keys (p4-recall)."""
-    if recall.is_store(p4):
-        return recall.read_recall(p4)
-    try:
-        with open(recall_path(p4), encoding="utf-8") as f:
-            text = f.read()
-    except OSError:
-        return {}
-    m = re.search(r"^## recall\s*$(.*?)(?=^## |\Z)", text, re.M | re.S)
-    if not m:
-        return {}
-    return {k: v.strip() for k, v in re.findall(r"^([a-z][a-z-]*):\s*(.*)$", m.group(1), re.M)}
+    """p4.json's recall mode keys (phi_model.recall)."""
+    return recall.read_recall(p4)
 
 
 def write_mode(p4: str, mode: str, now: str) -> str:
-    """Set the recall config's model keys to a mode, every other line of the file kept as it is."""
-    if recall.is_store(p4):
-        return recall.write_mode(p4, mode, now)
-    path = recall_path(p4)
-    try:
-        with open(path, encoding="utf-8") as f:
-            text = f.read()
-    except OSError:
-        text = "# vlds recall config\n"
-    if not re.search(r"^## recall\s*$", text, re.M):
-        text = text.rstrip("\n") + "\n\n## recall\n\n"
-    h = re.search(r"^## recall\s*$", text, re.M)          # cut at the heading's own position, never a lookalike
-    head, rest = text[:h.start()], text[h.end():]
-    m = re.search(r"^## ", rest, re.M)
-    section, tail = (rest[:m.start()], rest[m.start():]) if m else (rest, "")
-    audit = [l for l in section.split("\n") if l.startswith("pool-audit:")]   # the owner's: never removed
-    lines = [l for l in section.split("\n") if not re.match(r"^(pool-road|dispatch-model):", l)]
-    body = [l for l in lines if l.strip()]
-    keep_upd = [l for l in body if l.startswith("updated:")]
-    body = [l for l in body if not l.startswith("updated:")]
-    body += [f"{k}: {v}" for k, v in MODES[mode].items() if not (k == "pool-audit" and audit)]
-    body += [f"updated: {now} by the p4-model skill (phi_model mode {mode})"] if now else keep_upd
-    new = head + "## recall\n\n" + "\n".join(body) + "\n" + ("\n" + tail if tail else "")
-    from phi_rank import write_text_atomic          # the replace retried while Windows refuses it
-    write_text_atomic(new, path)
-    return path
+    """Set the recall config's model keys to a mode, every other key of the file kept as it is."""
+    return recall.write_mode(p4, mode, now)
 
 
 def mode_of(cfg: Dict[str, str]) -> str:
-    if "inject" in cfg and not any(k in cfg for k in MODE_KEYS):   # p4.json's keys (phi_model.recall)
-        return recall.mode_of(cfg)
-    for name, keys in MODES.items():
-        if all(cfg.get(k) == v for k, v in keys.items() if k != "pool-audit"):
-            return name
-    return "custom" if any(k in cfg for k in MODE_KEYS) else "default"
+    return recall.mode_of(cfg)
 
 
 # ─── check ─────────────────────────────────────────────────────────────────────────────────────────────
 
-def load_json(path: str):
-    """(data, None) or (None, error): a corrupt or conflicted model file is a finding, never a crash."""
-    try:
-        with open(path, encoding="utf-8") as f:
-            return json.load(f), None
-    except FileNotFoundError:
-        return None, None
-    except (OSError, ValueError) as e:
-        return None, f"{type(e).__name__}: {e}"
-
-
 def check(p4: str, plugin: str) -> Dict:
     """Everything that stands and everything owed, as one dict; `owed` lists the actions update would take."""
-    if plugin_kind(plugin) == "p4-recall":
-        return recall.check(p4, plugin, ".".join(map(str, plugin_version(plugin))))
-    pm, dm = plugin_modules(plugin)
-    store = session_store(p4)
-    mdir = layout.sub(p4, "models")
-    rep: Dict = {"p4": p4, "plugin": plugin, "plugin_version": ".".join(map(str, plugin_version(plugin))),
-                 "owed": [], "corrupt": {}}
-    cfg = read_recall(p4)
-    rep["recall"] = {k: cfg.get(k) for k in MODE_KEYS}
-    rep["mode"] = mode_of(cfg)
-    rep["git"] = run(["git", "-C", p4, "rev-parse", "--show-toplevel"]).returncode == 0
-    attrs = os.path.join(p4, ".gitattributes")
-    rep["lfs"] = os.path.exists(attrs) and in_layout(p4, "models/*.pt filter=lfs") in open(attrs, encoding="utf-8").read()
-    gi = os.path.join(p4, ".gitignore")
-    rep["gitignore"] = os.path.exists(gi)
-    local_build = rep["gitignore"] and in_layout(p4, LOCAL_BUILD) in open(gi, encoding="utf-8").read().split("\n")
-    if not rep["gitignore"] or not rep["lfs"] or not local_build:
-        rep["owed"].append("seed .gitignore/.gitattributes")
-
-    ids = {p["id"] for p in pm.label_pools(store)}
-    rep["labelled_pools"] = len(ids)
-    m, err = load_json(os.path.join(mdir, "pick-model.json"))
-    if err:
-        rep["corrupt"]["pick-model.json"] = err
-        rep["pick_model"] = None
-        rep["owed"].append("train json")
-    elif m:
-        rep["pick_model"] = {"round": m.get("round"), "trained": m.get("trained"), "threshold": m.get("threshold"),
-                             "unseen_pools": len(ids - set(m.get("seen", [])))}
-        if rep["pick_model"]["unseen_pools"]:
-            rep["owed"].append("train json")
-    else:
-        rep["pick_model"] = None
-        if ids:
-            rep["owed"].append("train json")
-
-    rows = dm.turn_rows_count(store)
-    repeats = sum(r[3] for r in dm.labelled(store))
-    rep["judged_repeats"] = repeats
-    d, err = load_json(os.path.join(mdir, "dispatch-model.json"))
-    if err:
-        rep["corrupt"]["dispatch-model.json"] = err
-        rep["dispatch_model"] = None
-        rep["owed"].append("train dispatch")
-    elif d:
-        rep["dispatch_model"] = {"trained": d.get("trained"), "threshold": d.get("threshold"),
-                                 "rows_since": rows - d.get("turn_rows", 0), "repeats": d.get("repeats")}
-        if rep["dispatch_model"]["rows_since"] >= 20:
-            rep["owed"].append("train dispatch")
-    else:
-        rep["dispatch_model"] = None
-        if repeats:
-            rep["owed"].append("train dispatch")
-
-    from phi_rank import sidecar_name          # ranker.json, or ranker-pt.json beside a p4-recall JSON ranker
-    r, err = load_json(os.path.join(mdir, sidecar_name(p4)))
-    state = pm.checkpoint_state(os.path.join(mdir, "ranker.pt"))
-    if state == "missing":
-        # a clone holds the chain (anchor + φ-deltas), never the local build: the server rebuilds ranker.pt from it
-        state = pm.checkpoint_state(os.path.join(mdir, "ranker-anchor.pt"))
-    seen = pm.ranker_seen(store)
-    if err:
-        rep["corrupt"][sidecar_name(p4)] = err
-    rep["ranker"] = None if not r else {
-        "round": r.get("round"), "trained": r.get("trained"), "threshold": r.get("threshold"),
-        "threshold_from": r.get("threshold_from"), "heldout_rprecision": r.get("heldout_rprecision"),
-        "anchor_round": r.get("anchor_round"), "chain": len(r.get("chain", [])),
-        "unseen_pools": len(ids - (seen or set())), "checkpoint": state}
-    if err or (r and (rep["ranker"]["unseen_pools"] or state == "missing")) or (not r and ids):
-        rep["owed"].append("train ranker")
-    if state == "lfs-pointer":
-        rep["owed"].append("git lfs pull (the ranker's checkpoint is a pointer)")
-    if r and "anchor_round" in r and run(["git", "-C", p4, "ls-files", "--error-unmatch", "models/ranker.pt"]
-                                         ).returncode == 0:
-        # the chain is what git keeps; ranker.pt is each machine's own build of it
-        rep["owed"].append("untrack models/ranker.pt (git rm --cached; the chain replaces it)")
-    py = pm.ranker_python(store)
-    rep["ranker_python"] = py
-    if not py:
-        rep["owed"].append("ranker python for this machine (init writes models/.ranker-python)")
-
-    notices = pm.open_notices(store)
-    rep["notices"] = notices
-    for n in notices:
-        rep["owed"].append("train " + pm.notice_family(n["component"]))
-
-    shadow = os.path.join(mdir, "shadow.tsv")
-    if os.path.exists(shadow):
-        rows_ = [l.rstrip("\n").split("\t") for l in open(shadow, encoding="utf-8") if not l.startswith("#")]
-        by: Dict[str, List[float]] = {}
-        for row in [x for x in rows_ if len(x) >= 7][-10:]:
-            key = (row[7] if len(row) > 7 else "child") + (f" / {row[8]}" if len(row) > 8 else "")
-            by.setdefault(key, []).append(float(row[5]))
-        rep["shadow_recall"] = {k: round(sum(v) / len(v), 3) for k, v in by.items()}
-    for log in ("train.log", "ranker.log"):
-        p = os.path.join(mdir, log)
-        if os.path.exists(p):
-            tail = open(p, encoding="utf-8", errors="replace").read().splitlines()[-40:]
-            errs = [l for l in tail if "Traceback" in l or "Error" in l]
-            if errs:
-                rep.setdefault("log_errors", {})[log] = errs[-3:]
-    rep["owed"] = list(dict.fromkeys(rep["owed"]))
-    return rep
+    return recall.check(p4, plugin, ".".join(map(str, plugin_version(plugin))))
 
 
 def print_check(rep: Dict) -> None:
-    if rep.get("kind") == "p4-recall":
-        return recall.print_check(rep)
-    print(f"p4 store {rep['p4']} — vlds {rep['plugin_version']} at {rep['plugin']}")
-    print(f"  mode: {rep['mode']} ({', '.join(f'{k}: {v}' for k, v in rep['recall'].items() if v) or 'nothing named'})")
-    print(f"  git: {'yes' if rep['git'] else 'NO'}; lfs for checkpoints: {'yes' if rep['lfs'] else 'no'}; "
-          f".gitignore: {'yes' if rep['gitignore'] else 'no'}; ranker python: {rep['ranker_python'] or 'none'}")
-    print(f"  labelled pools: {rep['labelled_pools']}; judged repeats: {rep['judged_repeats']}")
-    for name in ("pick_model", "dispatch_model", "ranker"):
-        print(f"  {name}: {json.dumps(rep[name]) if rep[name] else 'none'}")
-    for f, e in rep["corrupt"].items():
-        print(f"  CORRUPT models/{f}: {e}")
-    if rep.get("shadow_recall"):
-        print(f"  shadow recall, last 10 pools (judge / source): {rep['shadow_recall']}")
-    for n in rep["notices"]:
-        print(f"  NOTICE {n['time']} {n['component']}: {n['kind']} — {n['error'][:120]}")
-    for log, errs in rep.get("log_errors", {}).items():
-        print(f"  {log}: " + " | ".join(e[:100] for e in errs))
-    print("  owed: " + (", ".join(rep["owed"]) if rep["owed"] else "nothing — every model is current"))
+    return recall.print_check(rep)
 
 
 # ─── train / test ──────────────────────────────────────────────────────────────────────────────────────
@@ -376,92 +169,20 @@ def print_check(rep: Dict) -> None:
 def train(p4: str, plugin: str, only: List[str], now: str, minutes: float) -> Dict[str, Dict]:
     """The plugin's own trainers, so a model is built here exactly as the turn close builds it. Output is printed,
     not logged: the models/*.log files hold only the trainings the turn close started."""
-    if plugin_kind(plugin) == "p4-recall":
-        return recall.train(p4, plugin, only, now, minutes)
-    store = session_store(p4)
-    scripts = os.path.join(plugin, "scripts")
-    env = dict(os.environ, VLDS_RANKER_PYTHON=sys.executable)
-    out: Dict[str, Dict] = {}
-    steps = {"json": [sys.executable, os.path.join(scripts, "pick_model.py"), "--store", store, "train", "--now", now],
-             "dispatch": [sys.executable, os.path.join(scripts, "dispatch_model.py"), "--store", store, "train",
-                          "--now", now],
-             "ranker": [sys.executable, os.path.join(scripts, "pick_model.py"), "--store", store, "ranker-train",
-                        "--now", now, "--minutes", str(minutes)]}
-    for name in only:
-        r = run(steps[name], env=env, cwd=tempfile.gettempdir())
-        text = (r.stdout + r.stderr).strip()
-        # "nothing to learn yet" is no failure: a fresh store has no labelled pool and no judged repeat, and the
-        # turn close trains each model by itself once its bootstrap count lands
-        empty = ("no labelled pool" in text or "nothing to learn" in text
-                 or (name == "dispatch" and "no ECHO or SUPERSEDED" in text))
-        busy = "another training holds" in text
-        ok = r.returncode == 0 or empty
-        out[name] = {"ok": ok and not busy, "code": r.returncode, "output": text.splitlines()[-4:], "empty": empty,
-                     "busy": busy}
-        state = "busy (a turn-close training is running)" if busy else "nothing to learn yet" if empty \
-            else "ok" if ok else "FAILED"
-        print(f"train {name}: {state} — " + (text.splitlines()[-1] if text else ""))
-    return out
+    return recall.train(p4, plugin, only, now, minutes)
 
 
 def resolve_notices(p4: str, plugin: str, trained: Dict[str, Dict], now: str) -> int:
     """Answer the open notices of every model a training just rebuilt, by appending them to
     models/retrain-resolved.tsv. retrain-needed.tsv is never rewritten, so a notice a hook appends meanwhile is
     never lost; a model that found nothing to learn answers nothing."""
-    if plugin_kind(plugin) == "p4-recall":
-        return recall.resolve_notices(p4, plugin, trained, now)
-    pm, _dm = plugin_modules(plugin)
-    store = session_store(p4)
-    rebuilt = {k for k, v in trained.items() if v["ok"] and not v.get("empty")}
-    answered = [n for n in pm.open_notices(store) if pm.notice_family(n["component"]) in rebuilt]
-    if not answered:
-        return 0
-    res = layout.sub(p4, "models", pm.RESOLVED)
-    new = not os.path.exists(res)
-    with open(res, "a", encoding="utf-8", newline="\n") as f:
-        if new:
-            f.write("# p4 model retrain notices answered — time\tepoch\tsession\tcomponent\tkind\terror\tresolved\n")
-        for n in answered:
-            f.write(f"{n['time']}\t{n['epoch']:.6f}\t{n['session']}\t{n['component']}\t{n['kind']}\t"
-                    f"{n['error']}\tretrained {now}\n")
-    return len(answered)
+    return recall.resolve_notices(p4, plugin, trained, now)
 
 
 def test(p4: str, plugin: str, now: str, minutes: float, folds: int) -> Dict[str, List[str]]:
-    """Held-out evaluations of all three models and a live server check. Nothing the store serves is touched: the
-    .pt evaluation never writes the pretrained base, and the server check uses its own port file."""
-    if plugin_kind(plugin) == "p4-recall":
-        return recall.test(p4, plugin, now, minutes, folds)
-    store = session_store(p4)
-    scripts = os.path.join(plugin, "scripts")
-    out: Dict[str, List[str]] = {}
-    r = run([sys.executable, os.path.join(scripts, "pick_model.py"), "--store", store, "eval"], cwd=tempfile.gettempdir())
-    out["json ranker"] = (r.stdout + r.stderr).strip().splitlines()[-3:]
-    r = run([sys.executable, os.path.join(scripts, "dispatch_model.py"), "--store", store, "eval"],
-            cwd=tempfile.gettempdir())
-    out["dispatch model"] = (r.stdout + r.stderr).strip().splitlines()[-3:]
-    pairs = layout.sub(p4, "models", f".pairs.test.{os.getpid()}.jsonl")
-    try:
-        run([sys.executable, os.path.join(scripts, "pick_model.py"), "--store", store, "pairs", "--jsonl", pairs],
-            cwd=tempfile.gettempdir())
-        import phi_rank as p4rank
-        import contextlib
-        import io
-        buf = io.StringIO()
-        with contextlib.redirect_stdout(buf):
-            p4rank.main(["eval", "--p4", p4, "--pairs", pairs, "--minutes", str(minutes), "--folds", str(folds),
-                         "--now", now])
-        out[".pt ranker"] = buf.getvalue().strip().splitlines()[-2:]
-    finally:
-        try:
-            os.remove(pairs)
-        except OSError:
-            pass
-    for k, v in out.items():
-        print(f"{k}:")
-        for l in v:
-            print(f"  {l}")
-    return out
+    """Held-out evaluations of all three models. Nothing the store serves is touched: the
+    .pt evaluation never writes the pretrained base."""
+    return recall.test(p4, plugin, now, minutes, folds)
 
 
 # ─── init / update / mode ──────────────────────────────────────────────────────────────────────────────
@@ -540,20 +261,20 @@ def main(argv=None) -> int:
     for name in ("check", "init", "train", "test", "update", "mode"):
         p = sub.add_parser(name)
         p.add_argument("--project", required=True, help="the repository, or its .claude/p4 store")
-        p.add_argument("--plugin", default="", help="the p4-recall or vlds plugin root (found when omitted)")
+        p.add_argument("--plugin", default="", help="the p4-recall plugin root (found when omitted)")
         p.add_argument("--now", default=time.strftime("%Y-%m-%d %H:%M"))
         if name in ("init", "train", "test", "update"):
             p.add_argument("--minutes", type=float, default=5, help="the .pt ranker's pretraining budget")
         if name == "check":
             p.add_argument("--json", action="store_true")
         if name == "init":
-            p.add_argument("--mode", default="shadow", choices=sorted(MODES))
+            p.add_argument("--mode", default="shadow", choices=sorted(recall.MODES))
         if name == "train":
             p.add_argument("--only", default="json,dispatch,ranker")
         if name == "test":
             p.add_argument("--folds", type=int, default=5)
         if name == "mode":
-            p.add_argument("set", choices=sorted(MODES))
+            p.add_argument("set", choices=sorted(recall.MODES))
     args = ap.parse_args(argv)
     p4 = p4_root(args.project)
     plugin = find_plugin(args.plugin, args.project)
