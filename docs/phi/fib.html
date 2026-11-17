@@ -1,3 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Computing F(n) · phi docs</title>
+<meta name="description" content="Seven ways to compute the Fibonacci number F(n), traced step by step in the page, and which of them phi&#x27;s code uses.">
+<style>
+:root{
+  --bg:#f5f3ec; --panel:#fffdf7; --sunk:#efece2; --ink:#1d1c19; --soft:#5d5a52; --line:#d9d4c6;
+  --phi:#0b6b66; --phi-bg:#dcefec; --app:#a85507; --app-bg:#f8e7d2;
+  --ok:#2c7a3f; --bad:#b3261e; --bad-bg:#fbe5e2;
+  --mono:ui-monospace,"Cascadia Code","SF Mono",Menlo,Consolas,monospace;
+  --sans:"Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,"Helvetica Neue",sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#131418; --panel:#1b1d23; --sunk:#16171c; --ink:#e9e6dd; --soft:#a29e93; --line:#33363f;
+    --phi:#62d2c6; --phi-bg:#16312f; --app:#f1ab52; --app-bg:#3a2a14;
+    --ok:#7fd494; --bad:#ff8a80; --bad-bg:#3d1c1a;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#131418; --panel:#1b1d23; --sunk:#16171c; --ink:#e9e6dd; --soft:#a29e93; --line:#33363f;
+  --phi:#62d2c6; --phi-bg:#16312f; --app:#f1ab52; --app-bg:#3a2a14;
+  --ok:#7fd494; --bad:#ff8a80; --bad-bg:#3d1c1a;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 var(--sans)}
+.wrap{max-width:1040px;margin:0 auto;padding:24px 16px 64px}
+a{color:var(--phi)}
+code,pre,kbd{font-family:var(--mono)}
+code{font-size:.88em;background:var(--sunk);border-radius:4px;padding:1px 4px;overflow-wrap:anywhere}
+:focus-visible{outline:2px solid var(--phi);outline-offset:2px}
+button,input,textarea{font:inherit;color:inherit}
+.top{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.mark{font:600 13px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--phi);text-decoration:none}
+.mark:hover{text-decoration:underline}
+.pill{font:600 12px/1 var(--mono);background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:9px 13px;cursor:pointer;white-space:nowrap}
+.pill:hover{border-color:var(--phi)}
+.tabs{display:flex;flex-wrap:wrap;gap:6px;margin:14px 0 0}
+.tabs a{font:600 13px/1 var(--sans);text-decoration:none;color:var(--soft);background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:8px 13px}
+.tabs a:hover{border-color:var(--phi)}
+.tabs a[aria-current="page"]{background:var(--phi);border-color:var(--phi);color:var(--panel)}
+h1{font-size:clamp(30px,5.4vw,46px);line-height:1.08;letter-spacing:-.02em;margin:16px 0 10px;text-wrap:balance}
+h2{font-size:24px;line-height:1.2;letter-spacing:-.01em;margin:44px 0 10px;text-wrap:balance}
+h3{font-size:18px;margin:26px 0 8px}
+p,li{max-width:74ch}
+.lede{color:var(--soft);max-width:70ch;margin:0 0 8px}
+.facts{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:18px 0 22px;padding:0;list-style:none}
+.facts li{border-left:3px solid var(--phi);padding:2px 0 2px 12px;font-size:14.5px;color:var(--soft)}
+.facts li.f-app{border-color:var(--app)}
+.facts li b{display:block;color:var(--ink);font-size:15px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;margin:12px 0}
+.card h2{margin-top:0}
+.tbl{overflow-x:auto;margin:12px 0}
+table{border-collapse:collapse;font-size:14.5px;font-variant-numeric:tabular-nums}
+th,td{text-align:left;padding:6px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--soft);font-weight:600}
+td.n,th.n{text-align:right}
+.src{font-size:13.5px;color:var(--soft)}
+pre{background:var(--sunk);border:1px solid var(--line);border-radius:10px;padding:12px 14px;overflow-x:auto;font-size:13px;line-height:1.5}
+label.f{display:grid;gap:4px;font-size:13px;color:var(--soft);margin:8px 0}
+label.f input{border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:8px 9px;font:14px var(--mono);width:100%}
+.stream{font:15px/1.9 var(--mono);overflow-wrap:anywhere;margin:10px 0 4px}
+.stream span{padding:2px 1px;border-radius:3px}
+.stream span.cw{background:var(--phi-bg)}
+.stream span.cw:nth-child(even){background:var(--app-bg)}
+.stream b{color:var(--phi)}
+.out{font:13.5px/1.6 var(--mono);color:var(--soft);overflow-wrap:anywhere}
+.out .bad{color:var(--bad)} .out .ok{color:var(--ok)}
+.prices{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-top:10px}
+.prices div{border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:var(--bg)}
+.prices b{display:block;font:600 18px var(--mono)}
+.prices span{font-size:12.5px;color:var(--soft)}
+@media (max-width:760px){.facts{grid-template-columns:minmax(0,1fr)}}
+.instrument{margin:18px 0;border-radius:14px;overflow:hidden;border:1px solid var(--line);background:#0a0a0c;color:#e8e6e1}
+.instrument .bar{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:9px 14px;border-bottom:1px solid #26262c;font:12px/1.4 var(--mono);color:#a29e93}
+.instrument #root{min-height:240px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <a class="mark" href="../index.html">← phi · docs</a>
+    <button class="pill" id="theme" type="button" aria-label="Switch between light and dark">theme</button>
+  </div>
+  <nav class="tabs" aria-label="Pages on the register model and the number codes">
+    <a href="../register.html">The register model</a>
+    <a href="codes.html">Fibonacci codes</a>
+    <a href="phi.html">Zeckendorf register</a>
+    <a href="bin.html">Binary register</a>
+    <a href="fib.html" aria-current="page">Computing F(n)</a>
+    <a href="matrix.html">Fibonacci Q-matrix</a>
+    <a href="Q.html">Related work</a>
+  </nav>
+
+    <h1>Computing F(n)</h1>
+  <p class="lede">Seven ways to compute the Fibonacci number F(n), each traced step by step in the component below, with F(0) = 0 and F(1) = 1. phi's code needs only the first of its Fibonacci numbers, so it builds them by addition, the bottom-up loop of the third method; the others are the mathematics around the register and the Fibonacci Q-matrix.</p>
+  <ul class="facts">
+    <li><b>In the code.</b><code>phi_prune.register.place_values</code> and <code>phi_prune.encoding</code>'s table both start from 1 and 2 and append the sum of the last two, the place values of a Zeckendorf register.</li>
+    <li><b>Not in the code.</b>Matrix powers, fast doubling and Binet's formula: <code>git grep</code> over phi's Python finds no matrix power or doubling.</li>
+    <li class="f-app"><b>The numbering.</b>This page counts F(0) = 0, F(1) = 1, F(2) = 1. The register's place values 1, 2, 3, 5, … are F(2), F(3), F(4), F(5), … in it.</li>
+  </ul>
+  <div class="tbl"><table>
+    <tr><th>Method</th><th>Steps</th><th>What it rests on</th></tr>
+    <tr><td>Naive recursion</td><td>about φ<sup>n</sup> calls</td><td>F(n) = F(n − 1) + F(n − 2), called twice per step; the call tree has F(n + 1) leaves</td></tr>
+    <tr><td>Memoized</td><td>n</td><td>the same recursion, each value cached once</td></tr>
+    <tr><td>Bottom-up</td><td>n</td><td>two numbers carried forward, as phi's tables do</td></tr>
+    <tr><td>Matrix exponentiation</td><td>about log<sub>2</sub> n squarings</td><td>Q<sup>n</sup> = [[F(n+1), F(n)], [F(n), F(n−1)]] for Q = [[1, 1], [1, 0]], by squaring Q from the least significant bit of n</td></tr>
+    <tr><td>Fast doubling</td><td>about log<sub>2</sub> n</td><td>F(2k) = F(k)(2F(k+1) − F(k)) and F(2k+1) = F(k)<sup>2</sup> + F(k+1)<sup>2</sup>, the sum of squares of consecutive Fibonacci numbers</td></tr>
+    <tr><td>Binet's formula</td><td>a fixed count of floating-point operations</td><td>F(n) = (φ<sup>n</sup> − ψ<sup>n</sup>)/√5, with φ and ψ the eigenvalues of Q; exact only while the floating-point result rounds to the integer</td></tr>
+    <tr><td>Generator</td><td>one per value</td><td>the bottom-up loop, yielding each value as it goes</td></tr>
+  </table></div>
+
+  <section class="instrument" aria-label="Computing F(n), interactive">
+    <div class="bar"><span>fib.jsx, run in the page</span><span>React 18.3.1 and Babel 7.24.7 from cdnjs</span></div>
+    <div id="root">Loading the component…</div>
+  </section>
+
+  <p>The <a href="matrix.html">Fibonacci Q-matrix</a> page follows the matrix method further, and the <a href="phi.html">Zeckendorf register</a> page shows where the place values go.</p>
+</div>
+
+<script>
+(function(){
+  var root=document.documentElement,key="dox-theme",btn=document.getElementById("theme");
+  function stored(){try{return localStorage.getItem(key)}catch(e){return null}}
+  function current(){return root.getAttribute("data-theme")||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light")}
+  function label(){btn.textContent=current()==="dark"?"light theme":"dark theme"}
+  var s=stored(); if(s==="dark"||s==="light")root.setAttribute("data-theme",s);
+  label();
+  try{matchMedia("(prefers-color-scheme: dark)").addEventListener("change",label)}catch(e){}
+  btn.addEventListener("click",function(){var n=current()==="dark"?"light":"dark";root.setAttribute("data-theme",n);try{localStorage.setItem(key,n)}catch(e){}label()});
+})();
+</script>
+<script id="src" type="text/plain">
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 
 // ═══════════════════════════════════════════════════════════════
@@ -220,35 +357,39 @@ function traceMatrix(n) {
   let base = Q;
 
   steps.push({
-    desc: `n = ${n} = ${bits}₂  — process ${bits.length} bits via repeated squaring`,
+    desc: `n = ${n} = ${bits}₂  — process ${bits.length} bits from the least significant, by repeated squaring`,
     matrix: result,
     base,
     binary: bits,
     power: 0
   });
 
+  // From the least significant bit up: base is Q^(2^k) when bit k is read
+  let acc = 0;
   for (let i = bits.length - 1; i >= 0; i--) {
-    const bit = bits[bits.length - 1 - i];
+    const bit = bits[i];
+    const k = bits.length - 1 - i;
     if (bit === "1") {
       result = matMul(result, base);
+      acc += 2 ** k;
       steps.push({
-        desc: `Bit=${bit}: multiply result × base`,
+        desc: `Bit ${k} = 1: multiply result × base, Q^${2 ** k}; result is Q^${acc}`,
         matrix: result,
         base,
-        bitIndex: bits.length - 1 - i,
+        bitIndex: i,
         bitVal: 1,
         binary: bits,
-        power: n - i
+        power: acc
       });
     } else {
       steps.push({
-        desc: `Bit=${bit}: skip (no multiply)`,
+        desc: `Bit ${k} = 0: skip (no multiply)`,
         matrix: result,
         base,
-        bitIndex: bits.length - 1 - i,
+        bitIndex: i,
         bitVal: 0,
         binary: bits,
-        power: n - i
+        power: acc
       });
     }
     if (i > 0) {
@@ -449,7 +590,7 @@ const METHODS = [
     color: CYAN,
     trace: traceMatrix,
     maxN: 14,
-    desc: "Repeated squaring on the Q-matrix"
+    desc: "Repeated squaring on the Fibonacci Q-matrix"
   },
   {
     id: "fastdouble",
@@ -469,7 +610,7 @@ const METHODS = [
     color: GOLD,
     trace: traceBinet,
     maxN: 14,
-    desc: "Closed-form via golden ratio — your number system's eigenvalue"
+    desc: "Closed form via the golden ratio, the Q-matrix's largest eigenvalue"
   },
   {
     id: "generator",
@@ -1398,3 +1539,21 @@ export default function FibViz() {
     </div>
   );
 }
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.24.7/babel.min.js"></script>
+<script>
+(function(){
+  var src = document.getElementById("src").textContent;
+  src = src.replace(/^import\s*\{([^}]+)\}\s*from\s*["']react["'];?\s*$/m, "const {$1} = React;");
+  src = src.replace(/^export\s+default\s+/m, "window.__App = ");
+  try {
+    var out = Babel.transform(src, { presets: ["react"], filename: "fib.jsx" }).code;
+    (0, eval)(out);
+    ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(window.__App));
+  } catch (e) { document.getElementById("root").textContent = "Could not render: " + e.message; }
+})();
+</script>
+</body>
+</html>
