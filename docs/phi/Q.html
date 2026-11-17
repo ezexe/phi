@@ -1,3 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Related work · phi docs</title>
+<meta name="description" content="A map of published work around the Zeckendorf register, the Fibonacci Q-matrix and Fibonacci coding, built up level by level in the page, with the sources each node rests on.">
+<style>
+:root{
+  --bg:#f5f3ec; --panel:#fffdf7; --sunk:#efece2; --ink:#1d1c19; --soft:#5d5a52; --line:#d9d4c6;
+  --phi:#0b6b66; --phi-bg:#dcefec; --app:#a85507; --app-bg:#f8e7d2;
+  --ok:#2c7a3f; --bad:#b3261e; --bad-bg:#fbe5e2;
+  --mono:ui-monospace,"Cascadia Code","SF Mono",Menlo,Consolas,monospace;
+  --sans:"Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,"Helvetica Neue",sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#131418; --panel:#1b1d23; --sunk:#16171c; --ink:#e9e6dd; --soft:#a29e93; --line:#33363f;
+    --phi:#62d2c6; --phi-bg:#16312f; --app:#f1ab52; --app-bg:#3a2a14;
+    --ok:#7fd494; --bad:#ff8a80; --bad-bg:#3d1c1a;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#131418; --panel:#1b1d23; --sunk:#16171c; --ink:#e9e6dd; --soft:#a29e93; --line:#33363f;
+  --phi:#62d2c6; --phi-bg:#16312f; --app:#f1ab52; --app-bg:#3a2a14;
+  --ok:#7fd494; --bad:#ff8a80; --bad-bg:#3d1c1a;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 var(--sans)}
+.wrap{max-width:1040px;margin:0 auto;padding:24px 16px 64px}
+a{color:var(--phi)}
+code,pre,kbd{font-family:var(--mono)}
+code{font-size:.88em;background:var(--sunk);border-radius:4px;padding:1px 4px;overflow-wrap:anywhere}
+:focus-visible{outline:2px solid var(--phi);outline-offset:2px}
+button,input,textarea{font:inherit;color:inherit}
+.top{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.mark{font:600 13px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--phi);text-decoration:none}
+.mark:hover{text-decoration:underline}
+.pill{font:600 12px/1 var(--mono);background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:9px 13px;cursor:pointer;white-space:nowrap}
+.pill:hover{border-color:var(--phi)}
+.tabs{display:flex;flex-wrap:wrap;gap:6px;margin:14px 0 0}
+.tabs a{font:600 13px/1 var(--sans);text-decoration:none;color:var(--soft);background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:8px 13px}
+.tabs a:hover{border-color:var(--phi)}
+.tabs a[aria-current="page"]{background:var(--phi);border-color:var(--phi);color:var(--panel)}
+h1{font-size:clamp(30px,5.4vw,46px);line-height:1.08;letter-spacing:-.02em;margin:16px 0 10px;text-wrap:balance}
+h2{font-size:24px;line-height:1.2;letter-spacing:-.01em;margin:44px 0 10px;text-wrap:balance}
+h3{font-size:18px;margin:26px 0 8px}
+p,li{max-width:74ch}
+.lede{color:var(--soft);max-width:70ch;margin:0 0 8px}
+.facts{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:18px 0 22px;padding:0;list-style:none}
+.facts li{border-left:3px solid var(--phi);padding:2px 0 2px 12px;font-size:14.5px;color:var(--soft)}
+.facts li.f-app{border-color:var(--app)}
+.facts li b{display:block;color:var(--ink);font-size:15px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;margin:12px 0}
+.card h2{margin-top:0}
+.tbl{overflow-x:auto;margin:12px 0}
+table{border-collapse:collapse;font-size:14.5px;font-variant-numeric:tabular-nums}
+th,td{text-align:left;padding:6px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--soft);font-weight:600}
+td.n,th.n{text-align:right}
+.src{font-size:13.5px;color:var(--soft)}
+pre{background:var(--sunk);border:1px solid var(--line);border-radius:10px;padding:12px 14px;overflow-x:auto;font-size:13px;line-height:1.5}
+label.f{display:grid;gap:4px;font-size:13px;color:var(--soft);margin:8px 0}
+label.f input{border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:8px 9px;font:14px var(--mono);width:100%}
+.stream{font:15px/1.9 var(--mono);overflow-wrap:anywhere;margin:10px 0 4px}
+.stream span{padding:2px 1px;border-radius:3px}
+.stream span.cw{background:var(--phi-bg)}
+.stream span.cw:nth-child(even){background:var(--app-bg)}
+.stream b{color:var(--phi)}
+.out{font:13.5px/1.6 var(--mono);color:var(--soft);overflow-wrap:anywhere}
+.out .bad{color:var(--bad)} .out .ok{color:var(--ok)}
+.prices{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-top:10px}
+.prices div{border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:var(--bg)}
+.prices b{display:block;font:600 18px var(--mono)}
+.prices span{font-size:12.5px;color:var(--soft)}
+@media (max-width:760px){.facts{grid-template-columns:minmax(0,1fr)}}
+.instrument{margin:18px 0;border-radius:14px;overflow:hidden;border:1px solid var(--line);background:#0a0a0c;color:#e8e6e1}
+.instrument .bar{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:9px 14px;border-bottom:1px solid #26262c;font:12px/1.4 var(--mono);color:#a29e93}
+.instrument #root{min-height:240px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <a class="mark" href="../index.html">← phi · docs</a>
+    <button class="pill" id="theme" type="button" aria-label="Switch between light and dark">theme</button>
+  </div>
+  <nav class="tabs" aria-label="Pages on the register model and the number codes">
+    <a href="../register.html">The register model</a>
+    <a href="codes.html">Fibonacci codes</a>
+    <a href="phi.html">Zeckendorf register</a>
+    <a href="bin.html">Binary register</a>
+    <a href="fib.html">Computing F(n)</a>
+    <a href="matrix.html">Fibonacci Q-matrix</a>
+    <a href="Q.html" aria-current="page">Related work</a>
+  </nav>
+
+    <h1>Related work</h1>
+  <p class="lede">A map of published work around the Zeckendorf register, the Fibonacci Q-matrix and Fibonacci coding, in four domains: pure mathematics, hardware, coding, and adjacent number systems. It places phi among them; it is not a measurement, and the relevance mark on each node is this page's own reading.</p>
+  <ul class="facts">
+    <li><b>What phi builds on.</b>Zeckendorf's theorem, Fibonacci coding, the canonical signed digit form it compares against, and the rewrite rules of Zeckendorf arithmetic.</li>
+    <li><b>What phi does not build.</b>Fibonacci hardware, a matrix register, negafibonacci or base-φ arithmetic: the code holds the one-dimensional register of <code>phi_prune.register</code> only.</li>
+    <li class="f-app"><b>What was checked.</b>Each citation below was looked up; a claim no source could be found for is left out of the map.</li>
+  </ul>
+  <p>The component builds the map up in four levels, each finding alone, then by domain, then across domains, then all of them on the matrix M = [[1, 1], [1, 0]]. Selecting a finding shows its detail and, beside it, the naive call tree of fib(n) annotated with that finding's quantity at each node: the Vajda sign, a Pisano residue, a continued-fraction ratio, the Fibonacci code length of F(k), the CSD Hamming weight of F(k), and so on.</p>
+
+  <section class="instrument" aria-label="Related work, interactive">
+    <div class="bar"><span>Q.jsx, run in the page</span><span>React 18.3.1 and Babel 7.24.7 from cdnjs</span></div>
+    <div id="root">Loading the component…</div>
+  </section>
+
+  <h2>Sources</h2>
+  <div class="tbl"><table>
+    <tr><th>Work</th><th>What the page takes from it</th><th>Source</th></tr>
+    <tr><td>Zeckendorf, 1972, with Lekkerkerker, 1952</td><td>every positive integer is one sum of non-consecutive Fibonacci numbers</td><td><a href="https://en.wikipedia.org/wiki/Zeckendorf%27s_theorem">Zeckendorf's theorem</a></td></tr>
+    <tr><td>Apostolico and Fraenkel, 1987, IEEE Transactions on Information Theory 33</td><td>Fibonacci coding, which confines the effect of errors locally</td><td>doi 10.1109/TIT.1987.1057284</td></tr>
+    <tr><td>Elias, 1975, IEEE Transactions on Information Theory 21</td><td>the gamma and delta codes <code>gap_bits</code> prices</td><td>doi 10.1109/TIT.1975.1055349</td></tr>
+    <tr><td>Reitwiesner, 1960, Advances in Computers 1</td><td>the non-adjacent form, called canonical signed digit, with about a third of its digits nonzero</td><td><a href="https://en.wikipedia.org/wiki/Non-adjacent_form">Non-adjacent form</a></td></tr>
+    <tr><td>Booth, 1951, Quarterly Journal of Mechanics and Applied Mathematics</td><td>Booth recoding of a binary multiplier</td><td><a href="https://en.wikipedia.org/wiki/Booth%27s_multiplication_algorithm">Booth's multiplication algorithm</a></td></tr>
+    <tr><td>Ahlbach, Usatine and Pippenger, 2012</td><td>Zeckendorf addition by circuits of linear size and logarithmic depth</td><td><a href="https://arxiv.org/abs/1207.4497">arXiv:1207.4497</a></td></tr>
+    <tr><td>Fenwick, 2003</td><td>the removal of 2 digits, 2F(k) = F(k+1) + F(k−2), a carry up and a carry two places down</td><td>Zeckendorf arithmetic preprint, Section 2.1</td></tr>
+    <tr><td>Bergman, 1957, Mathematics Magazine 31</td><td>the golden ratio base</td><td><a href="https://math.berkeley.edu/~gbergman/papers/base_tau.pdf">base_tau.pdf</a></td></tr>
+    <tr><td>Rényi, 1957, and Parry, 1960, Acta Mathematica Academiae Scientiarum Hungaricae</td><td>β-expansions, of which the golden mean shift is the case β = φ</td><td><a href="https://en.wikipedia.org/wiki/Non-integer_base_of_numeration">Non-integer base of numeration</a></td></tr>
+    <tr><td>Cassini, 1680</td><td>F(n−1)F(n+1) − F(n)<sup>2</sup> = (−1)<sup>n</sup>, the determinant of Q<sup>n</sup></td><td><a href="https://en.wikipedia.org/wiki/Cassini_and_Catalan_identities">Cassini and Catalan identities</a></td></tr>
+    <tr><td>King, 1960, after Gould, 1981, Fibonacci Quarterly 19</td><td>the name Q-matrix</td><td>Gould, "A History of the Fibonacci Q-Matrix and a Higher-Dimensional Problem"</td></tr>
+    <tr><td>Knuth, 2008</td><td>negafibonacci numbers, from a talk at an MAA meeting</td><td><a href="https://en.wikipedia.org/wiki/Negafibonacci_coding">Negafibonacci coding</a></td></tr>
+  </table></div>
+  <p>Left out of the map, since no source could be found for them: counts of patents and of machines built, savings figures for Fibonacci FPGA designs, the threshold below which Fibonacci codes beat Elias delta, uniqueness claims for negafibonacci representations, and claims that something has never been done. phi's own figures are on the <a href="../register.html">register model</a> and <a href="codes.html">Fibonacci codes</a> pages.</p>
+</div>
+
+<script>
+(function(){
+  var root=document.documentElement,key="dox-theme",btn=document.getElementById("theme");
+  function stored(){try{return localStorage.getItem(key)}catch(e){return null}}
+  function current(){return root.getAttribute("data-theme")||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light")}
+  function label(){btn.textContent=current()==="dark"?"light theme":"dark theme"}
+  var s=stored(); if(s==="dark"||s==="light")root.setAttribute("data-theme",s);
+  label();
+  try{matchMedia("(prefers-color-scheme: dark)").addEventListener("change",label)}catch(e){}
+  btn.addEventListener("click",function(){var n=current()==="dark"?"light":"dark";root.setAttribute("data-theme",n);try{localStorage.setItem(key,n)}catch(e){}label()});
+})();
+</script>
+<script id="src" type="text/plain">
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 
 const MONO = "'JetBrains Mono', 'Fira Code', monospace";
@@ -37,8 +181,8 @@ const FINDINGS = [
     rel: 1,
     year: "1901/1989",
     who: "Tagiuri (1901), Vajda (1989)",
-    what: "F(n+i)·F(n+j) − F(n)·F(n+i+j) = (−1)^n · F(i)·F(j). Every known Fibonacci identity is a special case.",
-    connection: "All identities are projections of M^n algebra. Cassini, Catalan, d'Ocagne — all subsumed.",
+    what: "F(n+i)·F(n+j) − F(n)·F(n+i+j) = (−1)^n · F(i)·F(j). Cassini's, Catalan's and d'Ocagne's identities are special cases.",
+    connection: "It follows from the algebra of the powers M^n. Cassini, Catalan, d'Ocagne — all special cases.",
     links: ["cassini_norm", "lucas", "sl2z"]
   },
   {
@@ -83,7 +227,7 @@ const FINDINGS = [
     who: "Hsu (1993), Benjamin & Quinn (2003)",
     what: "Valid Zeckendorf strings = independent sets on path graph P_n. Count = F(n+2). Fibonacci cube = the graph of valid states.",
     connection:
-      "The adjacency constraint IS choosing an independent set. Tiling proofs give combinatorial Fibonacci identities.",
+      "The (1,∞)-RLL constraint IS choosing an independent set. Tiling proofs give combinatorial Fibonacci identities.",
     links: ["golden_shift", "naf", "crosstalk"]
   },
   {
@@ -114,9 +258,9 @@ const FINDINGS = [
     name: "Negafibonacci",
     rel: 1,
     year: "2008",
-    who: "Donald Knuth",
-    what: "F(−n) = (−1)^(n+1)F(n). Every integer (positive, negative, zero) has a unique negafibonacci representation.",
-    connection: "M^(−n) extends the framework to negative indices. Same adjacency constraint applies.",
+    who: "Donald Knuth, a talk of 2008",
+    what: "F(−n) = (−1)^(n+1)F(n). The negafibonacci numbers 1, −1, 2, −3, 5, … take both signs.",
+    connection: "M^(−n) extends the framework to negative indices.",
     links: ["negafib_code", "phinary"]
   },
   {
@@ -133,12 +277,12 @@ const FINDINGS = [
   {
     id: "cassini_norm",
     domain: "math",
-    name: "Cassini + Pythagorean",
+    name: "Cassini + Sum of Squares",
     rel: 1,
     year: "1680",
     who: "Giovanni Cassini",
-    what: "det(M^n) = (−1)^n (Cassini). F(k)²+F(k+1)² = F(2k+1) (Pythagorean). Two invariants on the state pair.",
-    connection: "Project's 5th projection. Error detection in matrix form: if a²+b² ∉ Fibonacci, state is corrupt.",
+    what: "det(M^n) = (−1)^n (Cassini). F(k)²+F(k+1)² = F(2k+1) (sum of squares). Two invariants on the state pair.",
+    connection: "A state pair that breaks either identity is corrupt. phi's code checks stored weights by their minimal form instead.",
     links: ["vajda", "lucas", "stakhov"]
   },
 
@@ -146,12 +290,12 @@ const FINDINGS = [
   {
     id: "stakhov",
     domain: "hardware",
-    name: "Stakhov's 65 Patents",
+    name: "Stakhov's Fibonacci Hardware",
     rel: 1,
     year: "1977–2009",
     who: "Alexei Stakhov, Vinnitsa Polytechnic",
-    what: "65 international patents, 130 USSR certificates. Fibonacci p-code adders, A/D converters, error-detecting registers.",
-    connection: "Actual φ-register hardware. Adjacency constraint used for built-in error detection in every design.",
+    what: "Fibonacci p-code adders, A/D converters, error-detecting registers.",
+    connection: "Hardware on Fibonacci p-codes, with the (1,∞)-RLL constraint used for error detection.",
     links: ["berstel", "fenwick", "cassini_norm"]
   },
   {
@@ -162,7 +306,7 @@ const FINDINGS = [
     year: "1986/2001",
     who: "Jean Berstel, Frougny & Sakarovitch",
     what: "4-state finite-state transducer that normalizes Fibonacci addition. Processes digit pairs left-to-right.",
-    connection: "THE minimal normalization circuit. A φ-register normalizer described as a finite automaton.",
+    connection: "Zeckendorf normalization of a sum described as a finite automaton.",
     links: ["ahlbach", "fenwick", "async"]
   },
   {
@@ -171,9 +315,9 @@ const FINDINGS = [
     name: "O(n) Gates, O(log n) Depth",
     rel: 1,
     year: "2012",
-    who: "Ahlbach & Pippenger",
-    what: "Zeckendorf add/sub via combinational logic: linear size, logarithmic depth. Comparable to binary carry-lookahead.",
-    connection: "Fibonacci normalization parallelizes as efficiently as binary carry propagation.",
+    who: "Ahlbach, Usatine & Pippenger",
+    what: "Zeckendorf add/sub via combinational logic: linear size, logarithmic depth.",
+    connection: "Zeckendorf addition has circuits of logarithmic depth, the order of binary carry-lookahead.",
     links: ["berstel", "fenwick", "redundant"]
   },
   {
@@ -184,7 +328,7 @@ const FINDINGS = [
     year: "2003",
     who: "Peter Fenwick, U. Auckland",
     what: "Fibonacci has TWO carries: one left (+1 position) and one right (−2 positions). 2·F(n) → F(n+1)+F(n−2).",
-    connection: "Bidirectional carry is what makes φ-register normalization fundamentally different from binary.",
+    connection: "The carry two places down is what sets Zeckendorf normalization apart from binary.",
     links: ["berstel", "ahlbach", "stakhov"]
   },
   {
@@ -194,8 +338,8 @@ const FINDINGS = [
     rel: 1,
     year: "2019–2022",
     who: "Borysenko, Matsenko et al.",
-    what: "Fibonacci decoders on FPGA for optical interconnects. 10–30% hardware savings. No dedicated ASIC exists yet.",
-    connection: "Working silicon (FPGA). The gap: no one has built a dedicated Fibonacci arithmetic chip.",
+    what: "Fibonacci decoders on FPGA for optical interconnects.",
+    connection: "Fibonacci-coded logic on programmable hardware.",
     links: ["stakhov", "async"]
   },
   {
@@ -205,7 +349,7 @@ const FINDINGS = [
     rel: 1,
     year: "1990s–2020s",
     who: "Martin (Caltech), Furber (AMULET), Parhami",
-    what: "QDI circuits use local handshaking. Fibonacci's 011→100 rewrite IS a local-to-global settling process.",
+    what: "QDI circuits use local handshaking. The adjacent 1s rule, 011→100, is a local rewrite too.",
     connection: "Normalization-as-computation maps structurally to delay-insensitive circuit paradigms.",
     links: ["berstel", "redundant", "ternary"]
   },
@@ -214,10 +358,10 @@ const FINDINGS = [
     domain: "hardware",
     name: "Ternary Hardware Revival",
     rel: 1,
-    year: "1958/2026",
-    who: "Brusentsov (Setun), La Rosa (5500FP, 2026)",
-    what: "Balanced ternary {−1,0,1}. Setun: ~50 units built. 5500FP: 24-trit RISC on FPGA (March 2026).",
-    connection: "Stakhov explicitly bridged ternary ↔ Fibonacci ↔ Bergman. Non-binary architectures are buildable.",
+    year: "1958",
+    who: "Brusentsov (Setun)",
+    what: "Balanced ternary {−1,0,1}, in the Setun computer.",
+    connection: "Non-binary arithmetic has been built in hardware.",
     links: ["stakhov", "phinary", "naf"]
   },
 
@@ -229,8 +373,8 @@ const FINDINGS = [
     rel: 1,
     year: "1987",
     who: "Apostolico & Fraenkel",
-    what: "Zeckendorf + '11' delimiter. Length ≈ 1.44·log₂(n). Universal, prefix-free, self-delimiting.",
-    connection: "The code's structure is directly governed by M. The delimiter IS the matrix's [1,1] redundancy.",
+    what: "Zeckendorf representation + an appended 1, so each codeword ends in the comma '11'. Length ≈ 1.44·log₂(n). Universal and prefix-free.",
+    connection: "phi_prune.gaps writes quantization levels and gaps in it.",
     links: ["self_sync", "negafib_code", "inverted_idx"]
   },
   {
@@ -238,21 +382,21 @@ const FINDINGS = [
     domain: "coding",
     name: "Self-Synchronization",
     rel: 1,
-    year: "1965/1987",
-    who: "Kautz (1965), Apostolico-Fraenkel (1987)",
-    what: "After a bit error, max edit distance = 3 tokens. Reading '0' stops error propagation. Elias codes: total corruption.",
-    connection: "The killer practical feature. Falls directly from the adjacency constraint / delimiter property.",
+    year: "1987",
+    who: "Apostolico & Fraenkel (1987)",
+    what: "The codes confine the effect of a bit error locally: a reader is back on codeword boundaries at a comma it reads rightly.",
+    connection: "It follows from the comma, which the (1,∞)-RLL constraint makes possible.",
     links: ["fib_code", "crosstalk", "indep_sets"]
   },
   {
     id: "inverted_idx",
     domain: "coding",
-    name: "Search Index Compression",
+    name: "Gap Codes Measured",
     rel: 1,
-    year: "2021",
-    who: "Pibiri & Venturini, Klein & Ben-Nissan",
-    what: "Fibonacci competitive for inverted index compression. Beats Elias delta for n < 514,228. No parameter tuning needed.",
-    connection: "Practical deployment. Fibonacci codes are a competitive baseline for real-world search engines.",
+    year: "phi",
+    who: "phi's transformer check",
+    what: "On one transformer's delta, Fibonacci-coded gaps took 5.15 bits per kept position at 10% kept, Elias gamma 5.51, Elias delta 5.90.",
+    connection: "The means of three seeds in delta.json of experiments/phi-register, ezexe/p4-phi-experiments. No parameter to tune.",
     links: ["fib_code", "self_sync"]
   },
   {
@@ -263,7 +407,7 @@ const FINDINGS = [
     year: "2015",
     who: "Duan et al., Sathish & Niharika",
     what: "'No consecutive 1s' = forbidden-transition-free bus encoding. Reduces delay variation from crosstalk.",
-    connection: "The adjacency constraint applied to physical-layer bus design. Same rule, different substrate.",
+    connection: "The (1,∞)-RLL constraint applied to physical-layer bus design.",
     links: ["indep_sets", "self_sync", "stakhov"]
   },
   {
@@ -284,8 +428,8 @@ const FINDINGS = [
     rel: 1,
     year: "2008",
     who: "Knuth",
-    what: "Extends Fibonacci coding to all integers. Even-length = positive, odd-length = negative.",
-    connection: "M^(−n) governs the encoding. Complete integer coverage with same delimiter property.",
+    what: "Fibonacci coding on negafibonacci place values, which take both signs.",
+    connection: "M^(−n) governs the place values; each codeword ends in the same comma.",
     links: ["negafib", "fib_code"]
   },
   {
@@ -304,11 +448,11 @@ const FINDINGS = [
   {
     id: "naf",
     domain: "systems",
-    name: "Non-Adjacent Form (NAF)",
+    name: "Canonical Signed Digit (CSD)",
     rel: 1,
     year: "1960",
     who: "George W. Reitwiesner",
-    what: "Digits {−1,0,1}, constraint: no consecutive nonzero digits. Unique, minimal Hamming weight. Used in ECC.",
+    what: "Digits {−1,0,1}, constraint: no consecutive nonzero digits. Unique, minimal Hamming weight, about n/3 nonzero digits.",
     connection: "Structurally identical constraint to Zeckendorf. Siblings: one signed-digit binary, one unsigned Fibonacci.",
     links: ["indep_sets", "booth", "golden_shift"]
   },
@@ -320,18 +464,18 @@ const FINDINGS = [
     year: "1951",
     who: "Andrew Donald Booth",
     what: "Recode binary multiplier to reduce partial products. Scan adjacent pairs, replace runs of 1s.",
-    connection: "Same adjacency philosophy. Booth, NAF, and Zeckendorf all exploit 'no consecutive nonzeros' for efficiency.",
+    connection: "Booth recoding, CSD and the Zeckendorf representation all keep nonzero digits apart.",
     links: ["naf", "ahlbach"]
   },
   {
     id: "phinary",
     domain: "systems",
-    name: "Phinary (Base-φ)",
+    name: "Golden Ratio Base",
     rel: 1,
     year: "1957",
     who: "George Bergman (age 12!)",
-    what: "Base φ, digits {0,1}. Normalization: 011→100 = φ^(n-1)+φ^(n-2)=φ^n. Identical to Fibonacci carry.",
-    connection: "Zeckendorf and phinary are two faces of the same structure. Both encode φ²=φ+1.",
+    what: "Base φ, digits {0,1}. Normalization: 011→100 = φ^(n-1)+φ^(n-2)=φ^n, the same rewrite as the adjacent 1s rule.",
+    connection: "The Zeckendorf representation and base φ share the rewrite. Both encode φ²=φ+1.",
     links: ["contfrac", "zphi", "golden_shift"]
   },
   {
@@ -361,10 +505,10 @@ const FINDINGS = [
     domain: "systems",
     name: "Golden Mean Shift",
     rel: 1,
-    year: "1960",
-    who: "Walter Parry, Alfréd Rényi",
+    year: "1957/1960",
+    who: "Alfréd Rényi (1957), William Parry (1960)",
     what: "β-expansion for β=φ. Admissible sequences avoid '11'. The shift space's transition matrix IS M.",
-    connection: "Symbolic dynamics perspective. The adjacency constraint is the grammar of the golden mean shift.",
+    connection: "Symbolic dynamics perspective. The (1,∞)-RLL constraint is the grammar of the golden mean shift.",
     links: ["indep_sets", "phinary", "naf"]
   },
   {
@@ -372,10 +516,10 @@ const FINDINGS = [
     domain: "systems",
     name: "Redundant Number Systems",
     rel: 1,
-    year: "1959/1961",
-    who: "Metze-Robertson, Avizienis, Parhami",
+    year: "—",
+    who: "signed-digit and redundant binary representations",
     what: "Redundancy enables carry-free addition. Zeckendorf fits as controlled redundancy during normalization.",
-    connection: "Theoretical umbrella. Fibonacci normalization is a specific instance of redundancy resolution.",
+    connection: "A digit above 1 during Zeckendorf normalization is redundancy of the same kind.",
     links: ["ahlbach", "async", "booth"]
   }
 ];
@@ -389,13 +533,13 @@ const CROSS_LINKS = [
   { from: "contfrac", to: "stern_brocot", label: "Matrix paths" },
   { from: "cassini_norm", to: "stakhov", label: "Error detection" },
   { from: "cassini_norm", to: "error_correct", label: "M^n as encoder" },
-  { from: "berstel", to: "async", label: "Local→global settling" },
-  { from: "fib_code", to: "self_sync", label: "Delimiter property" },
+  { from: "berstel", to: "async", label: "Local rewrites" },
+  { from: "fib_code", to: "self_sync", label: "The comma" },
   { from: "negafib", to: "negafib_code", label: "M^(-n) extension" },
   { from: "zphi", to: "phinary", label: "Same ring" },
   { from: "naf", to: "booth", label: "Adjacency family" },
   { from: "conversion", to: "ahlbach", label: "Switching cost" },
-  { from: "stakhov", to: "ternary", label: "Stakhov's bridge" }
+  { from: "stakhov", to: "ternary", label: "Non-binary hardware" }
 ];
 
 // ═══════════════════════════════════════════════════════════════
@@ -420,7 +564,7 @@ const TREE_LEVELS = [
   {
     level: 2,
     label: "Cross-Domain Connections",
-    desc: "The adjacency constraint appears in ALL four domains. What was independent becomes structural.",
+    desc: "The (1,∞)-RLL constraint appears in all four domains. What was independent becomes structural.",
     filter: () => true,
     mode: "cross"
   },
@@ -755,7 +899,7 @@ function TreeDiagram({ level, selectedId, onSelect }) {
           <div
             style={{ fontFamily: MONO, fontSize: 9, color: ORANGE, letterSpacing: 2, marginBottom: 8, textAlign: "center" }}
           >
-            CROSS-DOMAIN CONNECTIONS — THE ADJACENCY CONSTRAINT EVERYWHERE
+            CROSS-DOMAIN CONNECTIONS — THE (1,∞)-RLL CONSTRAINT EVERYWHERE
           </div>
           <div
             style={{
@@ -875,6 +1019,23 @@ function StatsBar({ level }) {
   );
 }
 
+/** Bits in the Fibonacci code of n >= 1: its Zeckendorf digits plus the appended 1, as phi_prune.gaps.fib_code_length. */
+function fibCodeLength(n) {
+  let a = 1, b = 2, digits = 1;
+  while (b <= n) { [a, b] = [b, a + b]; digits++; }
+  return digits + 1;
+}
+
+/** Nonzero digits of n in canonical signed digit form. */
+function csdWeight(n) {
+  let w = 0;
+  while (n > 0) {
+    if (n % 2) { w++; n -= 2 - (n % 4); }
+    n /= 2;
+  }
+  return w;
+}
+
 // Standard Fibonacci & Lucas lookups for annotations
 const SF = [0, 1, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144, 233];
 const LN = [2, 1, 3, 4, 7, 11, 18, 29, 47, 76, 123, 199];
@@ -923,7 +1084,7 @@ function getTreeAnnotation(finding) {
     },
     negafib: {
       eq: "F(−n) = (−1)^(n+1)·F(n)",
-      sub: k => (k === 0 ? "F(0)=0" : `F(−${k})=${(k + 1) % 2 === 0 ? "-" : ""}${sf(k)}`),
+      sub: k => (k === 0 ? "F(0)=0" : `F(−${k})=${k % 2 === 0 ? "-" : ""}${sf(k)}`),
       insight: "Negative indices mirror the tree with alternating signs."
     },
     metallic: {
@@ -934,12 +1095,12 @@ function getTreeAnnotation(finding) {
     cassini_norm: {
       eq: "F(n−1)·F(n+1) − F(n)² = (−1)ⁿ",
       sub: k => (k === 0 ? "base" : `${sf(k - 1)}·${sf(k + 1)}−${sf(k)}²=${k % 2 === 0 ? "+1" : "−1"}`),
-      insight: "Cassini's identity at every node. If the check fails, the state is corrupt."
+      insight: "Cassini's identity at every node. A pair that fails it is corrupt."
     },
     stakhov: {
-      eq: "φ-register: adjacency → built-in error detection",
+      eq: "Fibonacci p-codes: (1,∞)-RLL → error detection",
       sub: k => (k <= 1 ? `F(${k})=${sf(k)}` : "✓"),
-      insight: "Stakhov's 65 patents: every node is a valid φ-register state."
+      insight: "Every node is a valid register state."
     },
     berstel: {
       eq: "4-state transducer normalizes Fibonacci addition",
@@ -949,7 +1110,7 @@ function getTreeAnnotation(finding) {
     ahlbach: {
       eq: "O(n) gates, O(log n) depth — parallel carry",
       sub: k => `d=${k}`,
-      insight: "Tree depth = log structure. Fibonacci carry parallelizes like carry-lookahead."
+      insight: "Logarithmic depth, as in binary carry-lookahead."
     },
     fenwick: {
       eq: "Dual carry: F(n) → F(n+1) + F(n−2)",
@@ -957,39 +1118,39 @@ function getTreeAnnotation(finding) {
       insight: "Two carries per node: one forward (+1), one backward (−2)."
     },
     fpga: {
-      eq: "FPGA Fibonacci decoders: 10–30% savings",
+      eq: "FPGA Fibonacci decoders",
       sub: k => `${sf(k)}b`,
       insight: "Working silicon. Each node = a Fibonacci-weighted bit position."
     },
     async: {
-      eq: "011→100 rewrite = local-to-global settling",
-      sub: k => (k <= 1 ? `${sf(k)}` : "settle"),
-      insight: "Normalization IS computation. Each node settles independently."
+      eq: "011→100 = a local rewrite",
+      sub: k => (k <= 1 ? `${sf(k)}` : "local"),
+      insight: "Each node rewrites locally, with no global order."
     },
     ternary: {
       eq: "Balanced ternary {−1,0,1} ↔ Fibonacci bridge",
       sub: k => (k === 0 ? "0" : `±${sf(k)}`),
-      insight: "Stakhov bridged ternary ↔ Fibonacci. Each node carries signed weight."
+      insight: "Each node carries a signed weight."
     },
     fib_code: {
-      eq: "Zeckendorf + '11' delimiter → universal prefix code",
-      sub: k => (sf(k) <= 1 ? `${sf(k)}` : `≈${Math.ceil(1.44 * Math.log2(sf(k)))}b`),
-      insight: "Code length ≈ 1.44·log₂(n). The '11' delimiter IS the branching redundancy."
+      eq: "Zeckendorf + an appended 1 → the '11' comma, a universal prefix code",
+      sub: k => (sf(k) < 1 ? "—" : `${fibCodeLength(sf(k))}b`),
+      insight: "A codeword is the Zeckendorf representation plus one bit, about 1.44·log₂(n) bits."
     },
     self_sync: {
-      eq: "After bit error: max 3 tokens drift, '0' resyncs",
-      sub: k => (k <= 1 ? "sync" : "≤3"),
-      insight: "Errors don't propagate through the tree. Each subtree resyncs."
+      eq: "After a bit error the reader resyncs at a comma",
+      sub: k => (k <= 1 ? "sync" : "local"),
+      insight: "The effect of an error stays local."
     },
     inverted_idx: {
-      eq: "Beats Elias δ for n < 514,228",
+      eq: "Fibonacci gaps 5.15 b, Elias γ 5.51 b at 10% kept",
       sub: k => "✓fib",
-      insight: "Every node value in this tree is below the crossover. Fibonacci code wins."
+      insight: "phi's one measurement, on a small transformer's delta."
     },
     crosstalk: {
       eq: "'No consecutive 1s' = crosstalk-free bus encoding",
       sub: k => (k <= 1 ? `${sf(k)}` : "no 11"),
-      insight: "The adjacency constraint at each node = forbidden-transition-free bus signal."
+      insight: "The (1,∞)-RLL constraint at each node = forbidden-transition-free bus signal."
     },
     error_correct: {
       eq: "Mⁿ as encoding matrix — detection → 1",
@@ -997,9 +1158,9 @@ function getTreeAnnotation(finding) {
       insight: "The matrix at each node IS the encoder. Detection improves with depth."
     },
     negafib_code: {
-      eq: "NegaFibonacci: extends coding to all integers",
-      sub: k => (k === 0 ? "0" : `F(−${k})=${(k + 1) % 2 === 0 ? "-" : ""}${sf(k)}`),
-      insight: "Even-length = positive, odd-length = negative. Complete integer coverage."
+      eq: "NegaFibonacci coding: place values of both signs",
+      sub: k => (k === 0 ? "0" : `F(−${k})=${k % 2 === 0 ? "-" : ""}${sf(k)}`),
+      insight: "F(−k) is negative for even k."
     },
     conversion: {
       eq: "Binary↔Fibonacci: O(M(n)·log n) circuit",
@@ -1007,19 +1168,19 @@ function getTreeAnnotation(finding) {
       insight: "Each node: the conversion cost between two representations."
     },
     naf: {
-      eq: "NAF: {−1,0,1}, no consecutive nonzeros",
-      sub: k => `w=${sf(k).toString(2).replace(/0/g, "").length}`,
-      insight: "Hamming weight through the tree. NAF and Zeckendorf share the same constraint."
+      eq: "CSD: {−1,0,1}, no consecutive nonzeros",
+      sub: k => `w=${csdWeight(sf(k))}`,
+      insight: "CSD Hamming weight through the tree. CSD and the Zeckendorf representation share the constraint."
     },
     booth: {
       eq: "Booth: recode to reduce partial products",
       sub: k => `${sf(k)}→B`,
-      insight: "Same adjacency philosophy. Booth, NAF, Zeckendorf all exploit 'no consecutive nonzeros'."
+      insight: "Booth recoding, CSD and the Zeckendorf representation all keep nonzero digits apart."
     },
     phinary: {
       eq: "Base φ: 011→100 = φⁿ⁻¹+φⁿ⁻²=φⁿ",
       sub: k => `φ^${k}≈${Math.pow(PHI, k).toFixed(2)}`,
-      insight: "Zeckendorf and phinary are two faces of one structure. The carry IS φ²=φ+1."
+      insight: "The Zeckendorf representation and base φ share one rewrite, φ²=φ+1."
     },
     stern_brocot: {
       eq: "Path to φ = RLRLRL... in Stern-Brocot tree",
@@ -1037,9 +1198,9 @@ function getTreeAnnotation(finding) {
       insight: "Symbolic dynamics: each tree path is admissible in the golden mean shift."
     },
     redundant: {
-      eq: "Controlled redundancy → carry-free addition",
+      eq: "Redundant digits → carry-free addition",
       sub: k => (k <= 1 ? `${sf(k)}` : "norm"),
-      insight: "Fibonacci normalization is a specific instance of redundancy resolution."
+      insight: "A digit above 1 during Zeckendorf normalization is redundancy of the same kind."
     }
   };
   const entry = a[finding.id];
@@ -1199,7 +1360,7 @@ function RecursiveView({ finding }) {
           style={{ width: 100, accentColor: GOLD }}
         />
         <span style={{ fontFamily: MONO, fontSize: 13, color: accentColor, fontWeight: 700 }}>{n}</span>
-        <span style={{ fontFamily: MONO, fontSize: 11, color: "rgba(255,255,255,0.4)" }}>) = {FIB[n - 1] || n}</span>
+        <span style={{ fontFamily: MONO, fontSize: 11, color: "rgba(255,255,255,0.4)" }}>) = {n <= 1 ? n : FIB[n - 2]}</span>
         {annotation && (
           <span style={{ fontFamily: MONO, fontSize: 9, color: accentColor, opacity: 0.6 }}>· {annotation.sub(n)}</span>
         )}
@@ -1441,7 +1602,7 @@ function RecursiveView({ finding }) {
               fib({n - 2}) on the right.
             </div>
             <div>
-              <span style={{ color: GOLD }}>Leaf count = value:</span> {ones} ones → fib({n}) = {FIB[n - 1] || n}. The number
+              <span style={{ color: GOLD }}>Leaf count = value:</span> {ones} ones → fib({n}) = {n <= 1 ? n : FIB[n - 2]}. The number
               of 1-leaves IS the Fibonacci number.
             </div>
           </>
@@ -1595,11 +1756,29 @@ export default function ResearchTree() {
             lineHeight: 1.8
           }}
         >
-          The NAND observation and the dual-register switching strategy appear to be novel.
+          phi's code holds the one-dimensional Zeckendorf register only.
           <br />
-          No dedicated Fibonacci arithmetic ASIC has been built. The gap is open.
+          The relevance marks are this page's own reading, not a measurement.
         </div>
       </div>
     </div>
   );
 }
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.24.7/babel.min.js"></script>
+<script>
+(function(){
+  var src = document.getElementById("src").textContent;
+  src = src.replace(/^import\s*\{([^}]+)\}\s*from\s*["']react["'];?\s*$/m, "const {$1} = React;");
+  src = src.replace(/^export\s+default\s+/m, "window.__App = ");
+  try {
+    var out = Babel.transform(src, { presets: ["react"], filename: "Q.jsx" }).code;
+    (0, eval)(out);
+    ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(window.__App));
+  } catch (e) { document.getElementById("root").textContent = "Could not render: " + e.message; }
+})();
+</script>
+</body>
+</html>
