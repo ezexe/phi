@@ -202,7 +202,7 @@ def test_check_without_torch_checks_what_retrieval_serves(tmp_path, monkeypatch,
     assert rep["no_torch"] == "phi_rank"
     assert "train ranker" not in rep["owed"]
     assert rep["labels"] == with_torch["labels"] and rep["labelled_tasks"] == with_torch["labelled_tasks"]
-    assert [o for o in with_torch["owed"] if o != "train ranker"] == rep["owed"]
+    assert [o for o in with_torch["owed"] if o not in ("train ranker", "seed .gitignore/.gitattributes")] == rep["owed"]
     phi_model.print_check(rep)
     assert "pt ranker: not checked or trained here" in capsys.readouterr().out
 
@@ -249,6 +249,22 @@ def test_check_asks_to_untrack_the_local_build_in_the_stores_layout(tmp_path):
     git(p4, "commit", "-qm", "x")
     assert "untrack phi/models/ranker.pt with git rm --cached: the checkpoints git keeps rebuild it" in \
         phi_model.check(p4, PLUGIN)["owed"]
+
+
+@needs_plugin
+def test_a_store_as_the_plugin_seeds_it_is_current(tmp_path, monkeypatch):
+    """A store p4-phi seeded, with no dual encoder asked for, owes no seeding of the LFS lines only the dual
+    encoder's checkpoints need, so check exits 0."""
+    monkeypatch.delenv("VLDS_PT_RANKER")
+    root = tmp_path / "proj"
+    p4 = str(root / ".claude" / "p4")
+    phi_store_repo(p4)
+    with open(os.path.join(p4, ".gitignore"), "w", encoding="utf-8") as f:
+        f.write("phi/models/index.json\nphi/models/ranker.pt\n")
+    assert phi_model.check(p4, PLUGIN)["owed"] == []
+    assert phi_model.main(["check", "--project", str(root), "--plugin", PLUGIN]) == 0
+    monkeypatch.setenv("VLDS_PT_RANKER", "1")
+    assert "seed .gitignore/.gitattributes" in phi_model.check(p4, PLUGIN)["owed"]
 
 
 @needs_plugin
@@ -337,6 +353,6 @@ def test_the_dual_encoder_is_off_unless_asked(tmp_path, monkeypatch, capsys):
     monkeypatch.delenv("VLDS_PT_RANKER")
     rep = phi_model.check(p4, PLUGIN)
     assert rep["pt_off"] and "train ranker" not in rep["owed"]
-    assert [o for o in on["owed"] if o != "train ranker"] == rep["owed"]
+    assert [o for o in on["owed"] if o not in ("train ranker", "seed .gitignore/.gitattributes")] == rep["owed"]
     phi_model.print_check(rep)
     assert "pt ranker: off" in capsys.readouterr().out

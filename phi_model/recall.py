@@ -201,7 +201,8 @@ def check(p4: str, plugin: str, version: str) -> Dict:
     gi = os.path.join(p4, ".gitignore")
     rep["gitignore"] = os.path.exists(gi)
     local_build = rep["gitignore"] and f"{mrel}/ranker.pt" in open(gi, encoding="utf-8").read().split("\n")
-    if not rep["gitignore"] or not rep["lfs"] or not local_build:
+    # the LFS lines and the local build's line serve the dual encoder's checkpoints, which only it writes
+    if not skip_pt and (not rep["gitignore"] or not rep["lfs"] or not local_build):
         rep["owed"].append("seed .gitignore/.gitattributes")
 
     labels = m.labels.read_tsv(m.labels.mpath(p4, m.labels.TRAIN))
