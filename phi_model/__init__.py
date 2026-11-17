@@ -88,17 +88,78 @@ def is_plugin(path: str) -> bool:
     return recall.is_plugin(path)
 
 
+def plugins_root() -> str:
+    """Claude Code's plugins root: $CLAUDE_CODE_PLUGIN_CACHE_DIR, else the plugins folder of $CLAUDE_CONFIG_DIR, else
+    ~/.claude/plugins, as Claude Code's environment variables page gives them."""
+    root = os.environ.get("CLAUDE_CODE_PLUGIN_CACHE_DIR", "")
+    if root:
+        return root
+    return os.path.join(os.environ.get("CLAUDE_CONFIG_DIR", "") or os.path.join(os.path.expanduser("~"), ".claude"),
+                        "plugins")
+
+
+def _load(path: str):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
+def in_place(location: str, name: str = "p4-phi") -> str:
+    """Where a plugin sits in a marketplace read in place: the source its marketplace.json gives it, resolved from the
+    marketplace's root and its metadata.pluginRoot, else plugins/<name>. The location is the path the marketplace was
+    added from: its folder for a `directory` source, its marketplace.json for a `file` source, whose root is the
+    folder that holds .claude-plugin/, or else the file's own folder."""
+    if os.path.isfile(location):
+        manifest, location = location, os.path.dirname(location)
+        if os.path.basename(location) == ".claude-plugin":
+            location = os.path.dirname(location)
+    else:
+        manifest = os.path.join(location, ".claude-plugin", "marketplace.json")
+    data = _load(manifest)
+    if isinstance(data, dict):
+        meta = data.get("metadata") if isinstance(data.get("metadata"), dict) else {}
+        for p in data.get("plugins") or []:
+            src = p.get("source") if isinstance(p, dict) and p.get("name") == name else None
+            if isinstance(src, str) and src:
+                if not src.startswith(".") and meta.get("pluginRoot"):
+                    src = os.path.join(meta["pluginRoot"], src)
+                return os.path.normpath(os.path.join(location, src))
+    return os.path.join(location, "plugins", name)
+
+
 def find_plugin(given: str = "", project: str = "") -> str:
     """The p4-phi plugin's root. --plugin, then $P4_RECALL_PLUGIN_ROOT, win outright when they name the plugin.
-    Otherwise the newest of the installed copies under ~/.claude/plugins and of a marketplace checkout beside the
-    project; never a wider sweep of the home directory, whose code this would import."""
+    Otherwise the copy sessions load, read from Claude Code's registry files under the plugins root: an installed
+    p4-phi of a marketplace read in place, from a directory or a file, loads from its folder in that marketplace and
+    never from its cache copy; any other installed one loads from its installPath. With none installed, a p4-phi in
+    a marketplace read in place, then a marketplace checkout beside the project. The newest of the first of these
+    that holds one wins; never a wider sweep of the home directory, whose code this would import."""
     for explicit in (given, os.environ.get("P4_RECALL_PLUGIN_ROOT", "")):
         if explicit:
             if not is_plugin(explicit):
                 raise SystemExit(f"phi_model — {explicit} is not the p4-phi plugin: it lacks scripts/p4.py or scripts/train.py")
             return os.path.abspath(explicit)
-    home = os.path.expanduser("~")
-    cands = []
+    root = plugins_root()
+    local = {}                      # marketplace name: its folder, for a marketplace read in place
+    known = _load(os.path.join(root, "known_marketplaces.json"))
+    for name, rec in (known.items() if isinstance(known, dict) else []):
+        src = rec.get("source") if isinstance(rec, dict) else None
+        if isinstance(src, dict) and src.get("source") in ("directory", "file") and rec.get("installLocation"):
+            local[name] = rec["installLocation"]
+    loaded = []
+    installed = _load(os.path.join(root, "installed_plugins.json"))
+    plugins = installed.get("plugins") if isinstance(installed, dict) else None
+    for pid, recs in (plugins.items() if isinstance(plugins, dict) else []):
+        name, _, market = pid.partition("@")
+        if name != "p4-phi":
+            continue
+        for rec in (recs if isinstance(recs, list) else [recs]):
+            if market in local:
+                loaded.append(in_place(local[market]))
+            elif isinstance(rec, dict) and rec.get("installPath"):
+                loaded.append(rec["installPath"])
     # a marketplace checkout beside the project, or beside one of its four nearest ancestors, so that a store checked
     # out under a project's experiments/ still finds the checkout at the project's top
     ancestors, d = [], os.path.dirname(os.path.abspath(project or "."))
@@ -108,30 +169,14 @@ def find_plugin(given: str = "", project: str = "") -> str:
         if up == d:
             break
         d = up
-    for name in ("p4-phi",):
-        for pattern in (os.path.join(home, ".claude", "plugins", "**", name, ".claude-plugin", "plugin.json"),
-                        *(os.path.join(a, "*", "lbiza", "plugins", name, ".claude-plugin", "plugin.json")
-                          for a in ancestors)):
-            cands += [os.path.dirname(os.path.dirname(p)) for p in glob.glob(pattern, recursive=True)]
-    # the marketplaces and plugins Claude Code's registry files name
-    for reg, key in (("known_marketplaces.json", "installLocation"), ("installed_plugins.json", "installPath")):
-        try:
-            with open(os.path.join(home, ".claude", "plugins", reg), encoding="utf-8") as f:
-                data = json.load(f)
-        except (OSError, ValueError):
-            continue
-        entries = data.get("plugins", {}).values() if reg == "installed_plugins.json" else data.values()
-        for entry in entries:
-            for rec in (entry if isinstance(entry, list) else [entry]):
-                loc = rec.get(key, "") if isinstance(rec, dict) else ""
-                if not loc:
-                    continue
-                cands += [loc] if is_plugin(loc) else [os.path.join(loc, "plugins", "p4-phi")]
-    found = [c for c in dict.fromkeys(cands) if is_plugin(c)]
-    if not found:
-        raise SystemExit("phi_model — no p4-phi plugin was found: pass --plugin <…/lbiza/plugins/p4-phi> or set "
-                         "P4_RECALL_PLUGIN_ROOT")
-    return max(found, key=plugin_version)
+    beside = [os.path.dirname(os.path.dirname(p)) for a in ancestors
+              for p in glob.glob(os.path.join(a, "*", "lbiza", "plugins", "p4-phi", ".claude-plugin", "plugin.json"))]
+    for tier in (loaded, [in_place(loc) for loc in local.values()], beside):
+        found = [c for c in dict.fromkeys(tier) if is_plugin(c)]
+        if found:
+            return max(found, key=plugin_version)
+    raise SystemExit("phi_model — no p4-phi plugin was found: pass --plugin <…/lbiza/plugins/p4-phi> or set "
+                     "P4_RECALL_PLUGIN_ROOT")
 
 
 def run(cmd: List[str], cwd: Optional[str] = None, env: Optional[Dict] = None) -> subprocess.CompletedProcess:

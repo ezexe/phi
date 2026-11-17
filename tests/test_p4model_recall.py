@@ -117,6 +117,68 @@ def test_mode_needs_no_torch(tmp_path, monkeypatch):
     assert phi_model.mode_of(phi_model.read_recall(str(tmp_path))) == "off"
 
 
+def fake_plugin(path, version):
+    (path / "scripts").mkdir(parents=True)
+    for n in ("p4.py", "train.py"):
+        (path / "scripts" / n).write_text("", encoding="utf-8")
+    (path / ".claude-plugin").mkdir()
+    (path / ".claude-plugin" / "plugin.json").write_text(f'{{"name": "p4-phi", "version": "{version}"}}', encoding="utf-8")
+    return path
+
+
+def test_find_plugin_takes_the_copy_sessions_load(tmp_path, monkeypatch):
+    """A plugin of a marketplace read in place loads from its folder there, whatever version its cache copy holds,
+    and the registry is read under $CLAUDE_CODE_PLUGIN_CACHE_DIR when it is set."""
+    import json
+    market = tmp_path / "m" / "k" / "lbiza"
+    folder = fake_plugin(market / "plugins" / "p4-phi", "0.10.1")
+    home = tmp_path / "home"
+    root = home / ".claude" / "plugins"
+    cached = fake_plugin(root / "cache" / "p4-marketplace" / "p4-phi" / "0.11.0", "0.11.0")
+    (root / "known_marketplaces.json").write_text(json.dumps({"p4-marketplace": {
+        "source": {"source": "directory", "path": str(market)}, "installLocation": str(market)}}), encoding="utf-8")
+    (root / "installed_plugins.json").write_text(json.dumps({"version": 2, "plugins": {"p4-phi@p4-marketplace": [
+        {"scope": "user", "installPath": str(cached), "version": "0.11.0"}]}}), encoding="utf-8")
+    for var in ("HOME", "USERPROFILE"):
+        monkeypatch.setenv(var, str(home))
+    for var in ("P4_RECALL_PLUGIN_ROOT", "CLAUDE_CONFIG_DIR", "CLAUDE_CODE_PLUGIN_CACHE_DIR"):
+        monkeypatch.delenv(var, raising=False)
+    project = tmp_path / "elsewhere" / "proj"
+    (project / ".claude" / "p4" / "store").mkdir(parents=True)
+    assert phi_model.find_plugin("", str(project)) == str(folder)
+    moved = tmp_path / "plugins-root"
+    root.rename(moved)
+    monkeypatch.setenv("CLAUDE_CODE_PLUGIN_CACHE_DIR", str(moved))
+    assert phi_model.find_plugin("", str(project)) == str(folder)
+
+
+def test_find_plugin_reads_a_file_marketplace_under_claude_config_dir(tmp_path, monkeypatch):
+    """A marketplace added from its marketplace.json, a `file` source, is read in place from the folder that holds
+    .claude-plugin/, with the plugin where the file's entry puts it; the registry is read under $CLAUDE_CONFIG_DIR's
+    plugins folder when no $CLAUDE_CODE_PLUGIN_CACHE_DIR is set."""
+    import json
+    market = tmp_path / "m" / "lbiza"
+    folder = fake_plugin(market / "kit" / "p4-phi", "0.11.5")
+    manifest = market / ".claude-plugin" / "marketplace.json"
+    manifest.parent.mkdir()
+    manifest.write_text(json.dumps({"name": "p4-marketplace", "plugins": [{"name": "p4-phi", "source": "./kit/p4-phi"}]}),
+                        encoding="utf-8")
+    root = tmp_path / "config" / "plugins"
+    cached = fake_plugin(root / "cache" / "p4-marketplace" / "p4-phi" / "0.11.4", "0.11.4")
+    (root / "known_marketplaces.json").write_text(json.dumps({"p4-marketplace": {
+        "source": {"source": "file", "path": str(manifest)}, "installLocation": str(manifest)}}), encoding="utf-8")
+    (root / "installed_plugins.json").write_text(json.dumps({"version": 2, "plugins": {"p4-phi@p4-marketplace": [
+        {"scope": "user", "installPath": str(cached), "version": "0.11.4"}]}}), encoding="utf-8")
+    for var in ("HOME", "USERPROFILE"):
+        monkeypatch.setenv(var, str(tmp_path / "home"))
+    for var in ("P4_RECALL_PLUGIN_ROOT", "CLAUDE_CODE_PLUGIN_CACHE_DIR"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
+    project = tmp_path / "a" / "b" / "c" / "d" / "e" / "proj"
+    (project / ".claude" / "p4" / "store").mkdir(parents=True)
+    assert phi_model.find_plugin("", str(project)) == str(folder)
+
+
 def test_modes_live_in_p4_json_and_keep_every_other_key(tmp_path):
     p4 = str(tmp_path)
     os.makedirs(os.path.join(p4, "store"))
