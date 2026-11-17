@@ -375,8 +375,8 @@ def test_a_store_as_the_plugin_seeds_it_is_current(tmp_path, monkeypatch):
 
 @needs_plugin
 def test_update_fails_while_anything_is_stale(tmp_path, monkeypatch):
-    """A notice no training can answer leaves the store stale after update, and update then exits 1, as the check
-    after it does."""
+    """A notice of the logistic regression ranker on a store with too few labelled queries to train it stays open
+    after update, so the store stays stale, and update then exits 1, as the check after it does."""
     root = str(tmp_path / "proj")
     p4 = os.path.join(root, ".claude", "p4")
     write_store(p4, n_tasks=2)
@@ -385,10 +385,32 @@ def test_update_fails_while_anything_is_stale(tmp_path, monkeypatch):
     assert phi_model.check(p4, PLUGIN)["owed"] == []
     sys.path.insert(0, os.path.join(PLUGIN, "scripts"))
     import notices
-    assert notices.notify(p4, "hook stop", KeyError("session_id"), "aaaa1111", now="2026-11-09 18:05")
-    assert phi_model.check(p4, PLUGIN)["owed"]
+    assert notices.notify(p4, "json ranker", ValueError("unreadable"), "aaaa1111", now="2026-11-09 18:05")
+    assert phi_model.check(p4, PLUGIN)["owed"] == ["train json"]
     assert phi_model.main(["update"] + args) == 1
     assert phi_model.main(["check", "--project", root, "--plugin", PLUGIN]) == 1
+
+
+@needs_plugin
+def test_a_release_notice_owes_nothing_and_stays_open(tmp_path, monkeypatch):
+    """A hook's notice is of the family release, which a later version of the plugin answers: check owes no
+    training for it, and update, which retrains the logistic regression ranker for a notice of its own beside it,
+    answers that one, exits 0 and leaves the release notice open."""
+    root = str(tmp_path / "proj")
+    p4 = os.path.join(root, ".claude", "p4")
+    write_store(p4)
+    monkeypatch.delenv("VLDS_PT_RANKER")
+    args = ["--project", root, "--plugin", PLUGIN, "--now", "2026-11-09 18:00", "--minutes", "0"]
+    assert phi_model.main(["init"] + args) == 0
+    sys.path.insert(0, os.path.join(PLUGIN, "scripts"))
+    import notices
+    assert notices.notice_family("hook stop") == "release"
+    assert notices.notify(p4, "hook stop", KeyError("session_id"), "aaaa1111", now="2026-11-09 18:05")
+    assert phi_model.check(p4, PLUGIN)["owed"] == []
+    assert notices.notify(p4, "json ranker", ValueError("unreadable"), "aaaa1111", now="2026-11-09 18:06")
+    assert phi_model.check(p4, PLUGIN)["owed"] == ["train json"]
+    assert phi_model.main(["update"] + args) == 0
+    assert [n["component"] for n in notices.open_notices(p4)] == ["hook stop"]
 
 
 @needs_plugin

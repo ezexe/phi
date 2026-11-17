@@ -273,8 +273,9 @@ def check(p4: str, plugin: str, version: str) -> Dict:
     rep["notices"] = notices
     for n in notices:
         fam = m.notices.notice_family(n["component"])
-        if not (skip_pt and fam == "ranker"):
-            rep["owed"].append("train " + ("ranker" if fam == "ranker" else "json"))
+        if fam == "release" or (skip_pt and fam == "ranker"):
+            continue    # a release notice is answered by a later version of the plugin, never by a training here
+        rep["owed"].append("train " + ("ranker" if fam == "ranker" else "json"))
     rep["owed"] = list(dict.fromkeys(rep["owed"]))
     return rep
 
@@ -333,10 +334,15 @@ def train(p4: str, plugin: str, only: List[str], now: str, minutes: float) -> Di
 
 def resolve_notices(p4: str, plugin: str, trained: Dict[str, Dict], now: str) -> int:
     """Answer the open notices of every model a training just rebuilt, appending them to retrain-resolved.tsv;
-    retrain-needed.tsv is never rewritten. A hook's failure and a round's count as the logistic regression ranker's."""
+    retrain-needed.tsv is never rewritten. A round's notice counts as the logistic regression ranker's, as does one of
+    a family this module does not know; a release notice is never answered here, since a later version of the plugin
+    answers it."""
     m = modules(plugin, p4)
     rebuilt = {k for k, v in trained.items() if v["ok"] and not v.get("empty")}
-    fam_of = lambda c: "ranker" if m.notices.notice_family(c) == "ranker" else "json"  # noqa: E731
+
+    def fam_of(component):
+        fam = m.notices.notice_family(component)
+        return fam if fam in ("ranker", "release") else "json"
     answered = [n for n in m.notices.open_notices(p4) if fam_of(n["component"]) in rebuilt]
     if not answered:
         return 0
