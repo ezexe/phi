@@ -5,8 +5,8 @@ This walkthrough covers the φ-register work merged in [ezexe/phi#2](https://git
 1. The growth-rate equations that set up the comparison
 2. `phi_prune/register.py`, function by function
 3. `tests/test_register.py`, test by test, with what each one establishes
-4. The changes to `.docs/phi/phi.md` and `.docs/phi/matrix.md`
-5. The notebook `.docs/register_settling.ipynb`, cell by cell, with the saved run's output; then (5b–5d) the transformer checks: low and high density and level counts, and fine-tuning updates
+4. The changes to `docs/phi/phi.md` and `docs/phi/matrix.md`
+5. The notebook `docs/register_settling.ipynb`, cell by cell, with the saved run's output; then (5b–5d) the transformer checks: low and high density and level counts, and fine-tuning updates
 6. What holds up, what doesn't, and what is still open
 
 Run everything with:
@@ -14,7 +14,7 @@ Run everything with:
 ```bash
 pip install -e ".[dev]"
 pytest -q tests/test_register.py          # 16 tests, a few seconds
-jupyter nbconvert --to notebook --execute .docs/register_settling.ipynb   # about a minute on CPU
+jupyter nbconvert --to notebook --execute docs/register_settling.ipynb   # about a minute on CPU
 ```
 
 ### Scripts, outputs, and where each is explained
@@ -360,7 +360,7 @@ The whole suite, including the existing `test_core.py`, gives 60 passed and 1 sk
 
 ## 4. Theory docs updated
 
-**`.docs/phi/phi.md`**
+**`docs/phi/phi.md`**
 - **The Clock is Convergence:** adds the completion signal. A settling register still holds a `11` or a 2, and a settled one holds neither, so "done" is the same local scan as the error check. It also adds the measured rounds, with both limits: binary can also be self-timed, and carry-lookahead adders settle in about log₂(width) gate delays.
 - **Error Detection is Free:** replaces "self-correcting by applying the carry rule" with the tested behaviour. The carry rule keeps the corrupted value; 40.9% of flips are detected and 8.6% are correctable.
 - **Arithmetic from the Single Identity:** corrects "carries propagate strictly upward"; the doubling rule sends one carry down.
@@ -369,11 +369,11 @@ The whole suite, including the existing `test_core.py`, gives 60 passed and 1 sk
   - Conversion to the matrix pair is O(width), not "the cost of one normalization".
   - A new subsection, *Self-timing in the switching strategy*, places self-timing on the 1D side only. Value work runs self-timed in 1D; composition work runs clocked in the matrix pair, whose entries are ordinary integers multiplied on binary hardware.
 
-**`.docs/phi/matrix.md`:** adds the same three rows to its dual cost table.
+**`docs/phi/matrix.md`:** adds the same three rows to its dual cost table.
 
 ---
 
-## 5. Notebook `.docs/register_settling.ipynb`
+## 5. Notebook `docs/register_settling.ipynb`
 
 The question: **where does the self-timed φ-register save time in phi-prune's own workload?**
 It runs on CPU in about a minute.
@@ -653,7 +653,7 @@ K8 (Fibonacci gap codes below Elias-gamma and fixed-width at 10%) **survives**, 
 - **Against Elias codes:** Fibonacci codes are the shortest of the parameter-free codes tested: 0.4 bits per position shorter than Elias-gamma at 10% kept, 1.9 bits at 1%.
 - **Against the floor:** they sit 0.5 to 1.3 bits above the entropy floor.
 - **Against fixed-width:** fixed-width position codes need 16 bits, the address size of the largest layer, so Fibonacci gap codes take a third to a half of that.
-- **Not yet tested:** codes tuned to the gap distribution (Golomb-Rice with a fitted parameter, Huffman, arithmetic coding) can reach the entropy floor. `.docs/phi/Q.md` already names Golomb as optimal for geometric gaps.
+- **Not yet tested:** codes tuned to the gap distribution (Golomb-Rice with a fitted parameter, Huffman, arithmetic coding) can reach the entropy floor. `docs/phi/Q.md` already names Golomb as optimal for geometric gaps.
 
 What this says for post-training:
 - **Digits:** the digit saving carries over to fine-tuning updates unchanged, but updates are not a special low-end case.

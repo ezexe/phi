@@ -128,7 +128,7 @@ data-store.md:62 || bears: model 0.64; shares: toolbar, latency, start, page</co
           <tr><td></td><td class="mono">vlds/MODEL-ROAD.md</td><td>This guide, in the repository</td></tr>
           <tr><td>phi</td><td class="mono">phi_prune/gaps.py, delta.py</td><td>Fibonacci gap codes and the <code>.phid</code> delta format that records a model round</td></tr>
           <tr><td></td><td class="mono">phi_prune/p4.py</td><td>A store read as training records: <code>read_p4</code>, <code>split</code>, <code>dispatch_rows</code>, <code>pick_pairs</code></td></tr>
-          <tr><td></td><td class="mono">.docs/p4/continual_p4.ipynb</td><td>Continual training of a small text model on a store, in rounds</td></tr>
+          <tr><td></td><td class="mono">docs/p4/continual_p4.ipynb</td><td>Continual training of a small text model on a store, in rounds</td></tr>
           <tr><td>AudioPlugin-p4</td><td class="mono">models/pick-model.json, dispatch-model.json</td><td>The pool ranker (21 labelled pools) and the dispatch model (232 resembling rows)</td></tr>
         </tbody>
       </table>
@@ -258,7 +258,7 @@ dispatch-model: shadow     # off (default) | shadow | on</code></pre>
 
   <section>
     <h2>The phi side: continual training</h2>
-    <p><code>.docs/p4/continual_p4.ipynb</code> trains a small character-level GPT on a store in rounds and ships each round as a sparse <code>.phid</code> delta. Two smoke runs (300 base steps, 150 per round, held out from 2026-10-26), round 1, in bits per character:</p>
+    <p><code>docs/p4/continual_p4.ipynb</code> trains a small character-level GPT on a store in rounds and ships each round as a sparse <code>.phid</code> delta. Two smoke runs (300 base steps, 150 per round, held out from 2026-10-26), round 1, in bits per character:</p>
     <div class="scroll">
       <table>
         <thead><tr><th>Kept</th><th class="num">Before</th><th class="num">Dense</th><th class="num">Dense, cut</th><th class="num">Sparse-trained</th><th class="num">Position bits: Fibonacci / Elias-gamma</th></tr></thead>
@@ -276,7 +276,7 @@ dispatch-model: shadow     # off (default) | shadow | on</code></pre>
     <p class="muted">These are one seed and short runs. They show what the pipeline measures, not final sizes.</p>
   </section>
 
-  <footer>Source: <span class="mono">Ibiza/plugins/vlds/MODEL-ROAD.md</span> in ezexe/prompty-prompter-pioneer-puppeteer, and <span class="mono">.docs/p4/</span> in ezexe/phi.</footer>
+  <footer>Source: <span class="mono">Ibiza/plugins/vlds/MODEL-ROAD.md</span> in ezexe/prompty-prompter-pioneer-puppeteer, and <span class="mono">docs/p4/</span> in ezexe/phi.</footer>
 </main>
 
 </body></html>

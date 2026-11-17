@@ -52,9 +52,9 @@ When asked to update, or when a session reports open notices:
 
 ## The balanced model: what the measurements settle
 
-This section turns phi's measurements into one configuration. Every figure is from `.docs/p4/nested-store.md` (AudioPlugin-p4, 22 labelled pools, held-out r-precision; k = 4 over 2 seeds, k = 8 over 1). Re-derive a figure before relying on it: rerun `scripts/session/nested_suite.py` on the store it is about, since the stores keep growing.
+This section turns phi's measurements into one configuration. Every figure is from `docs/p4/nested-store.md` (AudioPlugin-p4, 22 labelled pools, held-out r-precision; k = 4 over 2 seeds, k = 8 over 1). Re-derive a figure before relying on it: rerun `scripts/session/nested_suite.py` on the store it is about, since the stores keep growing.
 
-**What p4 runs now (vlds 0.0.77).** The Colab replications (`.docs/p4/nested-store.md`, "Replications on Colab", 2026-10-29) changed the verdicts below. p4 now runs one configuration, with nothing for the owner to set:
+**What p4 runs now (vlds 0.0.77).** The Colab replications (`docs/p4/nested-store.md`, "Replications on Colab", 2026-10-29) changed the verdicts below. p4 now runs one configuration, with nothing for the owner to set:
 - the JSON ranker picks alone, with no `.pt` model trained, served or asked; `pool-effort:` is retired
 - roboto is always the audit's reader, and an audited session trains the ranker on roboto's labels in place of its own pool
 

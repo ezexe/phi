@@ -4,11 +4,11 @@ rendered to static HTML for GitHub Pages (.github/workflows/pages.yml).
 
   README.md, CONTRIBUTING.md         -> readme.html, contributing.html
   .claude/skills/p4-model/SKILL.md   -> skills/p4-model.html
-  .docs/**/*.md                      -> docs/**/*.html
-  .docs/**/*.ipynb                   -> docs/**/*.html (nbconvert, outputs as saved)
-  .docs/**/*.jsx                     -> docs/**/*.jsx.html (React 18 + Babel in the page)
-  .docs/artifacts/*.html             -> docs/artifacts/*.html (a page fragment gets a document skeleton)
-  every other file under .docs/      -> copied as is, so the docs' links to results/ and data resolve
+  docs/**/*.md                       -> docs/**/*.html
+  docs/**/*.ipynb                    -> docs/**/*.html (nbconvert, outputs as saved)
+  docs/**/*.jsx                      -> docs/**/*.jsx.html (React 18 + Babel in the page)
+  docs/artifacts/*.html              -> docs/artifacts/*.html (a page fragment gets a document skeleton)
+  every other file under docs/       -> copied as is, so the docs' links to results/ and data resolve
 
 A relative link to a file the site doesn't carry goes to the file on GitHub instead.
 
@@ -93,16 +93,16 @@ def page(title, body, depth, src=None, wide=False):
 
 
 def collect():
-    """{repo path: site path} for every page, and the .docs files copied as they are."""
+    """{repo path: site path} for every page, and the docs files copied as they are."""
     pages, copies = {}, []
     for src, out in TOP.items():
         if os.path.exists(os.path.join(ROOT, src)):
             pages[src] = out
-    for dirpath, dirs, files in os.walk(os.path.join(ROOT, ".docs")):
+    for dirpath, dirs, files in os.walk(os.path.join(ROOT, "docs")):
         dirs[:] = sorted(d for d in dirs if not d.startswith((".", "__")))
         for f in sorted(files):
             rel = os.path.relpath(os.path.join(dirpath, f), ROOT).replace(os.sep, "/")
-            site = "docs/" + rel[len(".docs/"):]
+            site = "docs/" + rel[len("docs/"):]
             stem, ext = os.path.splitext(site)
             if f.endswith((".pyc",)):
                 continue
@@ -111,7 +111,7 @@ def collect():
             elif ext == ".jsx":
                 pages[rel] = site + ".html"
                 copies.append((rel, site))
-            elif ext == ".html" and rel.startswith(".docs/artifacts/"):
+            elif ext == ".html" and rel.startswith("docs/artifacts/"):
                 pages[rel] = site
             else:
                 copies.append((rel, site))
@@ -248,7 +248,7 @@ def build(out):
 
 
 def folder_indexes(out, listed):
-    """An index.html in every folder that holds pages, so docs/phi/ opens as .docs/phi does on GitHub."""
+    """An index.html in every folder that holds pages, so docs/phi/ opens as docs/phi does on GitHub."""
     names = {prefix: name for prefix, name in SECTIONS if prefix}
     folders = {}
     for site, title, kind in listed:
@@ -268,7 +268,7 @@ def folder_indexes(out, listed):
                        for s, t, k in items)
         head = names.get(d + "/", d)
         body = f'<div class="index"><h1>{html.escape(head)}</h1><ul>{lis}</ul></div>'
-        src = "." + d if d.startswith("docs") else None
+        src = d if d.startswith("docs") else None
         with open(dst, "w", encoding="utf-8", newline="\n") as f:
             f.write(page(head, body, d.count("/") + 1, src))
 

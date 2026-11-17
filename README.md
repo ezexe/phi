@@ -82,7 +82,7 @@ load_bitstream(model, masks, "model.phi")
 
 ## Sparse Deltas
 
-For a model trained in rounds, ship each round's update instead of the whole model: the largest fraction of each tensor's change, positions as Fibonacci gap codes (which beat Elias-gamma, Elias-delta and fixed-width positions on fine-tuning updates, `.docs/register.md` section 5d), values as a sign and a Fibonacci-coded magnitude level.
+For a model trained in rounds, ship each round's update instead of the whole model: the largest fraction of each tensor's change, positions as Fibonacci gap codes (which beat Elias-gamma, Elias-delta and fixed-width positions on fine-tuning updates, `docs/register.md` section 5d), values as a sign and a Fibonacci-coded magnitude level.
 
 ```python
 from phi_prune.delta import encode_delta, apply_delta, save_delta, load_delta
@@ -95,7 +95,7 @@ apply_delta(state, *load_delta("round-01.phid"))  # checks counts, positions and
 base.load_state_dict(state)
 ```
 
-The codes alone are in `phi_prune.gaps` (`encode_positions`, `decode_positions`, `gap_bits`). `phi_store` reads a `.claude/p4` store as training records (`read_p4`, `split`, `dispatch_rows`, `pick_pairs`; `python -m phi_store <p4 root>` prints a summary). `phi_rank` trains a store's small `.pt` ranker continually, each round after an anchor shipped as a packed `phi_prune.delta` (`python -m phi_rank shared` pretrains the shared base from the p4 marketplace's own text); `phi_serve` serves it on localhost, rebuilding it from the chain; `phi_model` is the p4-model skill's checkpoint (`check|init|train|test|update|mode`). The old `phi_prune.p4*` names still work, and [`.docs/p4/continual_p4.ipynb`](.docs/p4/continual_p4.ipynb) trains a small model on a `.claude/p4` store in rounds and ships each as a delta; its smoke runs found that cutting an update to 10% or less loses most of a round's gain, and that the gap codes beat Elias-gamma at 1% kept but only tie it at 10%. The retired vlds plugin's pool ranker ([`MODEL-ROAD.md`](https://github.com/ezexe/p4/blob/6b342fb/lbiza/plugins/vlds/MODEL-ROAD.md), the last p4 commit that held it; the fresh marketplace's p4-recall keeps a different `models/ranker.json`) recorded its training rounds in this format, written without numpy or torch; `tests/test_gaps.py::TestPluginDelta` reads one back.
+The codes alone are in `phi_prune.gaps` (`encode_positions`, `decode_positions`, `gap_bits`). `phi_store` reads a `.claude/p4` store as training records (`read_p4`, `split`, `dispatch_rows`, `pick_pairs`; `python -m phi_store <p4 root>` prints a summary). `phi_rank` trains a store's small `.pt` ranker continually, each round after an anchor shipped as a packed `phi_prune.delta` (`python -m phi_rank shared` pretrains the shared base from the p4 marketplace's own text); `phi_serve` serves it on localhost, rebuilding it from the chain; `phi_model` is the p4-model skill's checkpoint (`check|init|train|test|update|mode`). The old `phi_prune.p4*` names still work, and [`docs/p4/continual_p4.ipynb`](docs/p4/continual_p4.ipynb) trains a small model on a `.claude/p4` store in rounds and ships each as a delta; its smoke runs found that cutting an update to 10% or less loses most of a round's gain, and that the gap codes beat Elias-gamma at 1% kept but only tie it at 10%. The retired vlds plugin's pool ranker ([`MODEL-ROAD.md`](https://github.com/ezexe/p4/blob/6b342fb/lbiza/plugins/vlds/MODEL-ROAD.md), the last p4 commit that held it; the fresh marketplace's p4-recall keeps a different `models/ranker.json`) recorded its training rounds in this format, written without numpy or torch; `tests/test_gaps.py::TestPluginDelta` reads one back.
 
 ## CLI
 
@@ -116,7 +116,7 @@ phi-prune info model_phi.pt
 | 2 of every 4 channels pruned | 88.55% | 3.11% | 50.9% |
 | φ-pruned + Fibonacci encoded | 87.45% | 4.21% | 50.8% |
 
-Estimated hardware savings (vs dense binary), not measured: 86% multiplier area and 71% power-delay product, which combine the 50.8% density with the 73% multiplier-area and 43% power-delay-product reductions that DATE 2021 reported for its Fibonacci weight encoding (1 − 0.508 × 0.27 and 1 − 0.508 × 0.57, in `compute_hardware_cost` of [`.docs/experiment/phase1_stacked.py`](.docs/experiment/phase1_stacked.py)).
+Estimated hardware savings (vs dense binary), not measured: 86% multiplier area and 71% power-delay product, which combine the 50.8% density with the 73% multiplier-area and 43% power-delay-product reductions that DATE 2021 reported for its Fibonacci weight encoding (1 − 0.508 × 0.27 and 1 − 0.508 × 0.57, in `compute_hardware_cost` of [`docs/experiment/phase1_stacked.py`](docs/experiment/phase1_stacked.py)).
 That paper's encoding keeps weights whose binary form has no two adjacent 1s, while this package stores Zeckendorf digits, for which no circuit cost has been estimated.
 Free integrity: 32% single-bit-flip detection via adjacency check, with the experiment's 8-digit sign-magnitude codewords (`abs(round(w / scale))`), which put most weights on the lowest levels. The package encodes `(w - min) * scale` instead and catches more; see below.
 
@@ -144,7 +144,7 @@ In short:
 | ResNet-152 | V1 | 58.2M | 97.47% | 95.28% | 2.19 | 48.8% | 155 | 44.6 |
 | ResNet-152 | V2 | 58.2M | 97.70% | 82.27% | 15.43 | 49.2% | 155 | 44.1 |
 
-One run of [`.docs/quickstart_gpu.ipynb`](.docs/quickstart_gpu.ipynb) with version 0.2.1 of the package on 2026-09-23: ResNet-18 from its walkthrough sections, the others from its variant cells.
+One run of [`docs/quickstart_gpu.ipynb`](docs/quickstart_gpu.ipynb) with version 0.2.1 of the package on 2026-09-23: ResNet-18 from its walkthrough sections, the others from its variant cells.
 Each model starts from torchvision's ImageNet weights with a new 10-class `fc` head, gets 2 dense fine-tuning epochs, has every conv layer pruned while `fc` stays dense, and gets 5 mask-aware fine-tuning epochs; training is SGD with a cosine schedule under fp16 autocast.
 The learning rate is 0.01 for the dense epochs and 0.001 after pruning at batch 128 (ResNet-18 to ResNet-50), halved along with the batch for ResNet-101 and ResNet-152 at batch 64.
 Dense and Pruned are the best CIFAR-10 test accuracy over each stage's epochs; before fine-tuning, every pruned model scored 10.00%, a single predicted class.
@@ -178,7 +178,7 @@ What these numbers mean:
 
 ## φ-Register vs Binary Register
 
-`phi_prune.register` models the φ-register and a binary register as local rewrite rules and compares them on phi-prune's own multiply-accumulate step; [`.docs/register.md`](.docs/register.md) walks through the module, its tests, the CPU notebook [`.docs/register_settling.ipynb`](.docs/register_settling.ipynb) and the transformer checks in [`scripts/transformer_check.py`](scripts/transformer_check.py), with a table linking every result to the script that produced it ([`scripts/session/`](scripts/session/)) and its saved output ([`.docs/results/`](.docs/results/)).
+`phi_prune.register` models the φ-register and a binary register as local rewrite rules and compares them on phi-prune's own multiply-accumulate step; [`docs/register.md`](docs/register.md) walks through the module, its tests, the CPU notebook [`docs/register_settling.ipynb`](docs/register_settling.ipynb) and the transformer checks in [`scripts/transformer_check.py`](scripts/transformer_check.py), with a table linking every result to the script that produced it ([`scripts/session/`](scripts/session/)) and its saved output ([`docs/results/`](docs/results/)).
 In short, on synthetic weights so far: a self-timed φ accumulator needs 15% fewer additions and fewer settling rounds per dot product than a clocked binary one (1.7× against carry-lookahead), catches 41-45% of single-bit flips, and loses to a binary accumulator that is also self-timed (0.82×).
 
 ## How It Works

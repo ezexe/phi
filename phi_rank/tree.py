@@ -1,6 +1,6 @@
 """
 The node tree behind the p4-model skill's effort tiers: K small rankers at the first K Zeckendorf store addresses,
-each fine-tuned on the store's labelled pools. Measured in .docs/p4/nested-store.md (stage 3, nested_suite.py) and
+each fine-tuned on the store's labelled pools. Measured in docs/p4/nested-store.md (stage 3, nested_suite.py) and
 in the p4-phi experiments' phi_depth (github.com/ezexe/p4-phi-experiments, 2026-11-09).
 
 How it is built:
