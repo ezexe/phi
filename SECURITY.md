@@ -1,3 +1,3 @@
 <div align="center">
-<img width="200" height="150" alt="OhYeahGIF" src="https://github.com/user-attachments/assets/22e305f1-af74-4221-8701-51c3c3abd82a" />
+<img width="480" height="400" alt="Season3NbcGIFbyTheOffice" src="https://github.com/user-attachments/assets/d042f727-9ce5-4013-8226-1192144000b4" />
 </div>
