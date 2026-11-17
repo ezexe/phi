@@ -1,0 +1,12 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+type: software
+title: "phi"
+abstract: "φ-pruning under the (1,∞)-RLL constraint, Fibonacci coding of quantized weights, and the ranking models the p4 plugins train in a project's store"
+authors:
+  - alias: ezexe
+    website: "https://github.com/ezexe"
+license: Apache-2.0
+version: "0.3.0"
+repository-code: "https://github.com/ezexe/phi"
+url: "https://ezexe.github.io/phi/"
