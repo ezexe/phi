@@ -59,7 +59,7 @@ When asked to update, or when a session reports open notices:
 
 The dual encoder is an experiment, and retrieval has never served it.
 `check`, `update`, `init` and `train` leave it untrained, and find nothing of it stale, unless `VLDS_PT_RANKER=1` is set.
-Its measurements are in ezexe/p4-phi: `experiments/phi_depth/README.md` for the ensemble of `phi_rank.tree`, and `experiments/phi-p4-models` for the runs that compared it with the logistic regression ranker.
+Its measurements are in ezexe/p4-phi-experiments: `experiments/phi_depth/README.md` for the ensemble of `phi_rank.tree`, and `experiments/phi-p4-models` for the runs that compared it with the logistic regression ranker.
 Before switching it on for a store, show that it raises the logistic regression ranker's held-out R-precision on that store.
 
 ## Rules

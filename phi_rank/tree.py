@@ -1,7 +1,7 @@
 """
 An ensemble of K small rankers, its members at the first K Zeckendorf store addresses, each fine-tuned on the store's
-labelled query groups. ezexe/p4-phi measures it in experiments/phi_depth/README.md, on its store W over three seeds
-with K = 4, by held-out R-precision.
+labelled query groups. ezexe/p4-phi-experiments measures it in experiments/phi_depth/README.md, on its store W over
+three seeds with K = 4, by held-out R-precision.
 
 How it is built:
 - the store's tracked text is cut into K shards of equal bytes by when git first added each file, and the oldest
