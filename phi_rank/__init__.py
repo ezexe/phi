@@ -252,12 +252,24 @@ def passages(path: str) -> List[str]:
     return out
 
 
-def corpus_pairs(root: str) -> Tuple[List[Tuple[str, str]], int]:
-    """The positive pairs of neighbouring passages across the repository's text, and the bytes read."""
-    pairs, total = [], 0
-    for p in text_files(root):
+def text_bytes(files: Sequence[str]) -> int:
+    """The bytes passages() reads of these files, each cut at MAX_FILE_BYTES, from their sizes alone."""
+    total = 0
+    for p in files:
+        try:
+            total += min(os.path.getsize(p), MAX_FILE_BYTES)
+        except OSError:
+            pass
+    return total
+
+
+def corpus_pairs(root: str, files: Optional[Sequence[str]] = None) -> Tuple[List[Tuple[str, str]], int]:
+    """The positive pairs of neighbouring passages across the repository's text, and the bytes read: text_bytes() of
+    `files`, text_files(root) when not given."""
+    files = text_files(root) if files is None else files
+    pairs, total = [], text_bytes(files)
+    for p in files:
         ps = passages(p)
-        total += sum(len(x) for x in ps)
         rel = os.path.relpath(p, root)
         pairs += [(f"{rel}\n{a}", b) for a, b in zip(ps, ps[1:])]
         if len(ps) == 1:
@@ -625,18 +637,22 @@ def base_model(p4: str, minutes: float, now: str, repretrain: float = 1.25, writ
     keeps learning what the store adds. write=False, for an evaluation, builds a missing base in memory and saves
     nothing."""
     path = os.path.join(models_dir(p4), "ranker-base.pt")
-    model, prior = None, 0
+    model, prior, files = None, 0, None
     if os.path.exists(path):
         model, meta = load(path)
         thin = minutes > 0 and meta.get("steps", 0) < MIN_PRETRAIN_STEPS
-        if not write or (not thin and (minutes <= 0 or corpus_pairs(p4)[1] <= meta.get("corpus_bytes", 0) * repretrain)):
+        if not write or (not thin and minutes <= 0):
             return model, meta
         if thin:
             model = None
         else:
+            # the files' sizes decide whether the text has grown, so its pairs are built only when it continues
+            files = text_files(p4)
+            if text_bytes(files) <= meta.get("corpus_bytes", 0) * repretrain:
+                return model, meta
             prior = meta.get("steps", 0)
     torch.manual_seed(0)
-    pairs, total = corpus_pairs(p4)
+    pairs, total = corpus_pairs(p4, files)
     model = model or Ranker(nb, dim)       # a base keeps the size it was built at; nb/dim size a new one
     steps = pretrain(model, pairs, minutes) if minutes > 0 else 0
     nb, dim = model.bag.weight.shape

@@ -199,3 +199,25 @@ def test_pretrain_early_stopping():
     assert all(p.device.type == "cpu" for p in m.parameters())
     m2 = phi_rank.Ranker(1 << 12, 16)
     assert phi_rank.pretrain(m2, list(zip(texts, texts[1:])), 0.0005, log=lambda *_: None) > 0   # no select: unchanged
+
+
+def test_the_base_reads_the_text_once_to_continue_and_never_to_keep_itself(tmp_path, monkeypatch):
+    """base_model keeps its base while the text has not grown `repretrain` times and continues when it has, as it
+    did, and decides from the files' sizes: it cuts the files into passages only to continue, once each."""
+    make_store(tmp_path)
+    monkeypatch.setattr(phi_rank, "pretrain", lambda model, pairs, minutes, **kw: phi_rank.MIN_PRETRAIN_STEPS)
+    cut = []
+    real = phi_rank.passages
+    monkeypatch.setattr(phi_rank, "passages", lambda path: cut.append(path) or real(path))
+    p4, now = str(tmp_path), "2026-10-27"
+    _, built = phi_rank.base_model(p4, 0.01, now, nb=4096, dim=16)
+    assert len(cut) == len(phi_rank.text_files(p4)) and "continued_from_steps" not in built
+    cut.clear()
+    grown = tmp_path / "notes" / "grown.md"
+    grown.write_bytes(b"x" * int(built["corpus_bytes"] * 0.2))           # grown by a fifth: the base is kept
+    _, kept = phi_rank.base_model(p4, 0.01, now, nb=4096, dim=16)
+    assert kept == built and cut == []
+    grown.write_bytes(b"x" * int(built["corpus_bytes"] * 0.3))           # by three tenths: it continues
+    _, continued = phi_rank.base_model(p4, 0.01, now, nb=4096, dim=16)
+    assert continued["continued_from_steps"] == built["steps"] and continued["corpus_bytes"] > built["corpus_bytes"]
+    assert sorted(cut) == sorted(phi_rank.text_files(p4))
