@@ -2,7 +2,7 @@
 
 import json
 
-from phi_store import mind_reader_scores, pick_pairs, read_p4, session_id, split
+from phi_store import mind_reader_scores, read_p4, session_id, split
 
 
 def write(path, text):
@@ -81,8 +81,3 @@ def test_split_and_scores(tmp_path):
     assert {r.session for r in held} == {"f-held"}
     assert all(not r.time or r.time < "2026-10-25 00:00" for r in train)
 
-
-def test_pick_pairs(tmp_path):
-    path = tmp_path / "pairs.jsonl"
-    path.write_text(json.dumps({"task": "t", "file": "ledger.md", "text": "x", "label": 1}) + "\n\n", encoding="utf-8")
-    assert pick_pairs(str(path)) == [{"task": "t", "file": "ledger.md", "text": "x", "label": 1}]

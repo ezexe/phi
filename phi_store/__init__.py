@@ -368,14 +368,6 @@ def read_p4(root: str, plans: Optional[str] = None) -> Iterator[Record]:
                 yield Record("pretrain", rel, path.stem, _time_of(text), text)
 
 
-def pick_pairs(jsonl: str) -> List[dict]:
-    """The pool pick pairs the vlds plugin writes (`scripts/pick_model.py pairs --jsonl`): one row per candidate
-    barrier row of each labelled pool, with its task, file, kind, state, distilled text and 0/1 label. The plugin
-    builds them because it owns the barrier; a ranker trained here reads the same pairs."""
-    with open(jsonl, encoding="utf-8") as f:
-        return [json.loads(line) for line in f if line.strip()]
-
-
 def split(records: List[Record], cutoff: str) -> Tuple[List[Record], List[Record]]:
     """Records timed before cutoff train; timed at or after it are held out; untimed ones train."""
     train = [r for r in records if not r.time or r.time < cutoff]
