@@ -1,39 +1,61 @@
-**A. Edge deployment — shrink a model for devices without NVIDIA GPUs**
+# Contributing to phi
 
-You have a trained model that's too large for a Raspberry Pi, Jetson Nano, or mobile phone. Prune it to 50% density, fine-tune, deploy. The inference code is standard PyTorch — zeros are zeros, no special runtime. Model file is half the effective size. Works on ARM, x86, AMD, anything.
+phi is the Python package `phi-prune`: φ-pruning, the quantization and Fibonacci coding of pruned weights, and the ranking models the p4 plugins train in a project's store.
+This page says how to set it up, run its tests and commit to it.
 
-**B. FPGA inference — eliminate multipliers**
+## Set up
 
-After pruning, Fibonacci-encode the surviving weights. Each weight becomes a sum of non-consecutive Fibonacci numbers. Multiplication by that weight becomes shift-and-add (shift along the Fibonacci sequence, add the results). On an FPGA, this replaces multiplier blocks (DSP slices) with adder trees — 86% area reduction per the published literature. You fit a larger model on the same FPGA, or a same-size model on a cheaper FPGA.
+phi needs Python 3.11 or later.
+From a clone of the repository:
 
-**C. Safety-critical inference — free corruption detection**
+```bash
+python -m venv .venv
+```
 
-Automotive, medical, aerospace. Radiation causes single-event upsets that flip bits in weight SRAM. Load a Fibonacci-encoded checkpoint, and on every weight read, scan for adjacent 1s. If found, the weight is corrupted. No CRC, no ECC overhead — just one bitwise check. Catches 46–48% of single-bit flips for free on pretrained ResNets (32% with the sign-magnitude codes of the original experiment). Layer lightweight ECC on top for the rest and your total protection cost drops.
+```bash
+source .venv/bin/activate
+```
 
-**D. Model distribution — smaller downloads, self-framing streams**
+```bash
+pip install torch --index-url https://download.pytorch.org/whl/cpu
+```
 
-Publish your pruned model as a Fibonacci bitstream. The format is self-delimiting (each codeword boundary is found by scanning for "11"), so the decoder doesn't need length headers or a schema. Corrupt bytes in transit don't propagate — you lose one weight, not the rest of the tensor. The mask compresses to 0.694 bits/position (vs 1.0 for arbitrary 50% masks) because the RLL structure has a known optimal encoding. Smaller OTA updates for edge fleets.
+```bash
+pip install -e ".[dev]"
+```
 
-**E. Federated learning — resilient weight updates**
+On Windows the second step is `.venv\Scripts\activate`.
+torch's CPU wheels are all the tests need of torch; without the third step, the fourth installs torch from PyPI instead.
+`pip install -e ".[dev,export]"` adds onnx, onnxruntime and onnxscript, which `phi_prune.export.export_onnx` and `tests/test_export_onnx.py` need.
+`pip install markdown nbconvert` adds what `tests/test_site.py` needs.
+The tests of `tests/test_p4model_recall.py` need the p4-phi plugin of ezexe/p4, found through `P4_RECALL_PLUGIN_ROOT` or a checkout of ezexe/p4 beside this one.
+A test whose packages or plugin are missing is skipped, and the run prints the reason.
 
-Clients send pruned weight deltas to the server. Self-delimiting format means partial uploads are still parseable — if the connection drops, everything received so far decodes cleanly. Adjacency check on arrival catches transmission errors without a full checksum pass.
+## Run the tests
 
-**F. Neural architecture search — analytic capacity budgets**
+```bash
+python -m pytest
+```
 
-The φ mask has a known information capacity: log₂(φ) ≈ 0.694 bits per position. Before training, you can calculate the exact representational budget of each layer. Allocate capacity across layers mathematically rather than by trial-and-error pruning ratios. No other pruning method gives you a closed-form capacity bound.
+That one command runs the whole suite under `tests/`, with the options `[tool.pytest.ini_options]` of `pyproject.toml` gives it: the duration of every setup, call and teardown, and every outcome but a pass, each skip with its reason.
+`test_the_whole_run_fits_its_budget` in `tests/test_suite.py` runs after every other test and fails a run that took longer than `budget_seconds`, 60 seconds, the budget set in the same table.
+On a CI runner, where `CI` is set to anything but `0` or `false`, nothing fails on time, and pytest's last line gives the time.
+While working on one module, run its file alone, such as `python -m pytest tests/test_core.py`.
 
-**G. Adversarial robustness — spectral defense**
+The tests workflow, `.github/workflows/tests.yml`, runs `python -m pytest` on every push to `main` and every pull request, twice: on the floors `pyproject.toml` admits, Python 3.11 with torch 2.4.1 and numpy 1.24.0, and on Python 3.15 with the newest torch and numpy.
+Its export job installs the export extra on Python 3.14, the newest Python onnxruntime has wheels for, and fails when `tests/test_export_onnx.py` skips.
 
-Phase 2 showed φ-pruning pushes 87% of activation energy into low frequencies (vs 52% dense). Phase 4 is testing whether this translates to adversarial resistance. If it does: prune for compression, get robustness for free. No adversarial training (2× compute cost), no input preprocessing, no ensembles.
+## Commit
 
-**H. Knowledge distillation — smoother teacher**
+- One change per commit, with the tests that prove it in the same commit.
+- The subject names the module, file or area the commit touches, a colon, then what is true once it lands, such as `encoding: encode_tensor rounds to the nearest level instead of searching the grid`.
+- The body says why, and what was run to prove it and what that run showed.
+- A commit that closes an issue says `Closes #N` in its body, and one that only works towards it says `Refs #N`.
 
-A φ-pruned teacher produces smoother soft labels (less high-frequency noise in the output distribution). Smoother soft labels are easier for a student network to learn from. A pruned teacher might be a better distillation source than the dense original despite lower accuracy.
+## Where things are
 
-**I. Quantization-aware training — Fibonacci as the quantization grid**
-
-Quantize to Fibonacci levels (55 levels at 8 digits, 144 at 10 digits). The levels themselves are uniform — every integer from 0 to F(n+2) − 1 has a Zeckendorf form — so accuracy matches uniform quantization with the same number of levels; what changes is the digits, which need fewer 1s per weight than binary (see `scripts/transformer_check.py`). Combine with pruning: prune first (removes 50% of weights), then quantize survivors to Fibonacci grid. Both operations respect the same constraint.
-
-**J. Model integrity verification — deployment pipeline checksums**
-
-Before deploying a model update to production, run `phi-prune check model.pt`. One command verifies every weight in every pruned layer hasn't been corrupted since training. Integrates into CI/CD — fail the deployment if any mask is violated. No cryptographic hashing needed for structural integrity (use hashing separately for authentication).
+- `phi_prune/`: pruning, the masks, quantization, the Fibonacci code, the checks of quantized weights, export, sparse deltas, the Zeckendorf and binary register model of `register.py` that the code builds on, and the `phi-prune` command; `p4.py`, `p4rank.py`, `p4serve.py` and `p4model.py` forward the older module names to the packages below.
+- `phi_store/`, `phi_rank/`, `phi_serve/` and `phi_model/`: the reader of a `.claude/p4` store and the ranking models the p4 plugins train and serve.
+- `tests/`: the suite.
+- `docs/`: the documentation, published to https://ezexe.github.io/phi/ on every push to `main`.
+- The measurement scripts, notebooks and result files live in [ezexe/p4-phi-experiments](https://github.com/ezexe/p4-phi-experiments), and a page that shows a measured figure names the result file it comes from there.
