@@ -9,7 +9,8 @@ unreadable falls back to BM25, and a hook that raises goes on; each appends one 
 and does nothing more. This module is where those rows are read and answered, and phi_model.recall holds the modes,
 the check and the trainings:
 
-    python -m phi_model check  --project <repo or its .claude/p4>    what stands, what is stale, what failed
+    python -m phi_model check  --project <repo or its .claude/p4>    what stands, what is stale, what failed;
+                                                                              a flat store is moved into the layout first
     python -m phi_model init   --project <…> [--mode shadow]          set up, train the logistic regression ranker,
                                                                               and the dual encoder with VLDS_PT_RANKER=1,
                                                                               set the mode

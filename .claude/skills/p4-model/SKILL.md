@@ -49,7 +49,7 @@ A mode writes `recall.inject` and `recall.learn` in `p4.json`:
 
 When asked to update, or when a session reports open notices:
 
-1. `check`. Read `owed`, the notices and anything marked `CORRUPT`.
+1. `check`. Read `owed`, the notices and anything marked `CORRUPT`. On a store an older plugin wrote flat, `check` first moves it into the layout through the plugin's own migration, which commits the move.
 2. `update`. It trains only what is stale, answers the notices of each model it rebuilt by appending them to `phi/models/retrain-resolved.tsv`, and checks again. `retrain-needed.tsv` is append-only and never rewritten. A model with nothing to learn yet is no failure and answers no notice.
 3. If a training failed, read its output, which `update` and `train` print. Fix the cause in this repository, in `phi_rank`, `phi_model` or `phi_prune`, or report it as a plugin bug for ezexe/p4. Do not edit the store's sessions to make a model train.
 4. `test` when a model changed materially, as a new base, a change of mode or a fix does. Report the held-out numbers against the previous ones and against BM25. `test` writes nothing the store serves: the dual encoder's evaluation never saves the pretrained base, and builds a missing one in memory, up to `--minutes`.

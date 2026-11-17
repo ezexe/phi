@@ -166,7 +166,9 @@ def labelled_tasks(m, p4: str) -> int:
 
 
 def check(p4: str, plugin: str, version: str) -> Dict:
-    """Everything that stands and everything stale on the store; `owed` lists what update would do."""
+    """Everything that stands and everything stale on the store; `owed` lists what update would do. A store an
+    older plugin wrote flat is first moved into the layout by the plugin's own migration, which commits the move, as
+    the plugin's next session start would."""
     no_torch = None
     try:
         from phi_rank import ANCHOR, CURRENT, read_sidecar, sidecar_name
