@@ -1,0 +1,411 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The register model · phi docs</title>
+<meta name="description" content="phi_prune.register: a Zeckendorf register and a binary register, each brought to normal form by local rewrite rules, and what the measurements of the two show.">
+<style>
+:root{
+  --bg:#f5f3ec; --panel:#fffdf7; --sunk:#efece2; --ink:#1d1c19; --soft:#5d5a52; --line:#d9d4c6;
+  --phi:#0b6b66; --phi-bg:#dcefec; --app:#a85507; --app-bg:#f8e7d2;
+  --ok:#2c7a3f; --bad:#b3261e; --bad-bg:#fbe5e2;
+  --mono:ui-monospace,"Cascadia Code","SF Mono",Menlo,Consolas,monospace;
+  --sans:"Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,"Helvetica Neue",sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#131418; --panel:#1b1d23; --sunk:#16171c; --ink:#e9e6dd; --soft:#a29e93; --line:#33363f;
+    --phi:#62d2c6; --phi-bg:#16312f; --app:#f1ab52; --app-bg:#3a2a14;
+    --ok:#7fd494; --bad:#ff8a80; --bad-bg:#3d1c1a;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#131418; --panel:#1b1d23; --sunk:#16171c; --ink:#e9e6dd; --soft:#a29e93; --line:#33363f;
+  --phi:#62d2c6; --phi-bg:#16312f; --app:#f1ab52; --app-bg:#3a2a14;
+  --ok:#7fd494; --bad:#ff8a80; --bad-bg:#3d1c1a;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 var(--sans)}
+.wrap{max-width:1040px;margin:0 auto;padding:24px 16px 64px}
+a{color:var(--phi)}
+code,pre,kbd{font-family:var(--mono)}
+code{font-size:.88em;background:var(--sunk);border-radius:4px;padding:1px 4px;overflow-wrap:anywhere}
+:focus-visible{outline:2px solid var(--phi);outline-offset:2px}
+button,input{font:inherit;color:inherit}
+.top{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.mark{font:600 13px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--phi);text-decoration:none}
+.mark:hover{text-decoration:underline}
+.pill{font:600 12px/1 var(--mono);background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:9px 13px;cursor:pointer;white-space:nowrap}
+.pill:hover{border-color:var(--phi)}
+.tabs{display:flex;flex-wrap:wrap;gap:6px;margin:14px 0 0}
+.tabs a{font:600 13px/1 var(--sans);text-decoration:none;color:var(--soft);background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:8px 13px}
+.tabs a:hover{border-color:var(--phi)}
+.tabs a[aria-current="page"]{background:var(--phi);border-color:var(--phi);color:var(--panel)}
+h1{font-size:clamp(30px,5.4vw,46px);line-height:1.08;letter-spacing:-.02em;margin:16px 0 10px;text-wrap:balance}
+h2{font-size:24px;line-height:1.2;letter-spacing:-.01em;margin:44px 0 10px;text-wrap:balance}
+h3{font-size:18px;margin:26px 0 8px}
+p,li{max-width:74ch}
+.lede{color:var(--soft);max-width:70ch;margin:0 0 8px}
+.facts{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:18px 0 22px;padding:0;list-style:none}
+.facts li{border-left:3px solid var(--phi);padding:2px 0 2px 12px;font-size:14.5px;color:var(--soft)}
+.facts li.f-app{border-color:var(--app)}
+.facts li b{display:block;color:var(--ink);font-size:15px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px}
+.tbl{overflow-x:auto;margin:12px 0}
+table{border-collapse:collapse;font-size:14.5px;font-variant-numeric:tabular-nums}
+th,td{text-align:left;padding:6px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--soft);font-weight:600}
+td.n,th.n{text-align:right}
+.src{font-size:13.5px;color:var(--soft)}
+pre{background:var(--sunk);border:1px solid var(--line);border-radius:10px;padding:12px 14px;overflow-x:auto;font-size:13px;line-height:1.5}
+.verdict{font:600 11px/1 var(--mono);border-radius:999px;padding:4px 7px;white-space:nowrap}
+.verdict.keep{background:var(--phi-bg);color:var(--phi)} .verdict.kill{background:var(--bad-bg);color:var(--bad)}
+
+/* the adder */
+.adder .controls{display:flex;flex-wrap:wrap;gap:10px;align-items:end}
+.adder label{display:grid;gap:4px;font-size:13px;color:var(--soft)}
+.adder input[type=number]{width:110px;border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:8px 9px;font-size:15px}
+.adder button{border:1px solid var(--line);background:var(--bg);border-radius:10px;padding:9px 13px;font-weight:600;font-size:14px;cursor:pointer;min-height:40px}
+.adder button:hover:not(:disabled){border-color:var(--ink)}
+.adder button:disabled{opacity:.42;cursor:not-allowed}
+.regs{display:grid;gap:16px;margin-top:16px}
+.reg h3{margin:0 0 6px;font-size:15px;display:flex;gap:10px;flex-wrap:wrap;align-items:baseline}
+.reg h3 span{font:500 13px var(--mono);color:var(--soft)}
+.cells{display:flex;flex-wrap:wrap;gap:4px}
+.cell{display:grid;justify-items:center;gap:2px;min-width:40px}
+.cell button{width:40px;height:40px;border-radius:8px;border:1px solid var(--line);background:var(--bg);font:600 17px var(--mono);cursor:pointer;padding:0}
+.cell button.one{background:var(--phi-bg);border-color:var(--phi);color:var(--phi)}
+.reg.bin .cell button.one{background:var(--app-bg);border-color:var(--app);color:var(--app)}
+.cell button.over{background:var(--bad-bg);border-color:var(--bad);color:var(--bad)}
+.cell button.touched{outline:2px solid var(--ink);outline-offset:1px}
+.cell small{font:11px var(--mono);color:var(--soft)}
+.log{font:13px/1.5 var(--mono);color:var(--soft);margin:8px 0 0;min-height:20px;overflow-wrap:anywhere}
+.log b{color:var(--ink)}
+.log .bad{color:var(--bad)} .log .ok{color:var(--ok)}
+@media (max-width:760px){.facts{grid-template-columns:minmax(0,1fr)}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <a class="mark" href="index.html">← phi · docs</a>
+    <button class="pill" id="theme" type="button" aria-label="Switch between light and dark">theme</button>
+  </div>
+  <nav class="tabs" aria-label="Pages on the register model and the number codes">
+    <a href="register.html" aria-current="page">The register model</a>
+    <a href="phi/codes.html">Fibonacci codes</a>
+    <a href="phi/phi.html">Zeckendorf register</a>
+    <a href="phi/bin.html">Binary register</a>
+    <a href="phi/fib.html">Computing F(n)</a>
+    <a href="phi/matrix.html">Fibonacci Q-matrix</a>
+    <a href="phi/Q.html">Related work</a>
+  </nav>
+
+  <h1>The register model</h1>
+  <p class="lede"><a href="https://github.com/ezexe/phi/blob/main/phi_prune/register.py"><code>phi_prune.register</code></a> holds two registers side by side, a Zeckendorf register and a binary register. Each is a list of digits, least significant first, that local rewrite rules bring to its normal form. The module runs phi-prune's own multiply–accumulate step in each, so the two can be measured on the same sums.</p>
+  <ul class="facts">
+    <li><b>Place values.</b>The Zeckendorf register weighs its digits 1, 2, 3, 5, 8, …, the place values <code>FibonacciEncoder</code> uses. The binary register weighs them 1, 2, 4, 8, ….</li>
+    <li><b>Normal form.</b>Every digit is 0 or 1. In the Zeckendorf register no two adjacent digits are both 1, so its normal form is the Zeckendorf representation.</li>
+    <li class="f-app"><b>Local rules.</b>Each rule keeps the register's value and touches at most three nearby digits. Since every value has one normal form, rules can fire in any order and every order ends at that normal form.</li>
+  </ul>
+
+  <section class="card adder" aria-labelledby="adder-h">
+    <h2 id="adder-h" style="margin-top:0">Add two numbers in both registers</h2>
+    <p class="src">This runs the module's rules in the page: <code>from_int</code> writes each number in normal form, digit-wise addition adds the two registers digit by digit with no carries, and each press of <b>Next round</b> fires one normalization round as <code>normalize_rounds</code> does, every rule that can fire with no two rules on the same digit, from the lowest position up. Digits read most significant on the left. Once a register is in normal form, click one of its digits to flip it.</p>
+    <div class="controls">
+      <label>a<input type="number" id="a" min="0" max="99999" value="55"></label>
+      <label>b<input type="number" id="b" min="0" max="99999" value="89"></label>
+      <button type="button" id="add">Add digit-wise</button>
+      <button type="button" id="step">Next round</button>
+      <button type="button" id="run">Run to normal form</button>
+    </div>
+    <div class="regs" id="regs"></div>
+  </section>
+
+  <h2>The rules</h2>
+  <p>A digit may exceed 1 for a while, as it does right after two registers are added digit by digit. These rules bring it back, and each keeps the value:</p>
+  <div class="tbl"><table>
+    <tr><th>Register</th><th>Rule</th><th>Identifier</th><th>Fires when</th><th>Rewrite</th><th>Identity</th></tr>
+    <tr><td>Zeckendorf</td><td>adjacent 1s rule</td><td><code>merge</code></td><td><code>d[k]</code> and <code>d[k+1]</code> are at least 1</td><td><code>d[k]−1, d[k+1]−1, d[k+2]+1</code></td><td>F(k) + F(k+1) = F(k+2)</td></tr>
+    <tr><td>Zeckendorf</td><td>removal of 2 digits</td><td><code>split</code></td><td><code>d[k]</code> is at least 2</td><td><code>d[k]−2, d[k+1]+1, d[k−2]+1</code></td><td>2F(k) = F(k+1) + F(k−2)</td></tr>
+    <tr><td>binary</td><td>carry</td><td><code>carry</code></td><td><code>d[k]</code> is at least 2</td><td><code>d[k]−2, d[k+1]+1</code></td><td>2 · 2<sup>k</sup> = 2<sup>k+1</sup></td></tr>
+  </table></div>
+  <p>Here F(k) is the place value of digit k, so F(0) = 1 and F(1) = 2. At the bottom of the register the removal of 2 digits has nowhere two places down to go: at k = 1 it is 2 + 2 = 3 + 1, into <code>d[2]</code> and <code>d[0]</code>, and at k = 0 it is 1 + 1 = 2, into <code>d[1]</code> alone.</p>
+  <p>A Zeckendorf carry also moves down, two places, while a binary carry only moves up. <code>test_phi_carry_runs_down_binary_does_not</code> holds both: <code>apply([0, 0, 2], "split", 2)</code> gives <code>[1, 0, 0, 1]</code>, which is 2 · 3 = 5 + 1, and the binary carry gives <code>[0, 0, 0, 1]</code>.</p>
+  <p><code>apply</code> refuses a rule that cannot fire, at a position outside the register or on a digit too small to take from, so no digit ever goes below 0. <code>rewrites</code> lists every rule that can fire, and <code>normalize</code> fires them until none can, the lowest position first, or one at random with an <code>rng</code>, which stands in for self-timed hardware where any local rewrite may happen first.</p>
+
+  <h3>Confluence</h3>
+  <p>Both rule sets are confluent: every order of firing reaches the same normal form, because each rule keeps the value and each value has one normal form. Neither register needs a clock to decide the order. <a href="https://github.com/ezexe/phi/blob/main/tests/test_register.py"><code>tests/test_register.py</code></a> checks this on 200 random registers, each brought to normal form in 10 random orders, and checks that every rule keeps the value on 500 random registers with digits from 0 to 3. <code>test_add_exhaustive</code> adds every pair of 6-digit registers in normal form of each kind and checks the sum and its normal form.</p>
+
+  <h2>How many digits a register needs</h2>
+  <p>An n-digit string with no two adjacent 1s ends either in 0, after any such string of n − 1 digits, or in 01, after any such string of n − 2 digits. So the count Z(n) of such strings is Z(n − 1) + Z(n − 2), with Z(0) = 1 and Z(1) = 2, which makes Z(n) = F(n + 2) in the register's numbering: 2, 3, 5, 8, 13, 21, …. By Binet's formula F(n + 2) is the nearest integer to φ<sup>n+2</sup>/√5, which is about 1.171 · φ<sup>n</sup>, with φ = 1.618…. Each Zeckendorf digit therefore carries log<sub>2</sub> φ, about 0.694 bits, so holding a given number of levels takes about 1.44 times as many digits as binary.</p>
+  <p class="src">From <a href="https://github.com/ezexe/p4-phi-experiments/blob/6576c16/experiments/phi-register/results/register/growth_rates.txt"><code>results/register/growth_rates.txt</code></a>, printed by <code>scripts/growth_rates.py</code> in ezexe/p4-phi-experiments:</p>
+  <div class="tbl"><table>
+    <tr><th class="n">Levels</th><th class="n">Binary digits</th><th class="n">Zeckendorf digits</th><th class="n">Extra</th></tr>
+    <tr><td class="n">8</td><td class="n">3</td><td class="n">4</td><td class="n">1</td></tr>
+    <tr><td class="n">16</td><td class="n">4</td><td class="n">6</td><td class="n">2</td></tr>
+    <tr><td class="n">55</td><td class="n">6</td><td class="n">8</td><td class="n">2</td></tr>
+    <tr><td class="n">144</td><td class="n">8</td><td class="n">10</td><td class="n">2</td></tr>
+    <tr><td class="n">256</td><td class="n">8</td><td class="n">12</td><td class="n">4</td></tr>
+    <tr><td class="n">1024</td><td class="n">10</td><td class="n">15</td><td class="n">5</td></tr>
+    <tr><td class="n">8192</td><td class="n">13</td><td class="n">19</td><td class="n">6</td></tr>
+  </table></div>
+  <p><code>FibonacciEncoder(n_digits)</code> quantizes to exactly these level counts: 6 digits give 21 levels, 8 give 55 and 10 give 144, since every integer from 0 to F(n + 2) − 1 has a Zeckendorf representation in n digits. <code>test_phi_normal_form_matches_encoder</code> checks that <code>from_int</code> and <code>FibonacciEncoder.to_codeword</code> agree on all 144 levels of 10 digits.</p>
+
+  <h2>Work per sum</h2>
+  <p>The Zeckendorf register fires more rules per sum than the binary register, and its carries spread both ways. <code>test_phi_needs_more_rewrites_than_binary_for_the_same_values</code> holds that over every sum of two values below 55, on average and in the worst case.</p>
+  <p class="src">Rewrite steps per sum, lowest position first, from <a href="https://github.com/ezexe/p4-phi-experiments/blob/6576c16/experiments/phi-register/results/register/register_measure.txt"><code>results/register/register_measure.txt</code></a>, printed by <code>scripts/register_measure.py</code>:</p>
+  <div class="tbl"><table>
+    <tr><th>Values</th><th class="n">Zeckendorf mean</th><th class="n">Zeckendorf worst</th><th class="n">Binary mean</th><th class="n">Binary worst</th></tr>
+    <tr><td>below 21</td><td class="n">2.20</td><td class="n">9</td><td class="n">1.33</td><td class="n">5</td></tr>
+    <tr><td>below 55</td><td class="n">3.18</td><td class="n">16</td><td class="n">2.13</td><td class="n">6</td></tr>
+    <tr><td>below 144</td><td class="n">4.17</td><td class="n">25</td><td class="n">2.80</td><td class="n">8</td></tr>
+  </table></div>
+
+  <h3>Normalization rounds</h3>
+  <p><code>normalize_rounds</code> counts time instead of work. Each normalization round fires at once every rule it can without two rules touching the same digit, picked from the lowest position up, and the count of rounds stands in for the time a register takes to reach normal form when every cell rewrites itself in parallel. A self-timed register stops after the rounds a sum needs. A clocked register waits the worst case on every sum. The register's completion signal is a local scan: a register still on its way holds a digit above 1 or, in the Zeckendorf register, two adjacent 1s, and one in normal form holds neither.</p>
+  <p class="src">Normalization rounds per sum, from the same file:</p>
+  <div class="tbl"><table>
+    <tr><th>Values</th><th class="n">Zeckendorf width</th><th class="n">mean</th><th class="n">worst</th><th class="n">Binary width</th><th class="n">mean</th><th class="n">worst</th></tr>
+    <tr><td>below 21</td><td class="n">6</td><td class="n">1.82</td><td class="n">6</td><td class="n">5</td><td class="n">1.20</td><td class="n">5</td></tr>
+    <tr><td>below 55</td><td class="n">8</td><td class="n">2.32</td><td class="n">7</td><td class="n">6</td><td class="n">1.72</td><td class="n">6</td></tr>
+    <tr><td>below 144</td><td class="n">10</td><td class="n">2.73</td><td class="n">8</td><td class="n">8</td><td class="n">2.08</td><td class="n">8</td></tr>
+    <tr><td>below 610</td><td class="n">13</td><td class="n">3.20</td><td class="n">11</td><td class="n">10</td><td class="n">2.51</td><td class="n">10</td></tr>
+  </table></div>
+  <p><code>test_normalization_rounds_self_timed_phi_against_clocked_binary</code> fixes the row below 144: the Zeckendorf mean lies between 2.6 and 2.8 rounds, the binary mean between 2.0 and 2.2, both worst cases are 8, and binary's worst case over the Zeckendorf mean is above 2.9. That ratio compares a clocked binary register with a self-timed Zeckendorf one. A self-timed binary register reaches normal form sooner than the Zeckendorf register on every row.</p>
+
+  <h2>Single-bit errors</h2>
+  <p>Every binary digit pattern is a valid number, so a flipped bit in a binary register cannot be seen. A Zeckendorf register in normal form holds no two adjacent 1s, so a flip from 0 to 1 beside a 1 leaves a pattern that cannot be in normal form, and <code>flip_detected</code> reads it as corrupt. A flip from 1 to 0 always leaves a valid pattern and goes unseen.</p>
+  <p><code>correction_candidates</code> lists the registers in normal form one change from 1 to 0 away from a corrupt one. A flip that lands between two 1s, <code>101</code> to <code>111</code>, has one candidate and can be corrected. A lone <code>11</code> could have come from either cell, so it has two and can only be detected.</p>
+  <p>Zeckendorf normalization does not undo a flip. The rules keep the corrupted value and bring it to normal form, so a register brought to normal form after a flip is worth the original plus the flipped place value. <code>test_normalizing_keeps_the_corrupted_value</code> checks this for every detected flip of every 8-digit register, so the scan has to run before normalization.</p>
+  <p class="src">Every single-bit flip of every register in normal form of each width, from <a href="https://github.com/ezexe/p4-phi-experiments/blob/6576c16/experiments/phi-register/results/register/register_measure.txt"><code>results/register/register_measure.txt</code></a>:</p>
+  <div class="tbl"><table>
+    <tr><th class="n">Digits</th><th class="n">Zeckendorf values</th><th class="n">detected</th><th class="n">correctable</th><th class="n">Binary values</th><th class="n">detected</th></tr>
+    <tr><td class="n">4</td><td class="n">8</td><td class="n">0.375</td><td class="n">0.062</td><td class="n">16</td><td class="n">0.000</td></tr>
+    <tr><td class="n">6</td><td class="n">21</td><td class="n">0.397</td><td class="n">0.079</td><td class="n">64</td><td class="n">0.000</td></tr>
+    <tr><td class="n">8</td><td class="n">55</td><td class="n">0.409</td><td class="n">0.086</td><td class="n">256</td><td class="n">0.000</td></tr>
+    <tr><td class="n">10</td><td class="n">144</td><td class="n">0.417</td><td class="n">0.090</td><td class="n">1024</td><td class="n">0.000</td></tr>
+    <tr><td class="n">13</td><td class="n">610</td><td class="n">0.424</td><td class="n">0.094</td><td class="n">8192</td><td class="n">0.000</td></tr>
+  </table></div>
+
+  <h2>Multiply–accumulate in a register</h2>
+  <p><code>dot(levels, xs, kind)</code> takes non-negative integer weight levels and activations and accumulates their dot product in one register. Each weight level is written in the register's own digits, and each of its digits that is 1 adds a partial product, the activation times that place value, to the accumulator by digit-wise addition, after which <code>normalize_rounds</code> brings the accumulator to normal form. A level's Hamming weight is therefore its number of additions. In binary a partial product x · 2<sup>k</sup> is a shift, wiring only. In a Zeckendorf register x · F(k) is a Fibonacci multiple of x, which <code>dot</code> takes as given and writes with <code>from_int</code>. Built in hardware, the multiples take additions, x · F(k) = x · F(k − 1) + x · F(k − 2), once per activation and shared by every weight it meets, and the notebook below counts their rounds with <code>ladder_rounds</code>. <code>test_dot</code> checks the exact sum and one addition for each digit that is 1 in each weight whose activation is not zero.</p>
+  <p>The Jupyter notebook <a href="https://github.com/ezexe/p4-phi-experiments/blob/6576c16/experiments/phi-register/notebooks/register_settling.ipynb"><code>notebooks/register_settling.ipynb</code></a> in ezexe/p4-phi-experiments runs <code>dot</code> on one φ-pruned convolution layer, ResNet-18's <code>layer3.0.conv1</code> with 256 output channels, 128 kept, and a fan-in of 1152, quantized per output channel. Its saved run used its fallback, Laplace-distributed synthetic weights of that shape and half-normal activations, since torchvision was not installed where it ran. It took 32 dot products, 8 kept channels by 4 patches, and counts rounds per dot product four ways: the Zeckendorf register self-timed, with the rounds of its Fibonacci multiples spread over the kept channels; a self-timed binary register; a clocked binary ripple-carry adder, which waits the accumulator's width on every addition, the bits of the largest sum the layer's fan-in can reach: 23 at 6 digits, 24 at 8 and 26 at 10; and a clocked carry-lookahead adder, which waits the base-2 logarithm of that width rounded up, 5 at each of the three.</p>
+  <p class="src">Rounds per dot product, from the notebook's saved sections 4 and 5:</p>
+  <div class="tbl"><table>
+    <tr><th class="n">Digits</th><th class="n">Levels</th><th class="n">Zeckendorf additions</th><th class="n">Binary additions</th><th class="n">Zeckendorf self-timed</th><th class="n">Binary self-timed</th><th class="n">Binary lookahead</th><th class="n">Binary ripple</th></tr>
+    <tr><td class="n">6</td><td class="n">21</td><td class="n">2184</td><td class="n">2518</td><td class="n">7,147</td><td class="n">6,196</td><td class="n">12,589</td><td class="n">57,911</td></tr>
+    <tr><td class="n">8</td><td class="n">55</td><td class="n">2826</td><td class="n">3513</td><td class="n">9,551</td><td class="n">8,634</td><td class="n">17,563</td><td class="n">84,304</td></tr>
+    <tr><td class="n">10</td><td class="n">144</td><td class="n">3464</td><td class="n">4007</td><td class="n">12,065</td><td class="n">9,853</td><td class="n">20,035</td><td class="n">104,183</td></tr>
+  </table></div>
+  <p>At 10 digits the notebook reads: 3,464 additions per dot product against 4,007, which is 14% fewer; the self-timed Zeckendorf accumulator needs 8.64× fewer rounds than the clocked ripple adder and 1.66× fewer than the clocked lookahead adder; and the self-timed binary accumulator needs 0.82× the Zeckendorf rounds, since its additions reach normal form in 2.46 rounds on average against 3.41. Its section 6 flips each bit of each accumulator in normal form: 43.3% of 1030 single-bit flips are detected on the Zeckendorf side, and 0.0% of 730 on the binary side. These are rounds of the rewrite rules, not gate delays or a silicon measurement.</p>
+
+  <h2>A pre-registered check on a small transformer</h2>
+  <p><a href="https://github.com/ezexe/p4-phi-experiments/blob/6576c16/experiments/phi-register/scripts/transformer_check.py"><code>scripts/transformer_check.py</code></a> in ezexe/p4-phi-experiments tests φ-pruning and the Zeckendorf representation of quantized weights on a character-level GPT with 4 layers, width 128 and MLP width 512, which learns the source of the standard library of the Python that runs it, on CPU. Per seed it trains dense for 1500 steps, prunes MLP hidden neurons one-shot and fine-tunes 300 steps with each mask fixed, and quantizes every Linear weight per output channel. The metric is bits per character on held-out files, lower being better. Its kill criteria are in its docstring, written before any run. Each result file is the record of one three-seed run, and a run on another Python trains on other text and gives other figures.</p>
+  <p class="src">Means over the three seeds of <a href="https://github.com/ezexe/p4-phi-experiments/blob/6576c16/experiments/phi-register/results/transformer-check/low.json"><code>low.json</code></a>, <a href="https://github.com/ezexe/p4-phi-experiments/blob/6576c16/experiments/phi-register/results/transformer-check/high.json"><code>high.json</code></a> and <a href="https://github.com/ezexe/p4-phi-experiments/blob/6576c16/experiments/phi-register/results/transformer-check/delta.json"><code>delta.json</code></a>, rounded as shown. The dense model reads 1.9985 bits per character, 2.0225, 1.9706 and 2.0025 by seed.</p>
+
+  <h3>Pruning masks</h3>
+  <div class="tbl"><table>
+    <tr><th>Mask</th><th class="n">Density</th><th class="n">One-shot</th><th class="n">Fine-tuned</th><th>Fine-tuned, minus the comparison, by seed</th></tr>
+    <tr><td>φ-pruning, neuron order</td><td class="n">0.494</td><td class="n">2.6533</td><td class="n">2.0689</td><td>−&nbsp;2 of every 4: +0.0166, +0.0131, +0.0179</td></tr>
+    <tr><td>φ-pruning after reordering</td><td class="n">0.500</td><td class="n">2.7236</td><td class="n">2.0527</td><td>−&nbsp;heaviest half: +0.0000, +0.0000, +0.0000</td></tr>
+    <tr><td>2 of every 4</td><td class="n">0.500</td><td class="n">2.6254</td><td class="n">2.0530</td><td></td></tr>
+    <tr><td>heaviest half</td><td class="n">0.500</td><td class="n">2.7236</td><td class="n">2.0527</td><td></td></tr>
+    <tr><td>random half</td><td class="n">0.500</td><td class="n">2.6885</td><td class="n">2.0770</td><td></td></tr>
+    <tr><td>φ-pruning at a density of 0.25</td><td class="n">0.250</td><td class="n">3.5714</td><td class="n">2.1801</td><td>−&nbsp;1 of every 4: +0.0009, +0.0005, +0.0003</td></tr>
+    <tr><td>1 of every 4</td><td class="n">0.250</td><td class="n">3.4960</td><td class="n">2.1795</td><td></td></tr>
+    <tr><td>heaviest quarter</td><td class="n">0.250</td><td class="n">3.6058</td><td class="n">2.1796</td><td></td></tr>
+    <tr><td>φ-pruning on the pruned neurons</td><td class="n">0.750</td><td class="n">2.1691</td><td class="n">1.9986</td><td>−&nbsp;3 of every 4: −0.0009, +0.0007, −0.0003</td></tr>
+    <tr><td>3 of every 4</td><td class="n">0.750</td><td class="n">2.1645</td><td class="n">1.9988</td><td></td></tr>
+    <tr><td>heaviest three quarters</td><td class="n">0.750</td><td class="n">2.1998</td><td class="n">1.9982</td><td></td></tr>
+    <tr><td>random three quarters</td><td class="n">0.750</td><td class="n">2.2286</td><td class="n">2.0115</td><td>−&nbsp;heaviest three quarters: +0.0144, +0.0132, +0.0123</td></tr>
+  </table></div>
+  <p>Reordering hidden neurons so ranks interleave does not change what the model computes, and for distinct scores of even count the φ mask it keeps is exactly the heaviest half. At 75% the (1,∞)-RLL constraint sits on the pruned neurons, so no two neighbouring neurons are both pruned.</p>
+
+  <h3>Hamming weight of the quantized weights</h3>
+  <p>Each count is the mean number of 1 digits per weight level, which is the number of partial products a multiplier adds per weight. Offset form is the package's uniform affine quantization, <code>(w − min) · scale</code>. Sign-magnitude form writes the magnitude of a symmetric level. CSD is canonical signed digit form.</p>
+  <div class="tbl"><table>
+    <tr><th class="n">Levels</th><th class="n">Bits</th><th class="n">Bits per character</th><th class="n">Offset: Zeckendorf</th><th class="n">CSD</th><th class="n">binary</th><th class="n">Sign-magnitude: Zeckendorf</th><th class="n">CSD</th><th class="n">binary</th></tr>
+    <tr><td class="n">16</td><td class="n">4.00</td><td class="n">2.0279</td><td class="n">1.695</td><td class="n">1.832</td><td class="n">2.000</td><td class="n">1.018</td><td class="n">1.134</td><td class="n">1.154</td></tr>
+    <tr><td class="n">21</td><td class="n">4.39</td><td class="n">2.0132</td><td class="n">1.862</td><td class="n">2.000</td><td class="n">2.220</td><td class="n">1.139</td><td class="n">1.258</td><td class="n">1.296</td></tr>
+    <tr><td class="n">32</td><td class="n">5.00</td><td class="n">2.0055</td><td class="n">2.098</td><td class="n">2.193</td><td class="n">2.500</td><td class="n">1.340</td><td class="n">1.470</td><td class="n">1.566</td></tr>
+    <tr><td class="n">55</td><td class="n">5.78</td><td class="n">2.0002</td><td class="n">2.411</td><td class="n">2.438</td><td class="n">2.882</td><td class="n">1.621</td><td class="n">1.749</td><td class="n">1.911</td></tr>
+    <tr><td class="n">144</td><td class="n">7.17</td><td class="n">1.9987</td><td class="n">2.963</td><td class="n">2.938</td><td class="n">3.584</td><td class="n">2.133</td><td class="n">2.201</td><td class="n">2.542</td></tr>
+    <tr><td class="n">377</td><td class="n">8.56</td><td class="n">1.9986</td><td class="n">3.514</td><td class="n">3.372</td><td class="n">4.281</td><td class="n">2.664</td><td class="n">2.668</td><td class="n">3.221</td></tr>
+    <tr><td class="n">987</td><td class="n">9.95</td><td class="n">1.9985</td><td class="n">4.066</td><td class="n">3.845</td><td class="n">4.948</td><td class="n">3.213</td><td class="n">3.143</td><td class="n">3.924</td></tr>
+  </table></div>
+  <p>The bits per character depend only on the level count: 6 Zeckendorf digits are 21 uniform levels, and the representations differ only in how many additions they cost. In offset form CSD takes the lead between 55 and 144 levels, where <a href="https://github.com/ezexe/p4-phi-experiments/blob/6576c16/experiments/phi-register/results/register/digit_counts_uniform.txt"><code>results/register/digit_counts_uniform.txt</code></a> puts it for evenly spread levels. In sign-magnitude form the Zeckendorf representation holds through 377 levels, 2.664 against 2.668, and loses at 987.</p>
+
+  <h3>The delta of a fine-tuned model</h3>
+  <p><code>--part delta</code> trains a base model per seed on most of the training files, fine-tunes a copy for 300 steps on another tenth of them, and takes the delta of every Linear layer, the fine-tuned minus the base weights. Over the three seeds the general validation went from 2.1163 to 2.0165 bits per character, the held-out part of the fine-tuning files went from 1.6445 to 1.7124, and the delta's norm is 0.1459 of the weights' norm, so the fine-tune behaved as continued training of an undertrained base. Weights and deltas are both quantized symmetrically per output channel:</p>
+  <div class="tbl"><table>
+    <tr><th></th><th class="n">Binary</th><th class="n">Zeckendorf</th><th class="n">CSD</th><th class="n">Zeckendorf saving against CSD</th></tr>
+    <tr><td>weights, 21 levels</td><td class="n">1.2280</td><td class="n">1.0818</td><td class="n">1.2000</td><td class="n">0.0984</td></tr>
+    <tr><td>delta, 21 levels</td><td class="n">1.2211</td><td class="n">1.0770</td><td class="n">1.1937</td><td class="n">0.0978</td></tr>
+    <tr><td>weights, 55 levels</td><td class="n">1.8272</td><td class="n">1.5540</td><td class="n">1.6834</td><td class="n">0.0769</td></tr>
+    <tr><td>delta, 55 levels</td><td class="n">1.8186</td><td class="n">1.5481</td><td class="n">1.6770</td><td class="n">0.0768</td></tr>
+  </table></div>
+  <p>Per seed the delta's saving minus the weights' saving is −0.021, −0.100 and −0.077 points at 21 levels, and +0.032, −0.053 and +0.010 points at 55 levels. Per-channel quantization divides each channel by its own largest value, so it sees only the shape of a spread, and the delta's spread has the shape of the weights'.</p>
+  <p>The same run codes the positions of the delta's largest entries with Fibonacci-coded gaps, Elias gamma, Elias delta and a fixed-length code. That part is on the <a href="phi/codes.html">Fibonacci codes</a> page, beside <code>phi_prune.delta</code>, which writes a delta's kept positions as the same Fibonacci-coded gaps in a <code>.phid</code> file.</p>
+
+  <h3>The verdicts</h3>
+  <div class="tbl"><table>
+    <tr><th>Criterion, as registered</th><th>Result file</th><th>Verdict</th></tr>
+    <tr><td>K1: φ-pruning at 50% within σ of 2 of every 4</td><td>difference 0.0159, σ 0.0247</td><td><span class="verdict keep">survives</span> as registered; the paired reading is worse in every seed</td></tr>
+    <tr><td>K2: φ-pruning at 25% beats 1 of every 4 by more than σ</td><td>difference −0.0006, σ 0.0239</td><td><span class="verdict kill">killed</span></td></tr>
+    <tr><td>K3: φ-pruning after reordering within σ of the heaviest half</td><td>difference 0.0000, σ 0.0234</td><td><span class="verdict keep">survives</span>; the two masks are the same mask</td></tr>
+    <tr><td>K4: Zeckendorf Hamming weight below CSD's at 21 levels, offset form</td><td>difference −0.1383</td><td><span class="verdict keep">survives</span></td></tr>
+    <tr><td>K5: φ-pruning on the pruned neurons below 3 of every 4 in every seed</td><td>difference −0.0002</td><td><span class="verdict kill">killed</span></td></tr>
+    <tr><td>K6: Zeckendorf Hamming weight below CSD's at 144 levels, offset form</td><td>difference +0.0241</td><td><span class="verdict kill">killed</span></td></tr>
+    <tr><td>K7: a larger saving against CSD on the delta than on the weights, 21 levels</td><td>difference −0.0007</td><td><span class="verdict kill">killed</span></td></tr>
+    <tr><td>K8: Fibonacci-coded gaps below Elias gamma and a fixed-length code at 10% kept</td><td>difference −0.3689 bits</td><td><span class="verdict keep">survives</span>, in every seed</td></tr>
+  </table></div>
+
+  <h2>What the measurements show</h2>
+  <ul>
+    <li><b>Fewer additions at low precision.</b> On trained weights and on the delta, Zeckendorf levels have a lower Hamming weight than binary and CSD from 16 to 55 levels in offset form and through 377 levels in sign-magnitude form, so a multiply by adding Fibonacci multiples takes fewer additions there. CSD has the lower count above that.</li>
+    <li><b>Self-timed against clocked.</b> A self-timed Zeckendorf accumulator takes fewer rounds per dot product than a clocked binary one, and more than a self-timed binary one, whose additions reach normal form in fewer rounds.</li>
+    <li><b>Single-bit error detection on one side only.</b> About two in five single-bit flips of a Zeckendorf register in normal form are detected and under one in ten can be corrected, while a binary register detects none; normalization keeps a corrupted value, so the check comes first.</li>
+    <li><b>The φ mask on a transformer's MLP.</b> At 50% it is worse than 2 of every 4 in every seed, and reordering closes the gap only by turning it into the heaviest half; at 25% and 75% every chosen mask reaches the same loss after fine-tuning.</li>
+    <li><b>Scale.</b> The transformer has 4 layers of width 128 and trains 1500 steps on CPU, and the register figures count rewrite rounds, so the results give directions and not sizes.</li>
+  </ul>
+
+  <h2>Run it</h2>
+  <p>The module's tests run with the package's own suite, from a checkout of ezexe/phi:</p>
+<pre>python -m pytest tests/test_register.py</pre>
+  <p>The measurements, the notebook and the transformer check are in ezexe/p4-phi-experiments under <a href="https://github.com/ezexe/p4-phi-experiments/tree/6576c16/experiments/phi-register"><code>experiments/phi-register/</code></a>, whose README gives the command that writes each result file.</p>
+</div>
+
+<script>
+(function(){
+  var root=document.documentElement,key="dox-theme",btn=document.getElementById("theme");
+  function stored(){try{return localStorage.getItem(key)}catch(e){return null}}
+  function current(){return root.getAttribute("data-theme")||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light")}
+  function label(){btn.textContent=current()==="dark"?"light theme":"dark theme"}
+  var s=stored(); if(s==="dark"||s==="light")root.setAttribute("data-theme",s);
+  label();
+  try{matchMedia("(prefers-color-scheme: dark)").addEventListener("change",label)}catch(e){}
+  btn.addEventListener("click",function(){var n=current()==="dark"?"light":"dark";root.setAttribute("data-theme",n);try{localStorage.setItem(key,n)}catch(e){}label()});
+})();
+
+// phi_prune.register, rule for rule
+(function(){
+  var PHI="phi", BINARY="binary";
+  function top(d){for(var k=d.length-1;k>=0;k--)if(d[k])return k;return -1}
+  function placeValues(kind,n){
+    if(kind===BINARY){var b=[];for(var k=0;k<n;k++)b.push(Math.pow(2,k));return b}
+    var f=[1,2];while(f.length<n)f.push(f[f.length-1]+f[f.length-2]);return f.slice(0,n);
+  }
+  function value(d,kind){var p=placeValues(kind,d.length),s=0;for(var i=0;i<d.length;i++)s+=d[i]*p[i];return s}
+  function fromInt(v,kind){
+    var p=[1];
+    while(p[p.length-1]<=v)p.push(kind===BINARY?p[p.length-1]*2:p[p.length-1]+(p.length>1?p[p.length-2]:1));
+    var d=p.map(function(){return 0});
+    for(var k=p.length-1;k>=0;k--)if(p[k]<=v){d[k]=1;v-=p[k]}
+    return d.concat([0]).slice(0,Math.max(1,top(d)+1));
+  }
+  function isCanonical(d,kind){
+    for(var i=0;i<d.length;i++)if(d[i]!==0&&d[i]!==1)return false;
+    if(kind===BINARY)return true;
+    for(i=0;i+1<d.length;i++)if(d[i]===1&&d[i+1]===1)return false;
+    return true;
+  }
+  function rewrites(d,kind){
+    var out=[];
+    for(var k=0;k<d.length;k++){
+      if(d[k]>=2)out.push([kind===BINARY?"carry":"split",k]);
+      if(kind===PHI&&d[k]>=1&&k+1<d.length&&d[k+1]>=1)out.push(["merge",k]);
+    }
+    return out;
+  }
+  function apply(digits,rule,k){
+    var d=digits.concat([0,0]);
+    if(rule==="carry"){d[k]-=2;d[k+1]+=1}
+    else if(rule==="merge"){d[k]-=1;d[k+1]-=1;d[k+2]+=1}
+    else{d[k]-=2;d[k+1]+=1;if(k>=2)d[k-2]+=1;else if(k===1)d[0]+=1}
+    return d.slice(0,Math.max(digits.length,top(d)+1));
+  }
+  function cellsOf(rule,k){return rule==="carry"?[k,k+1]:rule==="merge"?[k,k+1,k+2]:[k-2,k,k+1]}
+  function oneRound(d,kind){
+    var used={},fired=[],touched={};
+    rewrites(d,kind).forEach(function(o){
+      var cells=cellsOf(o[0],o[1]);
+      if(cells.some(function(c){return used[c]}))return;
+      cells.forEach(function(c){used[c]=true;if(c>=0)touched[c]=true});
+      d=apply(d,o[0],o[1]);fired.push(o[0]+" at "+o[1]);
+    });
+    return {digits:d,fired:fired,touched:touched};
+  }
+  function pour(a,b){var n=Math.max(a.length,b.length),out=[];for(var i=0;i<n;i++)out.push((a[i]||0)+(b[i]||0));return out}
+  function candidates(w){
+    var out=[];
+    for(var i=0;i<w.length;i++){
+      if(w[i]===1&&((i>0&&w[i-1]===1)||(i+1<w.length&&w[i+1]===1))){
+        var f=w.slice();f[i]=0;if(isCanonical(f,PHI))out.push(f);
+      }
+    }
+    return out;
+  }
+
+  var regsEl=document.getElementById("regs"),state=null;
+  function reset(){
+    var a=Math.max(0,Math.min(99999,parseInt(document.getElementById("a").value,10)||0));
+    var b=Math.max(0,Math.min(99999,parseInt(document.getElementById("b").value,10)||0));
+    state={a:a,b:b,regs:[PHI,BINARY].map(function(kind){
+      return {kind:kind,digits:pour(fromInt(a,kind),fromInt(b,kind)),rounds:0,fired:[],touched:{},note:""};
+    })};
+    render();
+  }
+  function step(){state.regs.forEach(function(r){
+    if(isCanonical(r.digits,r.kind)){r.fired=[];r.touched={};return}
+    var o=oneRound(r.digits,r.kind);r.digits=o.digits;r.fired=o.fired;r.touched=o.touched;r.rounds++;r.note="";
+  });render()}
+  function run(){var guard=0;while(state.regs.some(function(r){return !isCanonical(r.digits,r.kind)})&&guard++<1000)step()}
+  function flip(r,i){
+    if(!isCanonical(r.digits,r.kind))return;
+    var before=value(r.digits,r.kind),w=r.digits.slice();w[i]^=1;
+    r.touched={};r.touched[i]=true;r.fired=[];
+    if(r.kind===BINARY){r.note='flipped digit '+i+': '+before+' reads as '+value(w,r.kind)+', a valid number, <span class="bad">not detected</span>';}
+    else if(isCanonical(w,PHI)){r.note='flipped digit '+i+': '+before+' reads as '+value(w,r.kind)+', still in normal form, <span class="bad">not detected</span>';}
+    else{
+      var c=candidates(w);
+      r.note='flipped digit '+i+': two adjacent 1s, <span class="ok">detected</span>; '+(c.length===1?'one candidate, worth '+value(c[0],PHI)+', so it can be corrected':c.length+' candidates, worth '+c.map(function(x){return value(x,PHI)}).join(' or ')+', so it can only be detected')+'. Next round brings it to normal form worth '+value(w,PHI)+', the corrupted value.';
+    }
+    r.digits=w;r.rounds=0;render();
+  }
+  function render(){
+    regsEl.innerHTML="";
+    state.regs.forEach(function(r){
+      var div=document.createElement("div");div.className="reg"+(r.kind===BINARY?" bin":"");
+      var p=placeValues(r.kind,r.digits.length),done=isCanonical(r.digits,r.kind);
+      div.innerHTML='<h3>'+(r.kind===PHI?"Zeckendorf register":"binary register")+'<span>value '+value(r.digits,r.kind)+(r.rounds?' · rounds '+r.rounds:'')+(done?' · normal form':'')+'</span></h3>';
+      var cells=document.createElement("div");cells.className="cells";
+      for(var i=r.digits.length-1;i>=0;i--){
+        var c=document.createElement("div");c.className="cell";
+        var bt=document.createElement("button");bt.type="button";bt.textContent=r.digits[i];
+        bt.className=(r.digits[i]>=2?"over":r.digits[i]===1?"one":"")+(r.touched[i]?" touched":"");
+        bt.setAttribute("aria-label","digit "+i+", place value "+p[i]+", holds "+r.digits[i]+(done?"; click to flip":""));
+        bt.disabled=!done;
+        (function(i){bt.addEventListener("click",function(){flip(r,i)})})(i);
+        var sm=document.createElement("small");sm.textContent=p[i];
+        c.appendChild(bt);c.appendChild(sm);cells.appendChild(c);
+      }
+      div.appendChild(cells);
+      var log=document.createElement("p");log.className="log";
+      var sum=done&&value(r.digits,r.kind)===state.a+state.b?'<span class="ok">'+state.a+' + '+state.b+' = '+value(r.digits,r.kind)+' in normal form</span>':'';
+      log.innerHTML=r.note||(r.fired.length?'this round: <b>'+r.fired.join(", ")+'</b>'+(sum?' · '+sum:''):done?sum:'rules that can fire: '+rewrites(r.digits,r.kind).map(function(o){return o[0]+" at "+o[1]}).join(", "));
+      div.appendChild(log);regsEl.appendChild(div);
+    });
+    var any=state.regs.some(function(r){return !isCanonical(r.digits,r.kind)});
+    document.getElementById("step").disabled=!any;document.getElementById("run").disabled=!any;
+  }
+  document.getElementById("add").addEventListener("click",reset);
+  document.getElementById("step").addEventListener("click",step);
+  document.getElementById("run").addEventListener("click",run);
+  reset();
+})();
+</script>
+</body>
+</html>
