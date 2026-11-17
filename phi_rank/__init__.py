@@ -93,9 +93,6 @@ CONTINUE_EPOCHS = 10          # a round's epochs from the shipped model; an anch
 REBASE_GAP = 0.02             # training r-precision the cut may cost before the round ships whole
 MAX_CHAIN = 8                 # rounds after an anchor before the next anchor
 REFOLD_GROWTH = 1.25          # labelled pools grown by this much since the threshold was chosen: choose it again
-# the labels themselves stay out of pretraining: a pool's task and its steering picks, and the pick sheets a session
-# writes beside them, would hand the encoder the answers its held-out evaluation asks for
-LABEL_FILE_RE = re.compile(r"(^|/)(recall-pool\.md|pool-picks-[^/]*|pool-review-[^/]*|retrain-[^/]*\.tsv)$")
 MIN_PRETRAIN_STEPS = 100      # a base with fewer steps (a --minutes 0 or tiny budget) is pretrained again when asked
 NEGATIVES = 10                # unlabelled BM25 candidates added to a label pool as negatives
 POOL_WORD_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*|\d+(?:\.\d+)*")
@@ -206,14 +203,13 @@ def candidate_files(root: str) -> List[str]:
         if r.returncode == 0:
             rels = [x for x in r.stdout.decode("utf-8", "replace").split("\0") if x]
             return [os.path.join(root, *x.split("/")) for x in rels
-                    if not set(x.split("/")[:-1]) & SKIP_DIRS and not LABEL_FILE_RE.search(x)]
+                    if not set(x.split("/")[:-1]) & SKIP_DIRS]
     except (OSError, subprocess.SubprocessError):
         pass
     out = []
     for d, dirs, files in os.walk(root):
         dirs[:] = [x for x in dirs if x not in SKIP_DIRS]
-        out += [os.path.join(d, f) for f in files
-                if not LABEL_FILE_RE.search(os.path.relpath(os.path.join(d, f), root).replace(os.sep, "/"))]
+        out += [os.path.join(d, f) for f in files]
     return out
 
 

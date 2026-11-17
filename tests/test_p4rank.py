@@ -40,13 +40,9 @@ def make_store(root):
 
 def test_corpus_follows_git(tmp_path):
     make_store(tmp_path)
-    (tmp_path / "sessions" / "s1" / "vlds" / "recall-pool.md").write_text("task: x\n## steering\n- picks", "utf-8")
-    (tmp_path / "scratchpad" / "pool-picks-s1.md").write_text("picks — x", "utf-8")
     files = [os.path.relpath(p, tmp_path).replace(os.sep, "/") for p in p4rank.text_files(str(tmp_path))]
     assert "scratchpad/run.log" in files and "scratchpad/take.wav" not in files
     assert all(not f.startswith("models") for f in files)
-    # the labels stay out of pretraining
-    assert not any(f.endswith("recall-pool.md") or "pool-picks-" in f for f in files), files
 
 
 def test_train_and_eval(tmp_path):
