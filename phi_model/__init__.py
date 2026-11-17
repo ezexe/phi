@@ -221,20 +221,27 @@ def seed_repo(p4: str) -> List[str]:
 
 
 def update(p4: str, plugin: str, now: str, minutes: float) -> int:
+    """Seed and train what check finds stale, answer the notices of what it rebuilt, and check again. 0 when every
+    training succeeded and nothing is stale after them, as check's own exit code says."""
     rep = check(p4, plugin)
     print_check(rep)
     if any(o.startswith("seed") for o in rep["owed"]):
         print("seed: " + (", ".join(seed_repo(p4)) or "nothing"))
     owed = list(dict.fromkeys(o.split()[1] for o in rep["owed"] if o.startswith("train ")))
-    if not owed:
+    trained: Dict[str, Dict] = {}
+    if owed:
+        trained = train(p4, plugin, owed, now, minutes)
+        n = resolve_notices(p4, plugin, trained, now)
+        print(f"update — rebuilt {', '.join(k for k, v in trained.items() if v['ok'] and not v['empty']) or 'nothing'}; "
+              f"{n} notice(s) answered")
+    else:
         print("update — nothing to train")
-        return 0
-    trained = train(p4, plugin, owed, now, minutes)
-    n = resolve_notices(p4, plugin, trained, now)
-    print(f"update — rebuilt {', '.join(k for k, v in trained.items() if v['ok'] and not v['empty']) or 'nothing'}; "
-          f"{n} notice(s) answered")
-    print_check(check(p4, plugin))
-    return 0 if all(v["ok"] for v in trained.values()) else 1
+    after = check(p4, plugin)
+    if owed:
+        print_check(after)
+    elif after["owed"]:
+        print("update — still stale: " + ", ".join(after["owed"]))
+    return 0 if all(v["ok"] for v in trained.values()) and not after["owed"] else 1
 
 
 def main(argv=None) -> int:

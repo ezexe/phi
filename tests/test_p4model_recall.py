@@ -217,6 +217,24 @@ def test_labels_since_the_round_counts_raw_labels_as_the_round_does(tmp_path):
 
 
 @needs_plugin
+def test_update_fails_while_anything_is_stale(tmp_path, monkeypatch):
+    """A notice no training can answer leaves the store stale after update, and update then exits 1, as the check
+    after it does."""
+    root = str(tmp_path / "proj")
+    p4 = os.path.join(root, ".claude", "p4")
+    write_store(p4, n_tasks=2)
+    monkeypatch.delenv("VLDS_PT_RANKER")
+    args = ["--project", root, "--plugin", PLUGIN, "--now", "2026-11-09 18:00", "--minutes", "0"]
+    assert phi_model.main(["init"] + args) == 0
+    sys.path.insert(0, os.path.join(PLUGIN, "scripts"))
+    import notices
+    assert notices.notify(p4, "hook stop", KeyError("session_id"), "aaaa1111", now="2026-11-09 18:05")
+    assert phi_model.check(p4, PLUGIN)["owed"]
+    assert phi_model.main(["update"] + args) == 1
+    assert phi_model.main(["check", "--project", root, "--plugin", PLUGIN]) == 1
+
+
+@needs_plugin
 def test_init_and_train_leave_the_dual_encoder_alone_unless_asked(tmp_path, monkeypatch, capsys):
     """Without VLDS_PT_RANKER=1 init and train build the logistic regression ranker and no checkpoint of the dual
     encoder, as check owes none."""
