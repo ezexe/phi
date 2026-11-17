@@ -211,13 +211,11 @@ def candidate_files(root: str) -> List[str]:
     return out
 
 
-def text_files(root: str, exclude: Sequence[str] = ()) -> List[str]:
+def text_files(root: str) -> List[str]:
     """candidate_files(), less anything binary that slipped through: a skipped extension, or a NUL in its first
-    4 KB; and less every path under one of `exclude` (prefixes relative to root)."""
+    4 KB."""
     out = []
     for p in candidate_files(root):
-        if exclude and os.path.relpath(p, root).replace(os.sep, "/").startswith(tuple(exclude)):
-            continue
         if os.path.splitext(p)[1].lower() in SKIP_EXT or not os.path.isfile(p):
             continue
         try:
@@ -248,10 +246,10 @@ def passages(path: str) -> List[str]:
     return out
 
 
-def corpus_pairs(root: str, exclude: Sequence[str] = ()) -> Tuple[List[Tuple[str, str]], int]:
+def corpus_pairs(root: str) -> Tuple[List[Tuple[str, str]], int]:
     """(neighbouring passage pairs across the repository's text, bytes read)."""
     pairs, total = [], 0
-    for p in text_files(root, exclude):
+    for p in text_files(root):
         ps = passages(p)
         total += sum(len(x) for x in ps)
         rel = os.path.relpath(p, root)
