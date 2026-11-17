@@ -187,8 +187,7 @@ def test(p4: str, plugin: str, now: str, minutes: float, folds: int) -> Dict[str
 # ─── init / update / mode ──────────────────────────────────────────────────────────────────────────────
 
 def seed_repo(p4: str, plugin: str) -> List[str]:
-    """git, the plugin's .gitignore and .gitattributes, git-lfs's hooks, and this machine's interpreter for the .pt
-    ranker (models/.ranker-python, untracked). A .gitattributes of the owner's own gets the LFS lines appended when
+    """git, the plugin's .gitignore and .gitattributes, and git-lfs's hooks. A .gitattributes of the owner's own gets the LFS lines appended when
     it lacks them; nothing else of the owner's is changed."""
     done = []
     if run(["git", "-C", p4, "rev-parse", "--show-toplevel"]).returncode != 0:
@@ -229,18 +228,13 @@ def seed_repo(p4: str, plugin: str) -> List[str]:
             done.append("git lfs install --local")
     else:
         done.append("git-lfs NOT installed: install it before committing models/*.pt")
-    py_file = layout.sub(p4, "models", ".ranker-python")
-    os.makedirs(os.path.dirname(py_file), exist_ok=True)
-    from phi_rank import write_text_atomic
-    write_text_atomic(sys.executable + "\n", py_file)
-    done.append(f"models/.ranker-python → {sys.executable}")
     return done
 
 
 def update(p4: str, plugin: str, now: str, minutes: float) -> int:
     rep = check(p4, plugin)
     print_check(rep)
-    if any(o.startswith("seed") or o.startswith("ranker python") for o in rep["owed"]):
+    if any(o.startswith("seed") for o in rep["owed"]):
         print("seed: " + (", ".join(seed_repo(p4, plugin)) or "nothing"))
     owed = list(dict.fromkeys(o.split()[1] for o in rep["owed"] if o.startswith("train ")))
     if not owed:
