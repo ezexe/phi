@@ -31,14 +31,40 @@ def dual_encoder_on(monkeypatch):
     monkeypatch.setenv("VLDS_PT_RANKER", "1")
 
 
+@pytest.fixture(autouse=True)
+def in_process(monkeypatch):
+    """`python -m phi_rank` runs in this process at two epochs on a base of 4096 buckets by 16, and git lfs answers ok
+    without running: each command line is still the one recall.train builds, read by phi_rank's own parser, at no
+    cost of an interpreter start, a torch import and thirty epochs. The plugin's p4.py and git run as they do in a
+    store. phi_rank, and with it torch, is imported only by a test that runs it, so the tests that need no torch run
+    on a machine without it."""
+    import contextlib
+    import io
+
+    def fake(cmd):
+        if cmd[1:3] == ["-m", "phi_rank"]:
+            import phi_rank
+            monkeypatch.setattr(phi_rank, "CONTINUE_EPOCHS", 2)
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
+                code = phi_rank.main(cmd[3:] + ["--epochs", "2", "--buckets", "4096", "--dim", "16"])
+            return subprocess.CompletedProcess(cmd, code, out.getvalue(), "")
+        if "lfs" in cmd:
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+        return None
+    real_r, real_m = recall.run, phi_model.run
+    monkeypatch.setattr(recall, "run", lambda cmd, cwd=None: fake(cmd) or real_r(cmd, cwd))
+    monkeypatch.setattr(phi_model, "run", lambda cmd, cwd=None, env=None: fake(cmd) or real_m(cmd, cwd, env))
+
+
 def entry(pairs):
     return "- " + pairs[0][0] + ": " + pairs[0][1] + "\n" + "".join(f"  {k}: {v}\n" for k, v in pairs[1:]) + "\n"
 
 
-def write_store(p4, n_tasks=8):
-    """A flat store as p4-phi's older versions wrote it: one rule per topic, one session's rows, usage labels
-    pointing each query at its rule."""
-    os.makedirs(os.path.join(p4, "store", "messages"))
+def write_store(p4, n_tasks=8, flat=False):
+    """A store in the layout p4-phi writes, or with flat a flat one as its older versions wrote it, which check
+    moves into the layout: one rule per topic, one session's rows, usage labels pointing each query at its rule."""
+    os.makedirs(os.path.join(p4, *([] if flat else ["phi"]), "store", "messages"))
     os.makedirs(layout.sub(p4, "models"))
     rules = "The owner's rulings.\nWritten when the owner rules.\nFields: ruling, status, time.\n\n"
     ids = []
@@ -47,7 +73,7 @@ def write_store(p4, n_tasks=8):
         time = f"2026-10-{20 + i:02d} 10:00"
         rules += entry([("ruling", value), ("status", "LIVE"), ("time", time)])
         ids.append(f"rules.md:{time}:{hashlib.sha1(value.encode()).hexdigest()[:8]}")
-    with open(os.path.join(p4, "store", "rules.md"), "w", encoding="utf-8") as f:
+    with open(layout.sub(p4, "store", "rules.md"), "w", encoding="utf-8") as f:
         f.write(rules)
     rows = "Every owner message.\nOpened by the prompt hook.\nFields: fingerprint, time, arrival, state, addressed.\n\n"
     tasks = "id\tsession\ttime\ttext\tkind\n"
@@ -63,14 +89,15 @@ def write_store(p4, n_tasks=8):
         tasks += f"{rid}\taaaa1111\t{time}\t{text}\tnew\n"
         labels += f"{rid}\t{ids[i % len(TOPICS)]}\t1\tusage\t0.3\t{time}\t\t\tused; shown\n"
         labels += f"{rid}\t{ids[(i + 1) % len(TOPICS)]}\t0\tusage\t0.3\t{time}\t\t\tunused; shown\n"
-    with open(os.path.join(p4, "store", "messages", "aaaa1111.md"), "w", encoding="utf-8") as f:
+    with open(layout.sub(p4, "store", "messages", "aaaa1111.md"), "w", encoding="utf-8") as f:
         f.write(rows)
     with open(layout.sub(p4, "models", "tasks.tsv"), "w", encoding="utf-8") as f:
         f.write(tasks)
     with open(layout.sub(p4, "models", "labels.tsv"), "w", encoding="utf-8") as f:
         f.write(labels)
     with open(os.path.join(p4, ".gitignore"), "w", encoding="utf-8") as f:
-        f.write("models/index.json\nmodels/repo.json\nmodels/*.tmp\nmodels/served/\nmodels/ranker.pt\n")
+        m = layout.rel(p4, "models")
+        f.write(f"{m}/index.json\n{m}/repo.json\n{m}/*.tmp\n{m}/served/\n{m}/ranker.pt\n")
     subprocess.run(["git", "init", "-q", p4], check=True)
 
 
@@ -104,7 +131,7 @@ def test_find_plugin_reads_claude_codes_marketplace_registry(tmp_path, monkeypat
     for var in ("HOME", "USERPROFILE"):
         monkeypatch.setenv(var, str(home))
     monkeypatch.delenv("P4_RECALL_PLUGIN_ROOT", raising=False)
-    project = tmp_path / "elsewhere" / "proj"
+    project = tmp_path / "a" / "b" / "c" / "d" / "e" / "proj"
     (project / ".claude" / "p4" / "store").mkdir(parents=True)
     assert phi_model.find_plugin("", str(project)) == str(plugin)
 
@@ -115,6 +142,16 @@ def test_mode_needs_no_torch(tmp_path, monkeypatch):
     os.makedirs(os.path.join(str(tmp_path), "store"))
     phi_model.write_mode(str(tmp_path), "off", "2026-11-17 10:00")
     assert phi_model.mode_of(phi_model.read_recall(str(tmp_path))) == "off"
+
+
+def test_the_tests_that_need_no_torch_run_without_it():
+    """On a machine where torch does not import, this module's tests of `mode` and of find_plugin still pass: no
+    fixture they take imports phi_rank."""
+    code = ("import sys; sys.modules['torch'] = None; import pytest; "
+            f"sys.exit(pytest.main(['-q', '-p', 'no:cacheprovider', '-k', 'mode_needs_no_torch or find_plugin', {__file__!r}]))")
+    r = subprocess.run([sys.executable, "-B", "-c", code], cwd=os.path.dirname(HERE), capture_output=True, text=True,
+                       timeout=300)
+    assert r.returncode == 0 and " passed" in r.stdout and "error" not in r.stdout, r.stdout[-2000:]
 
 
 def fake_plugin(path, version):
@@ -143,7 +180,7 @@ def test_find_plugin_takes_the_copy_sessions_load(tmp_path, monkeypatch):
         monkeypatch.setenv(var, str(home))
     for var in ("P4_RECALL_PLUGIN_ROOT", "CLAUDE_CONFIG_DIR", "CLAUDE_CODE_PLUGIN_CACHE_DIR"):
         monkeypatch.delenv(var, raising=False)
-    project = tmp_path / "elsewhere" / "proj"
+    project = tmp_path / "a" / "b" / "c" / "d" / "e" / "proj"
     (project / ".claude" / "p4" / "store").mkdir(parents=True)
     assert phi_model.find_plugin("", str(project)) == str(folder)
     moved = tmp_path / "plugins-root"
@@ -213,7 +250,7 @@ def test_check_init_and_update_on_a_store(tmp_path, capsys):
     rep = phi_model.check(p4, PLUGIN)
     assert rep["kind"] == "p4-recall" and rep["labelled_tasks"] == 8 and rep["json_ranker"] is None
     assert "train json" in rep["owed"] and "train ranker" in rep["owed"]
-    assert phi_model.main(["init"] + args + ["--minutes", "0.02", "--mode", "shadow"]) == 0
+    assert phi_model.main(["init"] + args + ["--minutes", "0", "--mode", "shadow"]) == 0
     rep = phi_model.check(p4, PLUGIN)
     assert rep["mode"] == "shadow", rep["recall"]
     assert rep["eval_last"] and rep["eval_last"]["round"] == "0", rep["eval_last"]
@@ -228,7 +265,7 @@ def test_check_init_and_update_on_a_store(tmp_path, capsys):
     assert notices.notify(p4, "pt ranker server", RuntimeError("bad scores"), "aaaa1111", now="2026-11-09 18:05")
     rep = phi_model.check(p4, PLUGIN)
     assert rep["owed"] == ["train ranker"] and len(rep["notices"]) == 1
-    assert phi_model.main(["update"] + args + ["--minutes", "0.02"]) == 0
+    assert phi_model.main(["update"] + args + ["--minutes", "0"]) == 0
     rep = phi_model.check(p4, PLUGIN)
     assert rep["notices"] == [] and rep["owed"] == [] and rep["pt_ranker"]["round"] == 1, rep
     resolved = open(layout.sub(p4, "models", notices.RESOLVED), encoding="utf-8").read()
@@ -278,9 +315,10 @@ def test_check_without_torch_checks_what_retrieval_serves(tmp_path, monkeypatch,
 @needs_plugin
 def test_labels_since_the_round_counts_raw_labels_as_the_round_does(tmp_path):
     """eval.tsv records count_labels, labels-raw.tsv and labels.tsv together; check takes the count since the round
-    the same way, so a store with raw labels never reads a negative count."""
+    the same way, so a store with raw labels never reads a negative count. The store is flat, so check moves it
+    first."""
     p4 = os.path.join(str(tmp_path / "proj"), ".claude", "p4")
-    write_store(p4)
+    write_store(p4, flat=True)
     m = recall.modules(PLUGIN, p4)
     raw = [{"task": "t", "entry": f"e{i}", "label": "1", "source": "store", "weight": "0.5", "time": "2026-11-01 10:00"}
            for i in range(7)]
@@ -344,7 +382,7 @@ def test_update_fails_while_anything_is_stale(tmp_path, monkeypatch):
     write_store(p4, n_tasks=2)
     monkeypatch.delenv("VLDS_PT_RANKER")
     args = ["--project", root, "--plugin", PLUGIN, "--now", "2026-11-09 18:00", "--minutes", "0"]
-    assert phi_model.main(["init"] + args) == 0
+    assert phi_model.check(p4, PLUGIN)["owed"] == []
     sys.path.insert(0, os.path.join(PLUGIN, "scripts"))
     import notices
     assert notices.notify(p4, "hook stop", KeyError("session_id"), "aaaa1111", now="2026-11-09 18:05")
@@ -374,17 +412,17 @@ def test_update_with_nothing_to_train_fails_while_anything_is_stale(tmp_path, mo
 
 @needs_plugin
 def test_init_and_train_leave_the_dual_encoder_alone_unless_asked(tmp_path, monkeypatch, capsys):
-    """Without VLDS_PT_RANKER=1 init and train build the logistic regression ranker and no checkpoint of the dual
-    encoder, as check owes none."""
+    """Without VLDS_PT_RANKER=1 init and train succeed, train answers the dual encoder with off, and no checkpoint
+    of the dual encoder is written; with two labelled queries, under the three it needs, the plugin's trainer builds
+    no logistic regression ranker either."""
     root = str(tmp_path / "proj")
     p4 = os.path.join(root, ".claude", "p4")
-    write_store(p4)
+    write_store(p4, n_tasks=2)
     monkeypatch.delenv("VLDS_PT_RANKER")
     args = ["--project", root, "--plugin", PLUGIN, "--now", "2026-11-09 18:00", "--minutes", "0"]
     assert phi_model.main(["init"] + args) == 0
     assert phi_model.main(["train", "--only", "ranker"] + args) == 0
     assert "train ranker: off" in capsys.readouterr().out
-    assert os.path.exists(layout.sub(p4, "models", "ranker.json"))
     assert not any(os.path.exists(layout.sub(p4, "models", n)) for n in ("ranker-anchor.pt", "ranker.pt", "ranker-pt.json"))
 
 

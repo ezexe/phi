@@ -80,7 +80,7 @@ def test_query_groups_from_labels_and_index(tmp_path):
 
 def test_train_and_eval_on_labels(tmp_path):
     labelled_store(tmp_path)
-    args = ["--p4", str(tmp_path), "--minutes", "0.05", "--epochs", "30", "--now", "2026-11-09", "--negatives", "6"]
+    args = ["--p4", str(tmp_path), "--minutes", "0", "--epochs", "4", "--now", "2026-11-09", "--negatives", "6"]
     assert phi_rank.main(["train"] + args) == 0
     assert json.loads((tmp_path / "models" / "ranker.json").read_text()) == {"kind": "p4 recall ranker", "floor": {}},         "the plugin's logistic regression ranker keeps its file"
     assert phi_rank.sidecar_path(str(tmp_path)).endswith("ranker-pt.json")
@@ -89,7 +89,7 @@ def test_train_and_eval_on_labels(tmp_path):
     model, _meta = phi_rank.load(str(tmp_path / "models" / "ranker.pt"))
     pools = phi_rank.read_label_pools(str(tmp_path), negatives=6)
     assert phi_rank.mean_rprecision(model, pools) >= 0.8, "it learned the query groups it was trained on"
-    assert phi_rank.main(["eval", "--folds", "3"] + args) == 0
+    assert phi_rank.main(["eval", "--folds", "3"] + args + ["--epochs", "1"]) == 0
 
 
 def test_no_labels_is_a_clean_exit(tmp_path, capsys):

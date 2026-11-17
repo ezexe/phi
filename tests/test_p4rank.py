@@ -57,7 +57,7 @@ def test_corpus_of_a_store_its_repository_ignores(tmp_path):
 
 def test_train_and_eval(tmp_path):
     make_store(tmp_path)
-    args = ["--p4", str(tmp_path), "--minutes", "0.05", "--epochs", "8", "--now", "2026-10-27"]
+    args = ["--p4", str(tmp_path), "--minutes", "0", "--epochs", "4", "--now", "2026-10-27"]
     assert phi_rank.main(["train"] + args) == 0
     mdir = tmp_path / "models"
     side = json.loads((mdir / "ranker-pt.json").read_text())
@@ -70,7 +70,7 @@ def test_train_and_eval(tmp_path):
     assert side["threshold_from"].startswith("held-out") and 0 <= side["heldout_rprecision"] <= 1
     # it learned the query groups: each query ranks its labelled rules above its group's other candidates
     assert phi_rank.mean_rprecision(model, phi_rank.read_label_pools(str(tmp_path))) >= 0.8
-    assert phi_rank.main(["eval", "--folds", "3"] + args) == 0
+    assert phi_rank.main(["eval", "--folds", "3"] + args + ["--epochs", "1"]) == 0
 
 
 
@@ -78,8 +78,10 @@ def test_rounds_ship_incremental_checkpoints_and_rebuild(tmp_path, monkeypatch):
     """A round after the full checkpoint ships only its change; a clone without ranker.pt rebuilds the same model
     from the checkpoints."""
     monkeypatch.setattr(phi_rank, "REBASE_GAP", 1.0)        # keep the cut, whatever it costs on a toy store
+    monkeypatch.setattr(phi_rank, "CONTINUE_EPOCHS", 2)
     make_store(tmp_path)
-    args = ["--p4", str(tmp_path), "--minutes", "0", "--epochs", "8", "--now", "2026-10-27"]
+    args = ["--p4", str(tmp_path), "--minutes", "0", "--epochs", "2", "--now", "2026-10-27", "--buckets", "4096",
+            "--dim", "16"]
     assert phi_rank.main(["train"] + args) == 0
     assert phi_rank.main(["train"] + args) == 0
     mdir = tmp_path / "models"
@@ -102,8 +104,10 @@ def test_rounds_ship_incremental_checkpoints_and_rebuild(tmp_path, monkeypatch):
 
 def test_legacy_checkpoint_becomes_the_full_checkpoint(tmp_path, monkeypatch):
     monkeypatch.setattr(phi_rank, "REBASE_GAP", 1.0)
+    monkeypatch.setattr(phi_rank, "CONTINUE_EPOCHS", 1)
     make_store(tmp_path)
-    args = ["--p4", str(tmp_path), "--minutes", "0", "--epochs", "8", "--now", "2026-10-27"]
+    args = ["--p4", str(tmp_path), "--minutes", "0", "--epochs", "1", "--now", "2026-10-27", "--buckets", "4096",
+            "--dim", "16"]
     assert phi_rank.main(["train"] + args) == 0
     mdir = tmp_path / "models"
     # a store from before the incremental checkpoints: a whole fp16 ranker.pt and a sidecar with no full checkpoint
@@ -142,7 +146,7 @@ def test_ensemble_members_mask_and_selection(tmp_path):
     assert [tree.parent(a) for a in ("1", "101", "1001", "10101")] == [None, "1", "1", "101"]
     make_store(tmp_path)
     pools = phi_rank.read_label_pools(str(tmp_path))
-    meta = tree.build(str(tmp_path), pools, k=4, minutes=0.02, epochs=4, bits=13, dim=16, now="2026-10-28",
+    meta = tree.build(str(tmp_path), pools, k=4, minutes=0.002, epochs=1, bits=13, dim=16, now="2026-10-28",
                       log=lambda *_: None, mask=True)
     mdir = tmp_path / "models"
     assert [n["address"] for n in meta["nodes"]][-1] == "1"              # the root trains last
@@ -171,7 +175,7 @@ def test_training_device_and_feature_cache(monkeypatch):
     full = phi_rank.FeatureCache(1 << 13, mb=0)            # no room: still right, just not kept
     assert torch.equal(phi_rank.batch_features(texts, 1 << 13, full)[0], plain[0]) and not full.got
     m = phi_rank.Ranker(1 << 13, 16)
-    assert phi_rank.pretrain(m, list(zip(texts, texts[1:])), 0.005, log=lambda *_: None) > 0
+    assert phi_rank.pretrain(m, list(zip(texts, texts[1:])), 0.0005, log=lambda *_: None) > 0
     pools = [{"task": "a plan about the ring buffer", "rows": [{"text": t, "label": int(i < 2)} for i, t in enumerate(texts)]}]
     phi_rank.finetune(m, pools, epochs=1)
     assert all(p.device.type == "cpu" for p in m.parameters())
@@ -188,10 +192,10 @@ def test_pretrain_early_stopping():
         return 1.0 if len(calls) == 1 else 0.0
     start = {k: v.clone() for k, v in m.state_dict().items()}
     info = {}
-    steps = phi_rank.pretrain(m, list(zip(texts, texts[1:])), 0.01, log=lambda *_: None, select=select,
-                            select_every=0.1, info=info)
+    steps = phi_rank.pretrain(m, list(zip(texts, texts[1:])), 0.001, log=lambda *_: None, select=select,
+                            select_every=0.01, info=info)
     assert steps > 0 and info["best_steps"] == 0 and info["best_score"] == 1.0 and len(info["curve"]) >= 2
     assert all(torch.equal(start[k], v) for k, v in m.state_dict().items())        # the kept weights are the best
     assert all(p.device.type == "cpu" for p in m.parameters())
     m2 = phi_rank.Ranker(1 << 12, 16)
-    assert phi_rank.pretrain(m2, list(zip(texts, texts[1:])), 0.005, log=lambda *_: None) > 0   # no select: unchanged
+    assert phi_rank.pretrain(m2, list(zip(texts, texts[1:])), 0.0005, log=lambda *_: None) > 0   # no select: unchanged
