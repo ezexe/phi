@@ -51,7 +51,6 @@ pretraining from the base it has. The pick threshold is chosen on held-out
 pools (each fold's model fine-tuned from the base without the pools it is
 scored on) and chosen again when the labelled pools have grown by a quarter.
 
-    python -m phi_rank pretrain --p4 <p4 root> --minutes 5 [--buckets 32768 --dim 64]
     python -m phi_rank train --p4 <p4 root> [--pairs pairs.jsonl] --now "2026-10-27 09:00"
     python -m phi_rank eval --p4 <p4 root> [--pairs pairs.jsonl]
 """
@@ -686,19 +685,6 @@ def mean_rprecision(model: Ranker, pools: Sequence[Dict]) -> float:
 
 # ─── commands ──────────────────────────────────────────────────────────────────────────────────────────
 
-def cmd_pretrain(args) -> int:
-    torch.manual_seed(0)
-    pairs, total = corpus_pairs(args.p4)
-    print(f"pretrain — {len(pairs):,} passage pairs from {total / 1e6:.1f} MB of text in {args.p4}")
-    model = Ranker(args.buckets, args.dim)
-    steps = pretrain(model, pairs, args.minutes)
-    path = os.path.join(models_dir(args.p4), "ranker-base.pt")
-    save(model, {"nb": args.buckets, "dim": args.dim, "stage": "pretrained", "corpus_bytes": total, "steps": steps,
-                 "trained": args.now}, path)
-    print(f"pretrain — {steps} steps → {path}")
-    return 0
-
-
 def is_checkpoint(path: str) -> bool:
     """A checkpoint on disk, not missing and not a git LFS pointer left by a clone without git-lfs."""
     try:
@@ -941,12 +927,6 @@ def cmd_shared(args) -> int:
 def main(argv: Optional[Sequence[str]] = None) -> int:
     ap = argparse.ArgumentParser(prog="python -m phi_rank")
     sub = ap.add_subparsers(dest="cmd", required=True)
-    p = sub.add_parser("pretrain")
-    p.add_argument("--p4", required=True)
-    p.add_argument("--minutes", type=float, default=5)
-    p.add_argument("--now", default="")
-    p.add_argument("--buckets", type=int, default=NB, help="hashed feature buckets of a new base")
-    p.add_argument("--dim", type=int, default=DIM, help="embedding width of a new base")
     for name in ("train", "eval"):
         p = sub.add_parser(name)
         p.add_argument("--p4", required=True)
@@ -974,7 +954,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     args = ap.parse_args(argv)
     if args.cmd == "shared" and args.exclude is None:
         args.exclude = list(DEFAULT_SHARED_EXCLUDE)
-    return {"pretrain": cmd_pretrain, "train": cmd_train, "eval": cmd_eval, "shared": cmd_shared}[args.cmd](args)
+    return {"train": cmd_train, "eval": cmd_eval, "shared": cmd_shared}[args.cmd](args)
 
 
 if __name__ == "__main__":
