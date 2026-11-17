@@ -224,6 +224,33 @@ def test_labels_since_the_round_counts_raw_labels_as_the_round_does(tmp_path):
     assert phi_model.check(p4, PLUGIN)["labels_since_round"] == 0
 
 
+def phi_store_repo(p4):
+    """A store in the layout p4-phi writes, a git repository with p4.json, and nothing trained."""
+    for d in ("store", "models"):
+        os.makedirs(os.path.join(p4, "phi", d))
+    with open(os.path.join(p4, "p4.json"), "w", encoding="utf-8") as f:
+        f.write('{"version": 1}')
+    subprocess.run(["git", "init", "-q", p4], check=True)
+
+
+def git(p4, *args):
+    return subprocess.run(["git", "-C", p4, "-c", "user.name=t", "-c", "user.email=t@t", *args], capture_output=True,
+                          text=True)
+
+
+@needs_plugin
+def test_check_asks_to_untrack_the_local_build_in_the_stores_layout(tmp_path):
+    """A store that tracks phi/models/ranker.pt is asked to untrack it, at the path git tracks."""
+    p4 = str(tmp_path / "proj" / ".claude" / "p4")
+    phi_store_repo(p4)
+    with open(os.path.join(p4, "phi", "models", "ranker.pt"), "wb") as f:
+        f.write(b"x")
+    git(p4, "add", "-f", "phi/models/ranker.pt")
+    git(p4, "commit", "-qm", "x")
+    assert "untrack phi/models/ranker.pt with git rm --cached: the checkpoints git keeps rebuild it" in \
+        phi_model.check(p4, PLUGIN)["owed"]
+
+
 @needs_plugin
 def test_update_fails_while_anything_is_stale(tmp_path, monkeypatch):
     """A notice no training can answer leaves the store stale after update, and update then exits 1, as the check
@@ -240,6 +267,25 @@ def test_update_fails_while_anything_is_stale(tmp_path, monkeypatch):
     assert phi_model.check(p4, PLUGIN)["owed"]
     assert phi_model.main(["update"] + args) == 1
     assert phi_model.main(["check", "--project", root, "--plugin", PLUGIN]) == 1
+
+
+@needs_plugin
+def test_update_with_nothing_to_train_fails_while_anything_is_stale(tmp_path, monkeypatch, capsys):
+    """When check owes no training but owes what only a person does, an untrack of the local build, update trains
+    nothing, names what is still stale and exits 1."""
+    monkeypatch.delenv("VLDS_PT_RANKER", raising=False)
+    p4 = str(tmp_path / "proj" / ".claude" / "p4")
+    phi_store_repo(p4)
+    with open(os.path.join(p4, ".gitignore"), "w", encoding="utf-8") as f:
+        f.write("phi/models/index.json\nphi/models/ranker.pt\n")
+    with open(os.path.join(p4, "phi", "models", "ranker.pt"), "wb") as f:
+        f.write(b"x")
+    git(p4, "add", "-f", ".gitignore", "phi/models/ranker.pt")
+    git(p4, "commit", "-qm", "x")
+    assert not any(o.startswith("train ") for o in phi_model.check(p4, PLUGIN)["owed"])
+    assert phi_model.update(p4, PLUGIN, "2026-11-09 18:00", 0) == 1
+    out = capsys.readouterr().out
+    assert "update — nothing to train" in out and "update — still stale: untrack phi/models/ranker.pt" in out
 
 
 @needs_plugin

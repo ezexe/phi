@@ -263,8 +263,8 @@ def check(p4: str, plugin: str, version: str) -> Dict:
         rep["owed"].append("train ranker")
     if state == "lfs-pointer" and not pt_off:
         rep["owed"].append("git lfs pull: the dual encoder's checkpoint is an LFS pointer file")
-    if run(["git", "-C", p4, "ls-files", "--error-unmatch", "models/ranker.pt"]).returncode == 0:
-        rep["owed"].append("untrack models/ranker.pt with git rm --cached: the checkpoints git keeps rebuild it")
+    if run(["git", "-C", p4, "ls-files", "--error-unmatch", f"{mrel}/ranker.pt"]).returncode == 0:
+        rep["owed"].append(f"untrack {mrel}/ranker.pt with git rm --cached: the checkpoints git keeps rebuild it")
 
     notices = m.notices.open_notices(p4)
     rep["notices"] = notices
