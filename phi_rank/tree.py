@@ -31,17 +31,13 @@ Files, in the store's models/: tree/<address>.pt (fp16, git LFS), tree.json (the
 when it was trained) and tree-oof.json: every labelled pool scored at medium and at high by fold trees that never
 fine-tuned on it, with each effort's held-out r-precision. The JSON ranker fits its .pt weight on those scores when
 the store's pool-effort names the tree, as it fits it on ranker-oof.json for the single ranker.
-
-    python -m phi_rank.tree train --p4 <p4 root> --pairs pairs.jsonl --k 4 [--minutes 6] [--mask] --now "2026-10-28 12:00"
 """
 
-import argparse
 import itertools
 import json
 import math
 import os
 import subprocess
-import sys
 import time
 from typing import Dict, List, Optional, Sequence, Tuple
 
@@ -233,33 +229,3 @@ def out_of_fold(pre: Sequence[Dict], pools: Sequence[Dict], epochs: int, now: st
     return {"trained": now, "k": len(pre), "folds": FOLDS,
             "heldout": {e: round(sum(v) / len(v), 4) for e, v in rprec.items()}, "efforts": scores}
 
-
-def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(prog="python -m phi_rank.tree")
-    sub = ap.add_subparsers(dest="cmd", required=True)
-    p = sub.add_parser("train")
-    p.add_argument("--p4", required=True)
-    p.add_argument("--pairs", required=True)
-    p.add_argument("--k", type=int, default=4)
-    p.add_argument("--minutes", type=float, default=MINUTES, help="pretraining per tree (default none: it lowered ranking)")
-    p.add_argument("--mask", action="store_true", help="phi_mask each node's rows (default off: it cost 0.05)")
-    p.add_argument("--epochs", type=int, default=10)
-    p.add_argument("--now", default="")
-    args = ap.parse_args(argv)
-    try:
-        sys.stdout.reconfigure(errors="replace")   # a redirected stdout on Windows is cp1252
-    except (AttributeError, ValueError):
-        pass
-    pools = pr.read_pools(args.pairs)
-    if not pools:
-        print("tree — no labelled pool in the pairs; nothing written")
-        return 1
-    meta = build(args.p4, pools, args.k, args.minutes, args.epochs, now=args.now, mask=args.mask)
-    held = meta.get("heldout")
-    print(f"tree - {meta['k']} nodes ({', '.join(n['address'] for n in meta['nodes'])}) -> models/{TREE_DIR}/"
-          + (f"; held out: medium {held['medium']:.3f}, high {held['high']:.3f}" if held else ""))
-    return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())
