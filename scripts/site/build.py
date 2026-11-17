@@ -8,6 +8,7 @@ rendered to static HTML for GitHub Pages (.github/workflows/pages.yml).
   docs/**/*.ipynb                    -> docs/**/*.html (nbconvert, outputs as saved)
   docs/**/*.jsx                      -> docs/**/*.jsx.html (React 18 + Babel in the page)
   docs/artifacts/*.html              -> docs/artifacts/*.html (a page fragment gets a document skeleton)
+  docs/**/*.html                     -> docs/**/*.html as written, a hand-written page
   every other file under docs/       -> copied as is, so the docs' links to results/ and data resolve
 
 A relative link to a file the site doesn't carry goes to the file on GitHub instead.
@@ -111,7 +112,7 @@ def collect():
             elif ext == ".jsx":
                 pages[rel] = site + ".html"
                 copies.append((rel, site))
-            elif ext == ".html" and rel.startswith("docs/artifacts/"):
+            elif ext == ".html":
                 pages[rel] = site
             else:
                 copies.append((rel, site))
@@ -219,7 +220,8 @@ def build(out):
             with open(os.path.join(ROOT, src), encoding="utf-8") as f:
                 text = f.read()
             m = re.search(r"<title>(.*?)</title>", text, re.S)
-            title, kind = (html.unescape(m.group(1)).strip() if m else posixpath.basename(src)), "artifact"
+            title = html.unescape(m.group(1)).strip() if m else posixpath.basename(src)
+            kind = "artifact" if src.startswith("docs/artifacts/") else "page"
             doc = wrap_fragment(text, title)
         dst = os.path.join(out, site)
         os.makedirs(os.path.dirname(dst), exist_ok=True)

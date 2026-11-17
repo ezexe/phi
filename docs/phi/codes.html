@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fibonacci codes · phi docs</title>
+<meta name="description" content="phi_prune.gaps, phi_prune.delta and FibonacciEncoder's levels: Fibonacci coding of quantization levels and of the gaps between kept positions, and the .phid file of a model's delta.">
+<style>
+:root{
+  --bg:#f5f3ec; --panel:#fffdf7; --sunk:#efece2; --ink:#1d1c19; --soft:#5d5a52; --line:#d9d4c6;
+  --phi:#0b6b66; --phi-bg:#dcefec; --app:#a85507; --app-bg:#f8e7d2;
+  --ok:#2c7a3f; --bad:#b3261e; --bad-bg:#fbe5e2;
+  --mono:ui-monospace,"Cascadia Code","SF Mono",Menlo,Consolas,monospace;
+  --sans:"Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,"Helvetica Neue",sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#131418; --panel:#1b1d23; --sunk:#16171c; --ink:#e9e6dd; --soft:#a29e93; --line:#33363f;
+    --phi:#62d2c6; --phi-bg:#16312f; --app:#f1ab52; --app-bg:#3a2a14;
+    --ok:#7fd494; --bad:#ff8a80; --bad-bg:#3d1c1a;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#131418; --panel:#1b1d23; --sunk:#16171c; --ink:#e9e6dd; --soft:#a29e93; --line:#33363f;
+  --phi:#62d2c6; --phi-bg:#16312f; --app:#f1ab52; --app-bg:#3a2a14;
+  --ok:#7fd494; --bad:#ff8a80; --bad-bg:#3d1c1a;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 var(--sans)}
+.wrap{max-width:1040px;margin:0 auto;padding:24px 16px 64px}
+a{color:var(--phi)}
+code,pre,kbd{font-family:var(--mono)}
+code{font-size:.88em;background:var(--sunk);border-radius:4px;padding:1px 4px;overflow-wrap:anywhere}
+:focus-visible{outline:2px solid var(--phi);outline-offset:2px}
+button,input,textarea{font:inherit;color:inherit}
+.top{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.mark{font:600 13px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--phi);text-decoration:none}
+.mark:hover{text-decoration:underline}
+.pill{font:600 12px/1 var(--mono);background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:9px 13px;cursor:pointer;white-space:nowrap}
+.pill:hover{border-color:var(--phi)}
+.tabs{display:flex;flex-wrap:wrap;gap:6px;margin:14px 0 0}
+.tabs a{font:600 13px/1 var(--sans);text-decoration:none;color:var(--soft);background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:8px 13px}
+.tabs a:hover{border-color:var(--phi)}
+.tabs a[aria-current="page"]{background:var(--phi);border-color:var(--phi);color:var(--panel)}
+h1{font-size:clamp(30px,5.4vw,46px);line-height:1.08;letter-spacing:-.02em;margin:16px 0 10px;text-wrap:balance}
+h2{font-size:24px;line-height:1.2;letter-spacing:-.01em;margin:44px 0 10px;text-wrap:balance}
+h3{font-size:18px;margin:26px 0 8px}
+p,li{max-width:74ch}
+.lede{color:var(--soft);max-width:70ch;margin:0 0 8px}
+.facts{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:18px 0 22px;padding:0;list-style:none}
+.facts li{border-left:3px solid var(--phi);padding:2px 0 2px 12px;font-size:14.5px;color:var(--soft)}
+.facts li.f-app{border-color:var(--app)}
+.facts li b{display:block;color:var(--ink);font-size:15px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;margin:12px 0}
+.card h2{margin-top:0}
+.tbl{overflow-x:auto;margin:12px 0}
+table{border-collapse:collapse;font-size:14.5px;font-variant-numeric:tabular-nums}
+th,td{text-align:left;padding:6px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--soft);font-weight:600}
+td.n,th.n{text-align:right}
+.src{font-size:13.5px;color:var(--soft)}
+pre{background:var(--sunk);border:1px solid var(--line);border-radius:10px;padding:12px 14px;overflow-x:auto;font-size:13px;line-height:1.5}
+label.f{display:grid;gap:4px;font-size:13px;color:var(--soft);margin:8px 0}
+label.f input{border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:8px 9px;font:14px var(--mono);width:100%}
+.stream{font:15px/1.9 var(--mono);overflow-wrap:anywhere;margin:10px 0 4px}
+.stream span{padding:2px 1px;border-radius:3px}
+.stream span.cw{background:var(--phi-bg)}
+.stream span.cw:nth-child(even){background:var(--app-bg)}
+.stream b{color:var(--phi)}
+.out{font:13.5px/1.6 var(--mono);color:var(--soft);overflow-wrap:anywhere}
+.out .bad{color:var(--bad)} .out .ok{color:var(--ok)}
+.prices{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-top:10px}
+.prices div{border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:var(--bg)}
+.prices b{display:block;font:600 18px var(--mono)}
+.prices span{font-size:12.5px;color:var(--soft)}
+@media (max-width:760px){.facts{grid-template-columns:minmax(0,1fr)}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <a class="mark" href="../index.html">← phi · docs</a>
+    <button class="pill" id="theme" type="button" aria-label="Switch between light and dark">theme</button>
+  </div>
+  <nav class="tabs" aria-label="Pages on the register model and the number codes">
+    <a href="../register.html">The register model</a>
+    <a href="codes.html" aria-current="page">Fibonacci codes</a>
+    <a href="phi.html">Zeckendorf register</a>
+    <a href="bin.html">Binary register</a>
+    <a href="fib.html">Computing F(n)</a>
+    <a href="matrix.html">Fibonacci Q-matrix</a>
+    <a href="Q.html">Related work</a>
+  </nav>
+
+  <h1>Fibonacci codes</h1>
+  <p class="lede">phi writes integers in one prefix code, Fibonacci coding, which <a href="https://github.com/ezexe/phi/blob/main/phi_prune/gaps.py"><code>phi_prune.gaps</code></a> holds. A pruned model's quantization levels and a model's delta between two checkpoints both go into files as Fibonacci codewords, with no length or separator written between them. Each file's header writes how many values each tensor holds and, where the bits are packed, how many bits the payload has, and the delta writes a sign digit before each value's codeword.</p>
+  <ul class="facts">
+    <li><b>The codeword.</b>The Fibonacci code of n ≥ 1 is the Zeckendorf representation of n, least significant digit first, followed by an appended 1.</li>
+    <li><b>The comma.</b>A Zeckendorf representation never holds two adjacent 1s and its top digit is 1, so the appended 1 makes the first <code>11</code> of each codeword, the comma that ends it.</li>
+    <li class="f-app"><b>The users.</b><code>export_bitstream</code> writes each quantization level plus 1, and <code>encode_delta</code> writes the gaps between kept positions and each kept value's level plus 1.</li>
+  </ul>
+
+  <section class="card" aria-labelledby="enc-h">
+    <h2 id="enc-h">Code a set of positions</h2>
+    <p class="src">This runs <code>encode_positions</code> and <code>gap_bits</code> in the page. Give strictly increasing positions from 0 and a tensor size. Each gap counts from the position before it, the first from −1, so every gap is at least 1 and has a codeword.</p>
+    <label class="f">Positions<input id="pos" value="3, 4, 9, 30, 31, 57, 140" spellcheck="false"></label>
+    <label class="f">Entries in the tensor<input id="size" value="256" inputmode="numeric"></label>
+    <div class="out" id="gaps"></div>
+    <div class="stream" id="stream" aria-live="polite"></div>
+    <div class="prices" id="prices"></div>
+  </section>
+
+  <section class="card" aria-labelledby="dec-h">
+    <h2 id="dec-h">Read a stream</h2>
+    <p class="src">This runs <code>read_codes</code> in the page: it adds each 1's place value, ends a codeword at the first <code>11</code>, and raises where the module raises, on a character other than 0 or 1 and on a stream that ends inside a codeword.</p>
+    <label class="f">Bits<input id="bits" value="0011101101011000011" spellcheck="false"></label>
+    <div class="out" id="decoded" aria-live="polite"></div>
+  </section>
+
+  <h2>The code</h2>
+  <p><code>fib_code(n)</code> writes n with <code>phi_prune.register.from_int</code> on the place values 1, 2, 3, 5, 8, … and appends a 1. <code>fib_code_length(n)</code> is its length, and both refuse an n below 1.</p>
+  <div class="tbl"><table>
+    <tr><th class="n">n</th><td class="n">1</td><td class="n">2</td><td class="n">3</td><td class="n">4</td><td class="n">5</td><td class="n">6</td><td class="n">7</td><td class="n">8</td><td class="n">12</td><td class="n">13</td></tr>
+    <tr><th class="n">codeword</th><td><code>11</code></td><td><code>011</code></td><td><code>0011</code></td><td><code>1011</code></td><td><code>00011</code></td><td><code>10011</code></td><td><code>01011</code></td><td><code>000011</code></td><td><code>101011</code></td><td><code>0000011</code></td></tr>
+  </table></div>
+  <p>A codeword is one digit longer than the Zeckendorf representation of n, whose length grows as log<sub>φ</sub> n, about 1.44 log<sub>2</sub> n. The code is a prefix code: no codeword begins another, since each holds its single <code>11</code> at its end. It is a universal code, with no parameter fitted to the data. It is also known as a self-synchronizing code: the <a href="https://en.wikipedia.org/wiki/Fibonacci_coding">Fibonacci coding</a> article notes that one changed bit can make a codeword read as two, or two as one, without spoiling what follows. Nothing in <code>gaps.py</code> or its tests measures this.</p>
+  <p><code>read_codes(bits, start, count)</code> reads <code>count</code> codewords from <code>start</code>, or to the end, and returns the values and the index just past the last one. It raises <code>ValueError</code> when the bits end inside a codeword or before <code>count</code> codewords. <code>encode_gaps</code> and <code>decode_gaps</code> join and split a whole stream. <a href="https://github.com/ezexe/phi/blob/main/tests/test_gaps.py"><code>tests/test_gaps.py</code></a> holds the known codewords, the single <code>11</code> of each, the refusal of 0, round trips, and the refusal of a truncated stream and of unsorted or negative positions.</p>
+
+  <h3>Gaps of a sorted list</h3>
+  <p>A sparse set of positions is cheaper to write as the gaps between them. <code>positions_to_gaps</code> takes strictly increasing positions from 0 and returns their differences, the first counted from −1, and <code>gaps_to_positions</code> adds them back up. <code>encode_positions</code> and <code>decode_positions</code> chain the two with the code. <code>top_positions(tensor, keep)</code> picks what to keep: the sorted flat positions of the k largest entries of the tensor's absolute value, with k the fraction <code>keep</code> of its size rounded, at least 1, which is top-k sparsification. It refuses <code>keep</code> outside 0 to 1 and a tensor with no entries.</p>
+  <p><code>gap_bits(gaps, n_positions)</code> prices one set of gaps in mean bits per kept position for each code it compares:</p>
+  <div class="tbl"><table>
+    <tr><th>Key</th><th>Code</th><th>Bits for a gap g</th></tr>
+    <tr><td><code>fibonacci</code></td><td>Fibonacci coding</td><td><code>fib_code_length(g)</code></td></tr>
+    <tr><td><code>elias-gamma</code></td><td>Elias gamma</td><td>2⌊log<sub>2</sub> g⌋ + 1</td></tr>
+    <tr><td><code>elias-delta</code></td><td>Elias delta</td><td>⌊log<sub>2</sub> g⌋ + 2⌊log<sub>2</sub>(⌊log<sub>2</sub> g⌋ + 1)⌋ + 1</td></tr>
+    <tr><td><code>fixed-width</code></td><td>a fixed-length code of each position</td><td>⌈log<sub>2</sub> n_positions⌉</td></tr>
+    <tr><td><code>entropy</code></td><td>zeroth-order empirical entropy of the gaps</td><td>no code that writes each gap on its own averages fewer bits</td></tr>
+  </table></div>
+
+  <h2>Quantization levels</h2>
+  <p><a href="https://github.com/ezexe/phi/blob/main/phi_prune/encoding.py"><code>FibonacciEncoder(n_digits)</code></a> quantizes weights to integer levels whose Zeckendorf representations fit in <code>n_digits</code> digits. Those are every sum of non-adjacent place values among the first <code>n_digits</code>, which is every integer from 0 to F(n_digits + 2) − 1: 6 digits give 21 levels, the default 8 give 55, 10 give 144 and 12 give 377. <code>encode_tensor</code> is uniform affine quantization: it spreads the levels evenly between the smallest and largest kept weight, rounds each kept weight to the nearest level, ties going up, and returns the de-quantized weights, which is fake quantization, with the scale, levels per unit of weight, and the root-mean-square error. With <code>axis</code> each slice along that axis gets its own scale and offset, which is per-channel quantization; without it one pair covers the tensor. <code>levels</code> inverts the scale-back to give each kept weight's integer level, and <code>to_codeword</code> gives a level's digits.</p>
+  <p>The pruning pipeline's exported bitstream writes each level plus 1 with <code>encode_gaps</code>, so level 0 becomes the codeword <code>11</code>, and reads them back with <code>read_codes</code>. The digits of a level hold no two adjacent 1s, so the stream needs no lengths written.</p>
+
+  <h2>The delta of a fine-tuned model</h2>
+  <p>A model trained in rounds can ship each round as its delta, the new weights minus the base. <a href="https://github.com/ezexe/phi/blob/main/phi_prune/delta.py"><code>phi_prune.delta</code></a> writes one in Fibonacci codes:</p>
+<pre>header, payload = encode_delta(base.state_dict(), tuned.state_dict(), keep=0.01)
+save_delta("round-07.phid", header, payload)
+state = base.state_dict()
+apply_delta(state, *load_delta("round-07.phid"))
+base.load_state_dict(state)</pre>
+  <ul>
+    <li><b>What it keeps.</b> In each floating tensor of the delta, <code>encode_delta</code> keeps the top-k entries by absolute value with k the fraction <code>keep</code> of the tensor's entries. A tensor missing from the base, of another shape or not floating point is named in the header's <code>skipped</code>, and so is a tensor with no entries unless <code>changed_only</code> is set. With <code>changed_only=True</code>, <code>keep</code> is a fraction of the entries that changed, so a sparse delta never spends its kept entries on zeros, and a tensor with no change, one with no entries included, is named in <code>unchanged</code> and costs nothing. <code>keep</code> outside 0 to 1 and a change that is not finite raise <code>ValueError</code>.</li>
+    <li><b>How a value is written.</b> Each kept value is quantized symmetrically: its absolute value over the tensor's scale is rounded to a level from 0 to L, where L is <code>FibonacciEncoder(n_digits).max_value</code> and the scale puts the largest kept value at L, or is 1.0 when every kept value is 0. The default 6 digits give L = 20, so each value decodes as the scale times one of the 41 integers from −20 to 20. The value is written as a sign digit, 1 for a negative value, followed by the Fibonacci code of its level plus 1.</li>
+    <li><b>The payload.</b> Tensor by tensor in the header's order, the <code>n_kept</code> gaps of its kept positions and then its <code>n_kept</code> values. Since the code is a prefix code, the counts alone split it.</li>
+    <li><b>The header.</b> One JSON line with <code>keep</code>, <code>n_digits</code>, <code>levels</code>, which is L, each tensor's <code>name</code>, <code>shape</code>, <code>n_kept</code> and <code>scale</code>, the <code>skipped</code> names, and with <code>changed_only</code> that flag and the <code>unchanged</code> names. A writer may add keys of its own, as <code>phi_rank</code> adds <code>round</code> and <code>parent</code> to every round it ships, and <code>decode_delta</code> passes over them.</li>
+    <li><b>The file.</b> <code>save_delta</code> writes a first line, <code>PHID1 </code> and the CRC-32 of every byte after that line in eight hex digits, then the header line, then the payload as <code>0</code> and <code>1</code> text, or with <code>packed=True</code> as bits packed eight to a byte, an eighth of the size, with their count in the header's <code>packed_bits</code>. <code>load_delta</code> refuses a file whose check line does not match, so a flipped bit is caught before it decodes as another delta; a file that starts with the header's <code>{</code> loads unchecked.</li>
+    <li><b>Applying it.</b> <code>apply_delta</code> checks every tensor's name and shape before it writes anything, then adds each decoded value in place. A contiguous tensor takes the values through its flat view and a non-contiguous one through <code>Tensor.put_</code>, so a transposed tensor works. Names over one memory, as a <code>state_dict</code> gives a tied weight, take the delta once, and raise <code>ValueError</code> when the delta changes them differently.</li>
+  </ul>
+  <p><code>tests/test_gaps.py</code> holds each of these: a round trip within half a level, a delta that moves a model toward the new weights, the refusal of a truncated or extended payload, of a <code>keep</code> outside 0 to 1, of a change that is not finite and of a shape mismatch, an empty tensor skipped, a transposed tensor, a tied weight taking its delta once, <code>changed_only</code>, and the packed form with its truncation refused.</p>
+
+  <h2>Measured on a fine-tuned transformer</h2>
+  <p>The delta part of the register model's <a href="../register.html">transformer check</a> fine-tunes a character-level GPT with 4 layers of width 128, keeps the largest 10% and then 1% of each Linear layer's delta, and prices the gaps between kept positions with <code>gap_bits</code>. A fixed-length position there takes 16 bits, the base-2 logarithm of the largest layer's entry count rounded up.</p>
+  <p class="src">Mean bits per kept position over the three seeds of <a href="https://github.com/ezexe/p4-phi-experiments/blob/6576c16/experiments/phi-register/results/transformer-check/delta.json"><code>results/transformer-check/delta.json</code></a> in ezexe/p4-phi-experiments, rounded as shown:</p>
+  <div class="tbl"><table>
+    <tr><th>Kept</th><th class="n">Fibonacci</th><th class="n">Elias gamma</th><th class="n">Elias delta</th><th class="n">Fixed-length</th><th class="n">Entropy</th></tr>
+    <tr><td>10%</td><td class="n"><b>5.15</b></td><td class="n">5.51</td><td class="n">5.90</td><td class="n">16.00</td><td class="n">4.66</td></tr>
+    <tr><td>1%</td><td class="n"><b>9.15</b></td><td class="n">11.08</td><td class="n">10.26</td><td class="n">16.00</td><td class="n">7.90</td></tr>
+  </table></div>
+  <p>Its criterion K8, Fibonacci-coded gaps below both Elias gamma and a fixed-length code at 10% kept, was written before the run and survives in every seed. Fibonacci coding is the shortest of the codes compared that take no parameter, and it sits 0.49 bits per position above the entropy at 10% kept and 1.25 at 1%, and below Elias gamma by 0.37 and 1.93. A code fitted to the distribution of the gaps, such as a Golomb-Rice code with its parameter fitted, a Huffman code or arithmetic coding, can come closer to the entropy, and none was measured here.</p>
+
+  <h2>Run it</h2>
+<pre>python -m pytest tests/test_gaps.py</pre>
+  <p>The transformer check that wrote <code>delta.json</code> is <a href="https://github.com/ezexe/p4-phi-experiments/blob/6576c16/experiments/phi-register/scripts/transformer_check.py"><code>scripts/transformer_check.py --part delta</code></a> in ezexe/p4-phi-experiments.</p>
+</div>
+
+<script>
+(function(){
+  var root=document.documentElement,key="dox-theme",btn=document.getElementById("theme");
+  function stored(){try{return localStorage.getItem(key)}catch(e){return null}}
+  function current(){return root.getAttribute("data-theme")||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light")}
+  function label(){btn.textContent=current()==="dark"?"light theme":"dark theme"}
+  var s=stored(); if(s==="dark"||s==="light")root.setAttribute("data-theme",s);
+  label();
+  try{matchMedia("(prefers-color-scheme: dark)").addEventListener("change",label)}catch(e){}
+  btn.addEventListener("click",function(){var n=current()==="dark"?"light":"dark";root.setAttribute("data-theme",n);try{localStorage.setItem(key,n)}catch(e){}label()});
+})();
+
+// phi_prune.gaps, function for function
+(function(){
+  function zeckendorf(n){
+    var p=[1];
+    while(p[p.length-1]<=n)p.push(p[p.length-1]+(p.length>1?p[p.length-2]:1));
+    var d=p.map(function(){return 0});
+    for(var k=p.length-1;k>=0;k--)if(p[k]<=n){d[k]=1;n-=p[k]}
+    var top=d.lastIndexOf(1);return d.slice(0,Math.max(1,top+1));
+  }
+  function fibCode(n){if(n<1)throw new Error("Fibonacci codes start at 1, got "+n);return zeckendorf(n).join("")+"1"}
+  function readCodes(bits){
+    var places=[1,2],values=[],ends=[],total=0,k=0,prev="0";
+    for(var i=0;i<bits.length;i++){
+      var bit=bits[i];
+      if(bit==="1"&&prev==="1"){values.push(total);ends.push(i+1);total=0;k=0;prev="0";continue}
+      if(bit==="1"){while(places.length<=k)places.push(places[places.length-1]+places[places.length-2]);total+=places[k]}
+      else if(bit!=="0")throw new Error("bitstream holds '"+bit+"' at "+i+", expected '0' or '1'");
+      k++;prev=bit;
+    }
+    if(k)throw new Error("bitstream ends inside a codeword, "+k+" digits read without a comma");
+    return {values:values,ends:ends};
+  }
+  function log2(x){return Math.log(x)/Math.LN2}
+  function gapBits(gaps,n){
+    var mean=function(f){return gaps.reduce(function(s,g){return s+f(g)},0)/gaps.length};
+    var counts={};gaps.forEach(function(g){counts[g]=(counts[g]||0)+1});
+    var H=0;Object.keys(counts).forEach(function(g){var p=counts[g]/gaps.length;H-=p*log2(p)});
+    return {"fibonacci":mean(function(g){return fibCode(g).length}),
+      "elias-gamma":mean(function(g){return 2*Math.floor(log2(g))+1}),
+      "elias-delta":mean(function(g){var lg=Math.floor(log2(g));return lg+2*Math.floor(log2(lg+1))+1}),
+      "fixed-width":Math.ceil(log2(n)),"entropy":H};
+  }
+  function esc(s){return String(s).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})}
+
+  var posEl=document.getElementById("pos"),sizeEl=document.getElementById("size");
+  function encode(){
+    var gapsEl=document.getElementById("gaps"),streamEl=document.getElementById("stream"),pricesEl=document.getElementById("prices");
+    streamEl.innerHTML="";pricesEl.innerHTML="";
+    var raw=posEl.value.split(/[\s,]+/).filter(Boolean),pos=raw.map(Number),n=parseInt(sizeEl.value,10);
+    if(!pos.length){gapsEl.innerHTML="";return}
+    if(pos.some(function(x){return !Number.isInteger(x)})){gapsEl.innerHTML='<span class="bad">positions are integers</span>';return}
+    var gaps=pos.map(function(p,i){return p-(i?pos[i-1]:-1)});
+    if(gaps.some(function(g){return g<1})){gapsEl.innerHTML='<span class="bad">positions must be strictly increasing and non-negative</span>';return}
+    if(!(n>pos[pos.length-1])){gapsEl.innerHTML='<span class="bad">the tensor needs more entries than the last position</span>';return}
+    gapsEl.innerHTML="gaps: "+gaps.join(", ");
+    streamEl.innerHTML=gaps.map(function(g){var c=fibCode(g);return '<span class="cw" title="gap '+g+'">'+c.slice(0,-2)+'<b>11</b></span>'}).join("");
+    var b=gapBits(gaps,n),names={"fibonacci":"Fibonacci","elias-gamma":"Elias gamma","elias-delta":"Elias delta","fixed-width":"fixed-length","entropy":"entropy"};
+    pricesEl.innerHTML=Object.keys(b).map(function(k){return '<div><b>'+b[k].toFixed(2)+'</b><span>'+names[k]+', bits per position</span></div>'}).join("");
+  }
+  var bitsEl=document.getElementById("bits");
+  function decode(){
+    var out=document.getElementById("decoded"),bits=bitsEl.value.trim();
+    try{
+      var r=readCodes(bits);
+      var pos=[],acc=-1;r.values.forEach(function(g){acc+=g;pos.push(acc)});
+      out.innerHTML='<span class="ok">'+r.values.length+' codewords</span>: '+esc(r.values.join(", "))+(r.values.length?'<br>read as gaps, the positions '+esc(pos.join(", ")):'');
+    }catch(e){out.innerHTML='<span class="bad">ValueError: '+esc(e.message)+'</span>'}
+  }
+  posEl.addEventListener("input",encode);sizeEl.addEventListener("input",encode);bitsEl.addEventListener("input",decode);
+  encode();decode();
+})();
+</script>
+</body>
+</html>
