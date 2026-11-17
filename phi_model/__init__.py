@@ -64,11 +64,23 @@ def p4_root(project: str) -> str:
 
 
 def plugin_version(root: str) -> tuple:
+    """The manifest's version as numbers to compare, each dot part's leading digits: 0.10.1-beta is (0, 10, 1). A
+    manifest that is missing, unreadable or not a version string gives (0,), as Claude Code checks no version
+    string against semver."""
     try:
         with open(os.path.join(root, ".claude-plugin", "plugin.json"), encoding="utf-8") as f:
-            return tuple(int(x) for x in json.load(f)["version"].split("."))
-    except (OSError, ValueError, KeyError):
+            version = json.load(f)["version"]
+    except (OSError, ValueError, KeyError, TypeError):
         return (0,)
+    if not isinstance(version, str):
+        return (0,)
+    out = []
+    for part in version.split("."):
+        digits = re.match(r"\d*", part).group(0)
+        if not digits:
+            break
+        out.append(int(digits))
+    return tuple(out) or (0,)
 
 
 def is_plugin(path: str) -> bool:

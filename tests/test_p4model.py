@@ -28,6 +28,16 @@ def test_mode_needs_no_plugin(tmp_path, monkeypatch):
     assert phi_model.read_recall(str(p4))["learn"] == "false"
 
 
+@pytest.mark.parametrize("version, want", [("0.11.1", (0, 11, 1)), ("0.10.1-beta", (0, 10, 1)), ("2", (2,)),
+                                            (3, (0,)), (["0", "10"], (0,)), (None, (0,)), ("beta", (0,))])
+def test_plugin_version_reads_any_manifest(tmp_path, version, want):
+    """A version that is no string, or that carries a suffix, still compares, and never raises."""
+    import json
+    (tmp_path / ".claude-plugin").mkdir()
+    (tmp_path / ".claude-plugin" / "plugin.json").write_text(json.dumps({"version": version}), encoding="utf-8")
+    assert phi_model.plugin_version(str(tmp_path)) == want
+
+
 def test_explicit_plugin_wins(tmp_path):
     fake = tmp_path / "p4-phi"
     (fake / "scripts").mkdir(parents=True)
