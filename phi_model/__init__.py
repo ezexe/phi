@@ -37,7 +37,6 @@ import subprocess
 import sys
 import tempfile
 import time
-import urllib.request
 from typing import Dict, List, Optional
 from phi_store import layout  # noqa: E402  (the store's layout: recall/, temportal/)
 
@@ -233,19 +232,6 @@ def mode_of(cfg: Dict[str, str]) -> str:
 
 # ─── check ─────────────────────────────────────────────────────────────────────────────────────────────
 
-def server_round(p4: str) -> Optional[int]:
-    """The round this store's ranker server is serving, or None — a server naming another store is not this one's."""
-    try:
-        with open(layout.sub(p4, "models", "ranker.server.json"), encoding="utf-8") as f:
-            port = int(json.load(f)["port"])
-        with urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=2) as r:
-            out = json.loads(r.read())
-        same = os.path.normcase(os.path.realpath(out.get("p4", ""))) == os.path.normcase(os.path.realpath(p4))
-        return out.get("round") if out.get("ok") and same else None
-    except Exception:  # noqa: BLE001 — down is an answer
-        return None
-
-
 def load_json(path: str):
     """(data, None) or (None, error): a corrupt or conflicted model file is a finding, never a crash."""
     try:
@@ -260,7 +246,7 @@ def load_json(path: str):
 def check(p4: str, plugin: str) -> Dict:
     """Everything that stands and everything owed, as one dict; `owed` lists the actions update would take."""
     if plugin_kind(plugin) == "p4-recall":
-        return recall.check(p4, plugin, ".".join(map(str, plugin_version(plugin))), server_round)
+        return recall.check(p4, plugin, ".".join(map(str, plugin_version(plugin))))
     pm, dm = plugin_modules(plugin)
     store = session_store(p4)
     mdir = layout.sub(p4, "models")
@@ -326,7 +312,7 @@ def check(p4: str, plugin: str) -> Dict:
         "round": r.get("round"), "trained": r.get("trained"), "threshold": r.get("threshold"),
         "threshold_from": r.get("threshold_from"), "heldout_rprecision": r.get("heldout_rprecision"),
         "anchor_round": r.get("anchor_round"), "chain": len(r.get("chain", [])),
-        "unseen_pools": len(ids - (seen or set())), "checkpoint": state, "serving_round": server_round(p4)}
+        "unseen_pools": len(ids - (seen or set())), "checkpoint": state}
     if err or (r and (rep["ranker"]["unseen_pools"] or state == "missing")) or (not r and ids):
         rep["owed"].append("train ranker")
     if state == "lfs-pointer":
@@ -445,7 +431,7 @@ def test(p4: str, plugin: str, now: str, minutes: float, folds: int) -> Dict[str
     """Held-out evaluations of all three models and a live server check. Nothing the store serves is touched: the
     .pt evaluation never writes the pretrained base, and the server check uses its own port file."""
     if plugin_kind(plugin) == "p4-recall":
-        return recall.test(p4, plugin, now, minutes, folds, smoke_server)
+        return recall.test(p4, plugin, now, minutes, folds)
     store = session_store(p4)
     scripts = os.path.join(plugin, "scripts")
     out: Dict[str, List[str]] = {}
@@ -471,39 +457,11 @@ def test(p4: str, plugin: str, now: str, minutes: float, folds: int) -> Dict[str
             os.remove(pairs)
         except OSError:
             pass
-    pm, _dm = plugin_modules(plugin)
-    if "present" in (pm.checkpoint_state(layout.sub(p4, "models", n)) for n in ("ranker.pt", "ranker-anchor.pt")):
-        out["server"] = [smoke_server(p4)]
     for k, v in out.items():
         print(f"{k}:")
         for l in v:
             print(f"  {l}")
     return out
-
-
-def smoke_server(p4: str) -> str:
-    """A server on the store's checkpoint in a thread, under its own port file (never the live server's), asked
-    /health; it stops itself when idle."""
-    import threading
-    from phi_serve import serve
-    info = "ranker.server.test.json"
-    ready = threading.Event()
-    threading.Thread(target=lambda: serve(p4, 0, 0.01, ready, info_name=info), daemon=True).start()
-    if not ready.wait(60):
-        return "server: did not start in 60 s"
-    try:
-        with open(layout.sub(p4, "models", info), encoding="utf-8") as f:
-            port = int(json.load(f)["port"])
-        with urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=10) as r:
-            out = json.loads(r.read())
-        return f"server: answered /health, round {out.get('round')}, ok {out.get('ok')}"
-    except Exception as e:  # noqa: BLE001
-        return f"server: started but /health failed ({type(e).__name__}: {e})"
-    finally:
-        try:
-            os.remove(layout.sub(p4, "models", info))
-        except OSError:
-            pass
 
 
 # ─── init / update / mode ──────────────────────────────────────────────────────────────────────────────

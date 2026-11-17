@@ -142,7 +142,7 @@ def labelled_tasks(m, p4: str) -> int:
     return len(pos)
 
 
-def check(p4: str, plugin: str, version: str, server_round) -> Dict:
+def check(p4: str, plugin: str, version: str) -> Dict:
     """Everything that stands and everything owed, for a p4-recall store; `owed` lists what update would do."""
     no_torch = None
     try:
@@ -231,7 +231,7 @@ def check(p4: str, plugin: str, version: str, server_round) -> Dict:
         "round": side.get("round"), "trained": side.get("trained"), "threshold": side.get("threshold"),
         "threshold_from": side.get("threshold_from"), "heldout_rprecision": side.get("heldout_rprecision"),
         "anchor_round": side.get("anchor_round"), "chain": len(side.get("chain", [])), "pools": len(side.get("pools", [])),
-        "unseen_pools": max(0, n_pools - len(side.get("pools", []))), "checkpoint": state, "serving_round": server_round(p4)}
+        "unseen_pools": max(0, n_pools - len(side.get("pools", []))), "checkpoint": state}
     if not skip_pt and (err or (n_pools >= MIN_PT_POOLS and (not side or rep["pt_ranker"]["unseen_pools"]
                                                              or state == "missing"))):
         rep["owed"].append("train ranker")
@@ -321,10 +321,9 @@ def resolve_notices(p4: str, plugin: str, trained: Dict[str, Dict], now: str) ->
     return len(answered)
 
 
-def test(p4: str, plugin: str, now: str, minutes: float, folds: int, smoke_server) -> Dict[str, List[str]]:
+def test(p4: str, plugin: str, now: str, minutes: float, folds: int) -> Dict[str, List[str]]:
     """Held-out evaluations of both rankers (`p4.py eval`, `phi_rank eval` on the labels' pools) and a live server
     check when a checkpoint exists. Nothing the store serves is written."""
-    from phi_rank import ANCHOR, CURRENT
     scripts = os.path.join(plugin, "scripts")
     out: Dict[str, List[str]] = {}
     r = run([sys.executable, "-I", os.path.join(scripts, "p4.py"), "eval", "--p4", p4] + (["--now", now] if now else []))
@@ -332,8 +331,6 @@ def test(p4: str, plugin: str, now: str, minutes: float, folds: int, smoke_serve
     r = run([sys.executable, "-m", "phi_rank", "eval", "--p4", p4, "--minutes", str(minutes), "--folds", str(folds)]
             + (["--now", now] if now else []))
     out[".pt ranker"] = (r.stdout + r.stderr).strip().splitlines()[-2:]
-    if "present" in (checkpoint_state(layout.sub(p4, "models", n)) for n in (CURRENT, ANCHOR)):
-        out["server"] = [smoke_server(p4)]
     for k, v in out.items():
         print(f"{k}:")
         for l in v:

@@ -1,11 +1,8 @@
-"""Tests for phi_rank and phi_serve: the .pt ranker trained on a store in φ-delta rounds, served live, reloaded."""
+"""Tests for phi_rank: the .pt ranker trained on a store in φ-delta rounds."""
 
 import json
 import os
 import subprocess
-import threading
-import time
-import urllib.request
 
 import pytest
 import torch
@@ -13,7 +10,6 @@ import torch
 torch.set_num_threads(1)
 
 import phi_rank as p4rank
-from phi_serve import serve
 
 TOPICS = ["ring buffer drain", "midi transport playhead", "toolbar latency readout", "crash dump symbols",
           "plan document decisions", "render thread priority"]
@@ -53,7 +49,7 @@ def test_corpus_follows_git(tmp_path):
     assert not any(f.endswith("recall-pool.md") or "pool-picks-" in f for f in files), files
 
 
-def test_train_eval_and_live_reload(tmp_path):
+def test_train_and_eval(tmp_path):
     pairs = make_store(tmp_path)
     args = ["--p4", str(tmp_path), "--pairs", str(pairs), "--minutes", "0.05", "--epochs", "8", "--now", "2026-10-27"]
     assert p4rank.main(["train"] + args) == 0
@@ -75,50 +71,6 @@ def test_train_eval_and_live_reload(tmp_path):
         assert max(range(len(sc)), key=sc.__getitem__) == k, (t, sc)
     assert p4rank.main(["eval", "--folds", "3"] + args) == 0
 
-    ready = threading.Event()
-    holder = {}
-
-    def run():
-        holder["server"] = None
-        serve(str(tmp_path), 0, idle_hours=1, ready=ready)
-    th = threading.Thread(target=run, daemon=True)
-    th.start()
-    assert ready.wait(30)
-    info = json.loads((mdir / "ranker.server.json").read_text())
-
-    def call(path, body=None):
-        req = urllib.request.Request(f"http://127.0.0.1:{info['port']}{path}",
-                                     data=json.dumps(body).encode() if body else None,
-                                     headers={"Content-Type": "application/json"}, method="POST" if body else "GET")
-        with urllib.request.urlopen(req, timeout=10) as r:
-            return json.loads(r.read())
-    health = call("/health")
-    assert health["ok"] and health["round"] == 0 and health["threshold"] == meta["threshold"]
-    assert health["p4"] == os.path.realpath(tmp_path) and info["p4"] == os.path.realpath(tmp_path)
-    # many requests at once share the embedding cache without a 400
-    errors = []
-
-    def hammer(n):
-        try:
-            for j in range(5):
-                call("/score", {"task": f"a plan about the {TOPICS[n % 6]}",
-                                "texts": [f"the {u} rule number {(n + j) % 30}" for u in TOPICS]})
-        except Exception as e:  # noqa: BLE001
-            errors.append(e)
-    workers = [threading.Thread(target=hammer, args=(n,)) for n in range(8)]
-    for w in workers:
-        w.start()
-    for w in workers:
-        w.join()
-    assert not errors, errors[:1]
-    out = call("/score", {"task": "a plan about the toolbar latency readout",
-                          "texts": ["the toolbar latency readout rule number 1", "the crash dump symbols rule number 1"]})
-    assert out["round"] == 0 and out["scores"][0] > out["scores"][1]
-
-    # a retrain swaps the checkpoint: the running server answers from round 1 at its next request, no restart
-    time.sleep(1.1)
-    assert p4rank.main(["train"] + args) == 0
-    assert call("/health")["round"] == 1 and json.loads((mdir / "ranker.json").read_text())["round"] == 1
 
 
 def test_rounds_ship_as_phi_deltas_and_rebuild(tmp_path, monkeypatch):
@@ -162,25 +114,6 @@ def test_legacy_checkpoint_becomes_the_anchor(tmp_path, monkeypatch):
     assert p4rank.main(["train"] + args) == 0
     side = json.loads((mdir / "ranker.json").read_text())
     assert (mdir / "ranker-anchor.pt").exists() and side["anchor_round"] == 0 and side["chain"] == ["ranker.r001.phid"]
-
-
-def test_bad_request(tmp_path):
-    pairs = make_store(tmp_path)
-    p4rank.main(["train", "--p4", str(tmp_path), "--pairs", str(pairs), "--minutes", "0", "--epochs", "1"])
-    ready = threading.Event()
-    threading.Thread(target=lambda: serve(str(tmp_path), 0, 1, ready), daemon=True).start()
-    assert ready.wait(30)
-    port = json.loads((tmp_path / "models" / "ranker.server.json").read_text())["port"]
-    req = urllib.request.Request(f"http://127.0.0.1:{port}/score", data=b"{}", method="POST")
-    with pytest.raises(urllib.error.HTTPError) as e:
-        urllib.request.urlopen(req, timeout=10)
-    assert e.value.code == 400
-    req = urllib.request.Request(f"http://127.0.0.1:{port}/score", data=b"x", method="POST",
-                                 headers={"Content-Length": str(64 << 20)})
-    with pytest.raises((urllib.error.HTTPError, ConnectionError, urllib.error.URLError)) as e:
-        urllib.request.urlopen(req, timeout=10)
-    if isinstance(e.value, urllib.error.HTTPError):
-        assert e.value.code == 413
 
 
 def test_shared_base_seeds_a_store_without_one(tmp_path):
@@ -230,9 +163,6 @@ def test_node_tree_defaults_are_the_measured_best(tmp_path):
         assert saved["masked"] is False
         rows = m.bag.weight.norm(dim=1) > 0
         assert bool((rows[1:] & rows[:-1]).any()), "unmasked: adjacent rows are kept"
-    t = tree.Tree(str(tmp_path))
-    scores, source = t.score("a plan about the ring buffer drain", [r["text"] for r in pools[0]["rows"]])
-    assert source == "tree:high:2" and len(scores) == len(pools[0]["rows"])
 
 
 def test_node_tree_answers_by_effort(tmp_path):
@@ -253,8 +183,8 @@ def test_node_tree_answers_by_effort(tmp_path):
         m, _ = p4rank.load(str(mdir / "tree" / f"{n['address']}.pt"))
         kept = m.bag.weight.norm(dim=1) > 0
         assert not bool((kept[1:] & kept[:-1]).any()), n["address"]     # no two adjacent rows kept
-    t = tree.Tree(str(tmp_path))
-    assert 0 <= t.route("a plan about the ring buffer drain") < 4
+    models = [p4rank.load(str(mdir / "tree" / f"{n['address']}.pt"))[0] for n in meta["nodes"]]
+    assert 0 <= tree.route(tree.node_rows(models), "a plan about the ring buffer drain") < 4
     # the JSON ranker's .pt weight for the tree is fitted on these: every pool, each effort, out of fold
     oof = json.loads((mdir / tree.TREE_OOF).read_text())
     assert set(oof["efforts"]) == {"medium", "high"} and set(oof["heldout"]) == {"medium", "high"}
@@ -263,24 +193,6 @@ def test_node_tree_answers_by_effort(tmp_path):
         for p in pools:
             assert set(oof["efforts"][effort][p["id"]]) == {p4rank.text_key(r["text"]) for r in p["rows"]}
     assert meta["heldout"] == oof["heldout"]
-    assert p4rank.main(["train", "--p4", str(tmp_path), "--pairs", str(pairs), "--minutes", "0", "--epochs", "2"]) == 0
-    ready = threading.Event()
-    threading.Thread(target=lambda: serve(str(tmp_path), 0, 1, ready), daemon=True).start()
-    assert ready.wait(30)
-    port = json.loads((mdir / "ranker.server.json").read_text())["port"]
-
-    def score(effort):
-        body = {"task": "a plan about the toolbar latency readout", "texts": ["the toolbar latency readout rule number 1",
-                "the crash dump symbols rule number 1"]}
-        if effort:
-            body["effort"] = effort
-        req = urllib.request.Request(f"http://127.0.0.1:{port}/score", data=json.dumps(body).encode(), method="POST",
-                                     headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=10) as r:
-            return json.loads(r.read())
-    assert score("medium")["source"].startswith("tree:medium:")
-    assert score("high")["source"] == "tree:high:4" and len(score("high")["scores"]) == 2
-    assert score("")["source"] == "ranker" and score("low")["source"] == "ranker"
 
 
 def test_training_device_and_feature_cache(monkeypatch):

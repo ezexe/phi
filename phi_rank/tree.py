@@ -152,7 +152,6 @@ def answer(models: Sequence[pr.Ranker], rows: Sequence[torch.Tensor], task: str,
 
 MASK = False                  # phi_mask the nodes' feature rows (measured to cost 0.05; --mask turns it on)
 MINUTES = 0.0                 # pretraining per tree, split over its nodes (measured to lower ranking; --minutes N)
-DEFAULT_EFFORT = "high"
 
 
 def mask_rows(m: pr.Ranker) -> torch.Tensor:
@@ -233,27 +232,6 @@ def out_of_fold(pre: Sequence[Dict], pools: Sequence[Dict], epochs: int, now: st
                 rprec[effort].append(pr.pool_metrics([r["label"] for r in p["rows"]], sc, [])["r-precision"])
     return {"trained": now, "k": len(pre), "folds": FOLDS,
             "heldout": {e: round(sum(v) / len(v), 4) for e, v in rprec.items()}, "efforts": scores}
-
-
-# ─── answer ────────────────────────────────────────────────────────────────────────────────────────────
-
-class Tree:
-    """The loaded nodes, with the row weights the route reads."""
-
-    def __init__(self, p4: str):
-        mdir = pr.models_dir(p4)
-        with open(os.path.join(mdir, TREE_JSON), encoding="utf-8") as f:
-            self.meta = json.load(f)
-        self.addresses = [n["address"] for n in self.meta["nodes"]]
-        self.models = [pr.load(os.path.join(mdir, TREE_DIR, f"{a}.pt"))[0] for a in self.addresses]
-        self.rows = node_rows(self.models)
-
-    def route(self, task: str) -> int:
-        return route(self.rows, task)
-
-    def score(self, task: str, texts: Sequence[str], effort: str = DEFAULT_EFFORT) -> Tuple[List[float], str]:
-        sc, i = answer(self.models, self.rows, task, texts, effort)
-        return sc, (f"tree:medium:{self.addresses[i]}" if i >= 0 else f"tree:high:{len(self.models)}")
 
 
 def main(argv=None) -> int:

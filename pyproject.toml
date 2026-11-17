@@ -23,7 +23,7 @@ dev = ["pytest>=7.0"]
 phi-prune = "phi_prune.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["phi_prune*", "phi_store*", "phi_rank*", "phi_serve*", "phi_model*"]
+include = ["phi_prune*", "phi_store*", "phi_rank*", "phi_model*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
