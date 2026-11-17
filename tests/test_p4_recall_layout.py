@@ -78,25 +78,25 @@ def test_pretrain_records(tmp_path):
     assert "from:" not in rule.text and "status:" not in rule.text, "pointer fields are not training text"
     assert any(r.source.startswith("store/corrections.md") and "cmake-floor" in r.text for r in pre)
     msgs = [r for r in pre if r.source.startswith("store/messages/ab12cd34.md")]
-    assert len(msgs) == 1, "the owner's completed row; never a notification or an open row"
+    assert len(msgs) == 1, "ezexe's completed row; never a notification or an open row"
     assert msgs[0].session == "ab12cd34" and msgs[0].time == "2026-11-02 05:16"
     assert "keep 3.x working?" in msgs[0].text and "rather than keep 3.x" in msgs[0].text
     assert any(r.source == "memory/cef.md" for r in pre) and not any(r.source == "memory/MEMORY.md" for r in pre)
     plan = next(r for r in pre if r.source == "flights/20261105-1126-land-pointer-plan-wave5/plan.md")
-    assert plan.time == "2026-11-05 11:26", "a flight with no takeoff.json is timed by its name"
+    assert plan.time == "2026-11-05 11:26", "a work folder with no takeoff.json is timed by its name"
 
 
 def test_label_pairs(tmp_path):
     p4, task, _rule = recall_store(tmp_path)
     pairs = [r for r in read_p4(str(p4)) if r.kind == "pair"]
-    assert len(pairs) == 1, "a task with no positive, or whose text is a harness message, is no pair"
+    assert len(pairs) == 1, "a query with no positive, or whose text is a system reminder, is no pair"
     p = pairs[0]
     assert p.source == f"models/labels.tsv:{task}" and p.session == "ab12cd34" and p.time == "2026-11-02 05:16"
     assert p.text == "should we pin cmake 4.4 or keep 3.x working?"
     assert "pin CMake 4.4 everywhere" in p.target, "a store entry's text"
-    assert "src/CMakeLists.txt" in p.target, "a repository entry reads as its path"
+    assert "src/CMakeLists.txt" in p.target, "a repository document reads as its path"
     assert "ninja log names objects" in p.target, "a memory section's text"
-    assert "README.md" not in p.target, "a label-0 entry is not the target"
+    assert "README.md" not in p.target, "a label-0 document is not the target"
     assert p.weight == 1.0
     train, held = split(list(read_p4(str(p4))), "2026-11-01 00:00")
     assert p in held and any(r.source.startswith("store/rules.md") for r in train)

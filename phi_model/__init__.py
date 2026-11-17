@@ -52,8 +52,8 @@ from . import recall  # noqa: E402  the modes, the check and the trainings
 
 
 def p4_root(project: str) -> str:
-    """The store's root: <project>/.claude/p4, or the path itself when it is a store repository, one that holds
-    store/ and models/ in its layout."""
+    """The store's root: <project>/.claude/p4, or the path itself when it is a repository that is itself a store,
+    holding store/ and models/ in its layout."""
     project = os.path.abspath(project)
     for cand in (os.path.join(project, ".claude", "p4"), project):
         if os.path.isdir(layout.sub(cand, "store")) and os.path.isdir(layout.sub(cand, "models")):

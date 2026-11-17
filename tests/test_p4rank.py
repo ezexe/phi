@@ -117,7 +117,7 @@ def test_ensemble_defaults_are_the_measured_best(tmp_path):
 
 def test_ensemble_members_mask_and_selection(tmp_path):
     """phi_rank.tree builds K members at the first K Zeckendorf addresses, each pruned by phi_mask when asked, and
-    the selection picks one member for a query."""
+    the selection chooses one member for a query."""
     import phi_rank.tree as tree
     assert tree.addresses(4) == ["1", "101", "1001", "10001"]          # lengths 1, 3, 4, 5 then 10101
     assert tree.addresses(5) == ["1", "101", "1001", "10001", "10101"]

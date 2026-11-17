@@ -19,7 +19,7 @@ os.environ["VLDS_PT_RANKER"] = "1"      # these tests build the dual encoder, wh
 PLUGIN = os.environ.get("P4_RECALL_PLUGIN_ROOT") or next(
     (p for p in (os.path.normpath(os.path.join(HERE, "..", "..", "p4", "lbiza", "plugins", "p4-phi")),)
      if os.path.exists(os.path.join(p, "scripts", "p4.py"))), "")
-needs_plugin = pytest.mark.skipif(not recall.is_plugin(PLUGIN), reason="the p4-recall plugin is not beside this checkout")
+needs_plugin = pytest.mark.skipif(not recall.is_plugin(PLUGIN), reason="the p4-phi plugin is not beside this checkout")
 
 TOPICS = ["ring buffer drain", "midi transport playhead", "toolbar latency readout", "crash dump symbols",
           "plan document decisions", "render thread priority", "cmake floor version", "branch per machine"]

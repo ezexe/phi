@@ -313,7 +313,7 @@ def resolve_notices(p4: str, plugin: str, trained: Dict[str, Dict], now: str) ->
     new = not os.path.exists(res)
     with open(res, "a", encoding="utf-8", newline="\n") as f:
         if new:
-            f.write("# p4 model retrain notices answered — time\tepoch\tsession\tcomponent\tkind\terror\tresolved\n")
+            f.write("# p4-phi retrain notices answered — time\tepoch\tsession\tcomponent\tkind\terror\tresolved\n")
         for n in answered:
             f.write(f"{n['time']}\t{n['epoch']:.6f}\t{n['session']}\t{n['component']}\t{n['kind']}\t{n['error']}\tretrained {now}\n")
     return len(answered)

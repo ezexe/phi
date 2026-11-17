@@ -23,7 +23,7 @@ This skill covers what that hook does not: the first setup, a failed training, a
 
 ## Before anything
 
-1. **The target.** ezexe names a repository by its local path, or a store repository. `--project` takes the repository, whose `.claude/p4` is used, or the store's root directly. In a cloud session, attach and clone the repository first.
+1. **The target.** ezexe names a repository by its local path, or a repository that is itself a store. `--project` takes the repository, whose `.claude/p4` is used, or the store's root directly. In a cloud session, attach and clone the repository first.
 2. **The plugin.** `phi_model` finds the p4-phi plugin: `--plugin`, then `$P4_RECALL_PLUGIN_ROOT`, then the newest of the copies under `~/.claude/plugins` and of a checkout of ezexe/p4 beside the project. If none is found, clone ezexe/p4 and pass `--plugin <clone>/lbiza/plugins/p4-phi`.
 3. **This package.** Install it with `pip install -e .` here, torch included, or use the `.venv` that a p4 checkout's `scripts/make_venv.py` builds. Run every command below with that interpreter, `.venv/bin/python` or on Windows `.venv\Scripts\python.exe`, never a bare system `python`. A `python -m phi_model` started without numpy runs itself again in the first `.venv` it finds, this checkout's, the one beside it or a sibling `p4/`'s, and says so on stderr. On a machine with no torch build, `check` still checks the ranker, the labels and the notices, and says that it did not check the dual encoder.
 
@@ -53,7 +53,7 @@ When asked to update, or when a session reports open notices:
 2. `update`. It trains only what is stale, answers the notices of each model it rebuilt by appending them to `phi/models/retrain-resolved.tsv`, and checks again. `retrain-needed.tsv` is append-only and never rewritten. A model with nothing to learn yet is no failure and answers no notice.
 3. If a training failed, read its output, which `update` and `train` print. Fix the cause in this repository, in `phi_rank`, `phi_model` or `phi_prune`, or report it as a plugin bug for ezexe/p4. Do not edit the store's sessions to make a model train.
 4. `test` when a model changed materially, as a new base, a change of mode or a fix does. Report the held-out numbers against the previous ones and against BM25. `test` writes nothing the store serves: the dual encoder's evaluation never saves the pretrained base, and builds a missing one in memory, up to `--minutes`.
-5. In the store's repository, commit `phi/models/`, and `p4.json` if the mode changed, and push. The checkpoints go through git LFS by the store's `.gitattributes`, which `git lfs ls-files` shows, and `ranker.pt` is ignored; `check` asks to untrack `models/ranker.pt` where a flat store tracks it. In a store repository attached to a session, that is a branch and a pull request, merged when ezexe has asked for merges.
+5. In the store's repository, commit `phi/models/`, and `p4.json` if the mode changed, and push. The checkpoints go through git LFS by the store's `.gitattributes`, which `git lfs ls-files` shows, and `ranker.pt` is ignored; `check` asks to untrack `models/ranker.pt` where a flat store tracks it. In a repository that is a store and is attached to a session, that is a branch and a pull request, merged when ezexe has asked for merges.
 
 ## The dual encoder
 
