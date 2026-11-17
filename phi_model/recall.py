@@ -24,6 +24,7 @@ import tempfile
 from types import SimpleNamespace
 from typing import Dict, List
 from phi_store import layout  # the store's layout: phi/ and temportal/
+from phi_store import ANCHOR, CURRENT, read_sidecar, sidecar_name  # the dual encoder's files, read without torch
 
 MODES = {"shadow": {"inject": "off", "learn": True},
          "active": {"inject": "rules-facts", "learn": True},
@@ -171,20 +172,12 @@ def check(p4: str, plugin: str, version: str) -> Dict:
     the plugin's next session start would."""
     no_torch = None
     try:
-        from phi_rank import ANCHOR, CURRENT, read_sidecar, sidecar_name
+        import phi_rank  # noqa: F401
     except ModuleNotFoundError as e:
         # A machine with no torch build, as an Intel Mac on Python 3.13 or later is, still checks everything retrieval
         # serves: the logistic regression ranker, the labels and the notices. Only the dual encoder, which retrieval
-        # does not serve, is left out.
+        # does not serve, is left out, and its sidecar is still read through phi_store, which needs no torch.
         no_torch = e.name
-        ANCHOR, CURRENT = "ranker-anchor.pt", "ranker.pt"
-
-        def sidecar_name(p4: str) -> str:
-            return "ranker-pt.json" if os.path.isdir(layout.sub(p4, "store")) else "ranker.json"
-
-        def read_sidecar(p4: str) -> Dict:
-            side, _err = load_json(layout.sub(p4, "models", sidecar_name(p4)))
-            return side if isinstance(side, dict) and not str(side.get("kind", "")).startswith("p4 recall") else {}
     # The dual encoder is an experiment, off unless VLDS_PT_RANKER=1: retrieval has never served it. What stands is
     # reported, and nothing of it is stale.
     pt_off = not pt_on()

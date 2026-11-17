@@ -277,12 +277,42 @@ def store_entries(p4: Path) -> Dict[str, Tuple[str, str, str]]:
     return out
 
 
-def _tsv(path: Path) -> List[dict]:
-    if not path.exists():
+def _tsv(path) -> List[dict]:
+    """A tab-separated file's rows as dicts under its header line, or none when it cannot be read.
+    phi_rank reads its query groups' labels through it too."""
+    try:
+        lines = _read(Path(path)).split("\n")
+    except OSError:
         return []
-    lines = _read(path).split("\n")
     head = lines[0].split("\t") if lines and lines[0] else []
     return [dict(zip(head, l.split("\t"))) for l in lines[1:] if l.strip()]
+
+
+# ─── the dual encoder's sidecar ────────────────────────────────────────────────────────────────────────
+# phi_model.recall reads it on a machine with no torch, where phi_rank cannot be imported.
+
+ANCHOR = "ranker-anchor.pt"     # git LFS: the full checkpoint the rounds build on
+CURRENT = "ranker.pt"           # this machine's fp32 build of the checkpoints; never tracked
+SIDECAR = "ranker.json"         # the sidecar: round, threshold, full and incremental checkpoints, query groups
+SIDECAR_RECALL = "ranker-pt.json"   # the sidecar's name in a store p4-phi writes, whose own ranker is ranker.json
+
+
+def sidecar_name(p4) -> str:
+    """ranker.json, or ranker-pt.json in a store p4-phi writes, one with store/ in its layout: the plugin's
+    ranker.py keeps its logistic regression ranker as ranker.json, and a train here must never overwrite it."""
+    return SIDECAR_RECALL if os.path.isdir(layout.sub(p4, "store")) else SIDECAR
+
+
+def read_sidecar(p4) -> Dict:
+    """The dual encoder's sidecar, or {} when it is missing, unreadable or the plugin's own ranker."""
+    try:
+        with open(layout.sub(p4, "models", sidecar_name(p4)), encoding="utf-8") as f:
+            side = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(side, dict) or str(side.get("kind", "")).startswith("p4 recall"):
+        return {}                       # the plugin's own logistic regression ranker is not this sidecar
+    return side
 
 
 def label_pairs(p4: Path, entries: Optional[Dict[str, Tuple[str, str, str]]] = None) -> Iterator[Record]:

@@ -65,6 +65,8 @@ import torch.nn.functional as F
 
 from phi_prune.delta import apply_delta, delta_stats, encode_delta, load_delta, save_delta
 from phi_store import replace_retrying, write_text_atomic  # noqa: F401  phi_rank's names for them too
+# kept in phi_store, which phi_model.recall imports on a machine with no torch, and phi_rank's names for them too
+from phi_store import ANCHOR, CURRENT, SIDECAR, SIDECAR_RECALL, _tsv, read_sidecar, sidecar_name  # noqa: F401
 
 NB = 1 << 15                  # hashed feature buckets
 DIM = 64                      # 2^15 x 64 at fp16: a 4 MB checkpoint that pretrains in a few minutes on a CPU; a model
@@ -264,16 +266,6 @@ def corpus_pairs(root: str) -> Tuple[List[Tuple[str, str]], int]:
 
 
 # ─── the labelled query groups ─────────────────────────────────────────────────────────────────────────
-
-def _tsv(path: str) -> List[Dict]:
-    try:
-        with open(path, encoding="utf-8") as f:
-            lines = f.read().split("\n")
-    except OSError:
-        return []
-    head = lines[0].split("\t") if lines and lines[0] else []
-    return [dict(zip(head, l.split("\t"))) for l in lines[1:] if l.strip()]
-
 
 def index_docs(p4: str) -> List[Dict]:
     """The p4-phi plugin's index.json documents as dicts: on disk they are rows under `doc_fields`."""
@@ -542,31 +534,8 @@ def save(model: Ranker, meta: Dict, path: str, half: bool = True) -> None:
 
 # ─── the full checkpoint and its rounds' incremental checkpoints ───────────────────────────────────────
 
-ANCHOR = "ranker-anchor.pt"     # git LFS: the full checkpoint the rounds build on
-CURRENT = "ranker.pt"           # this machine's fp32 build of the checkpoints; never tracked
-SIDECAR = "ranker.json"         # the sidecar: round, threshold, full and incremental checkpoints, query groups
-SIDECAR_RECALL = "ranker-pt.json"   # the sidecar's name in a store p4-phi writes, whose own ranker is ranker.json
-
-
-def sidecar_name(p4: str) -> str:
-    """ranker.json, or ranker-pt.json in a store p4-phi writes, one with store/ in its layout: the plugin's
-    ranker.py keeps its logistic regression ranker as ranker.json, and a train here must never overwrite it."""
-    return SIDECAR_RECALL if os.path.isdir(layout.sub(p4, "store")) else SIDECAR
-
-
 def sidecar_path(p4: str) -> str:
     return os.path.join(models_dir(p4), sidecar_name(p4))
-
-
-def read_sidecar(p4: str) -> Dict:
-    try:
-        with open(sidecar_path(p4), encoding="utf-8") as f:
-            side = json.load(f)
-        if not isinstance(side, dict) or str(side.get("kind", "")).startswith("p4 recall"):
-            return {}                       # the plugin's own logistic regression ranker is not this sidecar
-        return side
-    except (OSError, ValueError):
-        return {}
 
 
 def chain_key(side: Dict) -> List:

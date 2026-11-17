@@ -1,6 +1,10 @@
 """Tests for phi_store: a .claude/p4 store read as training records."""
 
 import json
+import pathlib
+import re
+import subprocess
+import sys
 
 from phi_store import read_p4, split
 
@@ -90,3 +94,31 @@ def test_split(tmp_path):
     assert {r.session for r in held} == {"f-held"}
     assert all(not r.time or r.time < "2026-10-25 00:00" for r in train)
 
+
+
+def test_the_helpers_phi_rank_and_phi_model_share_are_kept_once_in_phi_store():
+    """phi_store needs no torch, so phi_rank and phi_model.recall import the helpers from it and keep no copy."""
+    root = pathlib.Path(__file__).resolve().parents[1]
+    found = {}
+    for package in ("phi_store", "phi_rank", "phi_model"):
+        for path in sorted((root / package).glob("*.py")):
+            text = path.read_text(encoding="utf-8")
+            for name in re.findall(r"^\s*def (_tsv|sidecar_name|read_sidecar|load_json)\b", text, re.M):
+                found.setdefault(name, []).append(f"{package}/{path.name}")
+    assert found == {"_tsv": ["phi_store/__init__.py"], "sidecar_name": ["phi_store/__init__.py"],
+                     "read_sidecar": ["phi_store/__init__.py"], "load_json": ["phi_model/recall.py"]}
+
+
+def test_the_sidecar_is_read_where_torch_cannot_be_imported(tmp_path):
+    """phi_model check reads the dual encoder's sidecar through phi_store on a machine with no torch build."""
+    p4 = tmp_path / "p4"
+    (p4 / "store").mkdir(parents=True)
+    write(p4 / "models" / "ranker-pt.json", json.dumps({"round": 3}))
+    write(p4 / "models" / "ranker.json", json.dumps({"kind": "p4 recall ranker"}))
+    code = ("import sys; sys.modules['torch'] = None; import phi_store, phi_model.recall; "
+            f"print(phi_store.sidecar_name({str(p4)!r}), phi_store.read_sidecar({str(p4)!r})['round'], "
+            "'torch' in sys.modules and sys.modules['torch'] is not None)")
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
+                         cwd=pathlib.Path(__file__).resolve().parents[1])
+    assert out.returncode == 0, out.stderr
+    assert out.stdout.split() == ["ranker-pt.json", "3", "False"]
