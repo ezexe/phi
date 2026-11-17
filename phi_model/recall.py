@@ -277,18 +277,12 @@ def print_check(rep: Dict) -> None:
 
 def train(p4: str, plugin: str, only: List[str], now: str, minutes: float) -> Dict[str, Dict]:
     """The plugin's own `p4.py train` for the JSON ranker and `python -m phi_rank train` (pools from labels.tsv)
-    for the .pt ranker, so a model is built here exactly as the Stop hook builds it. `dispatch` is a no-op: a
-    p4-recall store has no dispatch model."""
+    for the .pt ranker, so a model is built here exactly as the Stop hook builds it."""
     scripts = os.path.join(plugin, "scripts")
     steps = {"json": [sys.executable, "-I", os.path.join(scripts, "p4.py"), "train", "--p4", p4] + (["--now", now] if now else []),
              "ranker": [sys.executable, "-m", "phi_rank", "train", "--p4", p4, "--minutes", str(minutes)] + (["--now", now] if now else [])}
     out: Dict[str, Dict] = {}
     for name in only:
-        if name == "dispatch":
-            out[name] = {"ok": True, "code": 0, "output": ["p4-recall has no dispatch model: the close hook judges ECHO and SUPERSEDED"],
-                         "empty": True, "busy": False}
-            print("train dispatch: nothing to train — " + out[name]["output"][0])
-            continue
         if name not in steps:
             out[name] = {"ok": False, "code": 2, "output": [f"unknown model {name}"], "empty": False, "busy": False}
             print(f"train {name}: FAILED — unknown model")

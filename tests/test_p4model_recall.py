@@ -137,8 +137,6 @@ def test_checkpoint_routine_on_a_p4_recall_store(tmp_path, capsys):
     assert rep["kind"] == "p4-recall" and rep["labelled_tasks"] == 8 and rep["json_ranker"] is None
     assert "train json" in rep["owed"] and "train ranker" in rep["owed"]
     assert p4model.main(["init"] + args + ["--minutes", "0.02", "--mode", "shadow"]) == 0
-    out = capsys.readouterr().out
-    assert "train dispatch: nothing to train" in out
     rep = p4model.check(p4, PLUGIN)
     assert rep["mode"] == "shadow", rep["recall"]
     assert rep["eval_last"] and rep["eval_last"]["round"] == "0", rep["eval_last"]

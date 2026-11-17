@@ -12,7 +12,7 @@ models/retrain-needed.tsv — nothing more. This module is where those rows are 
 
     python -m phi_model check  --project <repo or its .claude/p4>    what stands, what is behind, what failed
     python -m phi_model init   --project <…> [--mode shadow]          set up, train everything, set learning
-    python -m phi_model train  --project <…> [--only json,dispatch,ranker]
+    python -m phi_model train  --project <…> [--only json,ranker]
     python -m phi_model test   --project <…>                          held-out evals and a live server check
     python -m phi_model update --project <…>                          check, retrain what is behind or failed,
                                                                               clear the notices it answered, check again
@@ -257,7 +257,7 @@ def main(argv=None) -> int:
         if name == "init":
             p.add_argument("--mode", default="shadow", choices=sorted(recall.MODES))
         if name == "train":
-            p.add_argument("--only", default="json,dispatch,ranker")
+            p.add_argument("--only", default="json,ranker")
         if name == "test":
             p.add_argument("--folds", type=int, default=5)
         if name == "mode":
@@ -281,7 +281,7 @@ def main(argv=None) -> int:
         return 0
     if args.cmd == "init":
         print("seed: " + (", ".join(seed_repo(p4)) or "nothing to seed"))
-        trained = train(p4, plugin, ["json", "dispatch", "ranker"], args.now, args.minutes)
+        trained = train(p4, plugin, ["json", "ranker"], args.now, args.minutes)
         resolve_notices(p4, plugin, trained, args.now)
         print(f"mode {args.mode} → {write_mode(p4, args.mode, args.now)}")
         print_check(check(p4, plugin))
