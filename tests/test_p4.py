@@ -38,8 +38,8 @@ def test_records(tmp_path):
 
 
 def test_planned_work_is_read_wherever_it_is_kept(tmp_path):
-    """No reader names a flights directory: a folder is planned work by the files it holds, in the store under any
-    name, and in the repository's plans directory when that is given."""
+    """No reader names the folder that holds work folders: a folder is planned work by the files it holds, in the
+    store under any name, and in the repository's plans directory when that is given."""
     p4 = store(tmp_path)
     (p4 / "flights").rename(p4 / "work-in-progress")                 # another name inside the store
     plans = tmp_path / "repo" / ".claude" / "plans"

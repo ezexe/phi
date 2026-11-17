@@ -1,6 +1,6 @@
-"""phi_model on a store the p4-recall plugin writes: modes into p4.json, check / init / update through the plugin's
-own `p4.py` and phi_rank, retrain notices answered. Needs the p4-recall plugin: P4_RECALL_PLUGIN_ROOT, or the p4
-checkout beside this one (../p4/lbiza/plugins/p4-recall); skipped otherwise."""
+"""phi_model on a store the p4-phi plugin writes: modes into p4.json, check, init and update through the plugin's
+own `p4.py` and phi_rank, retrain notices answered. Needs the p4-phi plugin: P4_RECALL_PLUGIN_ROOT, or the p4
+checkout beside this one at ../p4/lbiza/plugins/p4-phi; skipped otherwise."""
 
 import hashlib
 import os
@@ -15,7 +15,7 @@ from phi_model import recall
 from phi_store import layout  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-os.environ["VLDS_PT_RANKER"] = "1"      # these tests build the .pt ranker: on only as an experiment (below)
+os.environ["VLDS_PT_RANKER"] = "1"      # these tests build the dual encoder, which is on only as an experiment
 PLUGIN = os.environ.get("P4_RECALL_PLUGIN_ROOT") or next(
     (p for p in (os.path.normpath(os.path.join(HERE, "..", "..", "p4", "lbiza", "plugins", "p4-phi")),)
      if os.path.exists(os.path.join(p, "scripts", "p4.py"))), "")
@@ -30,7 +30,8 @@ def entry(pairs):
 
 
 def write_store(p4, n_tasks=8):
-    """A p4-recall store: one rule per topic, one session's rows, usage labels pointing each task at its rule."""
+    """A flat store as p4-phi's older versions wrote it: one rule per topic, one session's rows, usage labels
+    pointing each query at its rule."""
     os.makedirs(os.path.join(p4, "store", "messages"))
     os.makedirs(layout.sub(p4, "models"))
     rules = "The owner's rulings.\nWritten when the owner rules.\nFields: ruling, status, time.\n\n"
@@ -120,7 +121,7 @@ def test_modes_live_in_p4_json_and_keep_every_other_key(tmp_path):
     assert p4model.mode_of(p4model.read_recall(p4)) == "off"
     p4model.write_mode(p4, "active", "")
     assert p4model.mode_of(p4model.read_recall(p4)) == "active"
-    # a store the plugin has not configured yet gets a p4.json holding just the recall keys
+    # a store the plugin has not configured yet gets a p4.json holding the recall keys alone
     bare = str(tmp_path / "bare")
     os.makedirs(os.path.join(bare, "store"))
     p4model.write_mode(bare, "shadow", "")
@@ -144,7 +145,8 @@ def test_checkpoint_routine_on_a_p4_recall_store(tmp_path, capsys):
     assert os.path.exists(layout.sub(p4, "models", "ranker-pt.json"))        # never the plugin's ranker.json
     assert rep["lfs"] and "models/*.pt filter=lfs" in open(os.path.join(p4, ".gitattributes"), encoding="utf-8").read()
     assert rep["owed"] == [], rep["owed"]
-    # a session meets a failure: one notice; the checkpoint owes the model it names, retrains, answers it
+    # a session meets a failure: one notice; check finds the model it names stale, and update retrains it and
+    # answers the notice
     sys.path.insert(0, os.path.join(PLUGIN, "scripts"))
     import notices
     assert notices.notify(p4, "pt ranker server", RuntimeError("bad scores"), "aaaa1111", now="2026-11-09 18:05")
@@ -155,7 +157,7 @@ def test_checkpoint_routine_on_a_p4_recall_store(tmp_path, capsys):
     assert rep["notices"] == [] and rep["owed"] == [] and rep["pt_ranker"]["round"] == 1, rep
     resolved = open(layout.sub(p4, "models", notices.RESOLVED), encoding="utf-8").read()
     assert "pt ranker server" in resolved and "retrained 2026-11-09 18:00" in resolved
-    # a corrupt JSON ranker is a finding and owes a round; the notice file is never rewritten
+    # a corrupt logistic regression ranker is a finding and makes a round due; the notice file is never rewritten
     before = open(layout.sub(p4, "models", notices.NOTICES), encoding="utf-8").read()
     with open(layout.sub(p4, "models", "ranker.json"), "w", encoding="utf-8") as f:
         f.write("<<<<<<< HEAD\n")
@@ -182,8 +184,8 @@ def test_fresh_p4_recall_store_is_no_failure(tmp_path, capsys):
 
 @needs_plugin
 def test_check_without_torch_checks_what_recall_serves(tmp_path, monkeypatch, capsys):
-    """On a machine with no torch build, check still reads the JSON ranker, labels and notices; the .pt ranker is
-    reported as not checked and never owed, since recall serves without it."""
+    """On a machine with no torch build, check still reads the logistic regression ranker, the labels and the
+    notices; the dual encoder is reported as not checked and is never stale, since retrieval serves without it."""
     p4 = os.path.join(str(tmp_path / "proj"), ".claude", "p4")
     write_store(p4)
     with_torch = p4model.check(p4, PLUGIN)
@@ -199,8 +201,8 @@ def test_check_without_torch_checks_what_recall_serves(tmp_path, monkeypatch, ca
 
 @needs_plugin
 def test_labels_since_the_round_counts_raw_labels_as_the_round_does(tmp_path):
-    """eval.tsv records count_labels (labels-raw.tsv and labels.tsv); check takes the count since the round the same
-    way, so a store with raw labels never reads a negative count."""
+    """eval.tsv records count_labels, labels-raw.tsv and labels.tsv together; check takes the count since the round
+    the same way, so a store with raw labels never reads a negative count."""
     p4 = os.path.join(str(tmp_path / "proj"), ".claude", "p4")
     write_store(p4)
     m = recall.modules(PLUGIN, p4)
@@ -216,8 +218,8 @@ def test_labels_since_the_round_counts_raw_labels_as_the_round_does(tmp_path):
 
 @needs_plugin
 def test_the_pt_ranker_is_off_unless_asked(tmp_path, monkeypatch, capsys):
-    """Recall never served the .pt ranker and its score did not hold up as a feature: without VLDS_PT_RANKER=1
-    check reports what stands and owes no .pt training, on a round or on a notice."""
+    """Retrieval has never served the dual encoder: without VLDS_PT_RANKER=1 check reports what stands and finds no
+    training of it due, on a round or on a notice."""
     p4 = os.path.join(str(tmp_path / "proj"), ".claude", "p4")
     write_store(p4)
     on = p4model.check(p4, PLUGIN)

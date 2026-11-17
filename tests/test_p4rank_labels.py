@@ -1,5 +1,5 @@
-"""Tests for phi_rank.read_label_pools: pools built from the p4-recall plugin's models/labels.tsv, tasks.tsv and
-index.json (its on-disk shape: doc_fields and rows), and `train` / `eval` with no --pairs."""
+"""Tests for phi_rank.read_label_pools: query groups built from the p4-phi plugin's labels.tsv, tasks.tsv and
+index.json in its shape on disk, doc_fields and rows, and `train` and `eval` on them."""
 
 import json
 
@@ -22,8 +22,8 @@ def doc(did, path, file, kind, time, show, toks=None):
 
 
 def labelled_store(root, rules_per_topic=4):
-    """Each topic has rules_per_topic rules dated October, one rule dated after every task, and a repository
-    file; task k names topic k, labels rules 0 and 1 of its topic 1 and rule 2 of the next topic 0."""
+    """Each topic has rules_per_topic rules dated October, one rule dated after every query, and a repository
+    file; query k names topic k, and labels rules 0 and 1 of its topic 1 and rule 2 of the next topic 0."""
     (root / "models").mkdir(parents=True)
     docs = []
     for i, t in enumerate(TOPICS):
@@ -61,34 +61,34 @@ def test_pools_from_labels_and_index(tmp_path):
     labelled_store(tmp_path)
     pools = p4rank.read_label_pools(str(tmp_path), negatives=4)
     assert [p["id"].split(":")[-1] for p in pools] == [f"t{k}" for k in range(len(TOPICS))], \
-        "one pool per task with a positive, in time order; never a harness message's task"
+        "one query group per query with a positive, in time order; never a system reminder's query"
     p = pools[0]
     assert p["task"] == f"a plan about the {TOPICS[0]}" and p["time"] == "2026-11-01 12:00" and p["session"] == "s0"
     by_id = {r["id"]: r for r in p["rows"]}
     assert by_id["rules.md:2026-10-10 09:00:r00"]["label"] == 1 and by_id["rules.md:2026-10-11 09:00:r01"]["label"] == 1
     assert by_id["rules.md:2026-10-12 09:00:r12"]["label"] == 0, "a label-0 row is a negative"
     assert sum(r["label"] for r in p["rows"]) == 2
-    assert len(p["rows"]) == 3 + 4, "the labelled rows plus `negatives` unlabelled BM25 candidates"
-    assert not any("later" in r["text"] for r in p["rows"]), "an entry dated after the task was not there to pick"
+    assert len(p["rows"]) == 3 + 4, "the labelled rows plus `negatives` BM25 negatives"
+    assert not any("later" in r["text"] for r in p["rows"]), "a document dated after the query was not there to show"
     negs = [r for r in p["rows"] if r["id"] not in by_id or r["label"] == 0]
     assert any("ring buffer drain" in r["text"] for r in negs if r["id"].startswith("rules.md:2026-10-1")), \
-        "BM25 negatives are the task's own near misses"
+        "BM25 negatives are the query's own near misses"
     assert all(r["file"] for r in p["rows"]) and by_id["rules.md:2026-10-10 09:00:r00"]["file"] == "store/rules.md"
     repo = [r for p in pools for r in p["rows"] if r["id"].startswith("repo:")]
-    assert repo and all(r["text"].startswith("src/") for r in repo), "a repository entry reads as path: show"
+    assert repo and all(r["text"].startswith("src/") for r in repo), "a repository document reads as path: show"
 
 
 def test_train_and_eval_without_pairs(tmp_path):
     labelled_store(tmp_path)
     args = ["--p4", str(tmp_path), "--minutes", "0.05", "--epochs", "30", "--now", "2026-11-09", "--negatives", "6"]
     assert p4rank.main(["train"] + args) == 0
-    assert json.loads((tmp_path / "models" / "ranker.json").read_text()) == {"kind": "p4 recall ranker", "floor": {}},         "the plugin's JSON ranker keeps its file"
+    assert json.loads((tmp_path / "models" / "ranker.json").read_text()) == {"kind": "p4 recall ranker", "floor": {}},         "the plugin's logistic regression ranker keeps its file"
     assert p4rank.sidecar_path(str(tmp_path)).endswith("ranker-pt.json")
     side = json.loads((tmp_path / "models" / "ranker-pt.json").read_text())
     assert side["round"] == 0 and len(side["pools"]) == len(TOPICS) and side["pools"][0].startswith("messages/s0.md")
     model, _meta = p4rank.load(str(tmp_path / "models" / "ranker.pt"))
     pools = p4rank.read_label_pools(str(tmp_path), negatives=6)
-    assert p4rank.mean_rprecision(model, pools) >= 0.8, "it learned the pools it was trained on"
+    assert p4rank.mean_rprecision(model, pools) >= 0.8, "it learned the query groups it was trained on"
     assert p4rank.main(["eval", "--folds", "3"] + args) == 0
 
 

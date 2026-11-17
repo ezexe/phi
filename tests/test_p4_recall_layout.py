@@ -1,6 +1,6 @@
-"""Tests for phi_store and phi_model on the layout the p4-recall plugin writes: no sessions/, the entries in
-store/*.md, one message file per session under store/messages/, memory notes, flights with a plan and a log, and
-the plugin's labels and tasks under models/."""
+"""Tests for phi_store and phi_model on a flat store, the layout p4-phi's p4conf.py moves into phi/ at a session
+start: the entries in store/*.md, one message file per session under store/messages/, memory notes, work folders
+with a plan and a log, and the plugin's labels and queries under models/."""
 
 import pytest
 
