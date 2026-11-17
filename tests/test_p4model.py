@@ -38,16 +38,64 @@ def test_plugin_version_reads_any_manifest(tmp_path, version, want):
     assert phi_model.plugin_version(str(tmp_path)) == want
 
 
-def test_the_recall_tests_leave_the_environment_alone():
-    """Importing a test module, as collection does, sets no variable every later test and process would see."""
+def environ_writes(path):
+    """What running the module at path, as its import does, changes in os.environ, each variable it sets, changes or
+    removes in any form, restored afterwards; and "os.putenv" for a call of putenv anywhere in it, which os.environ
+    never sees. The module runs twice and the second run is read, so a variable a library sets on its first import
+    is not taken for the module's own."""
+    import ast
     import os
-    import subprocess
-    import sys
+    import runpy
+    changed = []
+    for _ in range(2):
+        before = dict(os.environ)
+        try:
+            runpy.run_path(path)
+        finally:
+            changed = sorted(k for k in set(before) | set(os.environ) if before.get(k) != os.environ.get(k))
+            for k in changed:
+                if k in before:
+                    os.environ[k] = before[k]
+                else:
+                    del os.environ[k]
+    tree = ast.parse(open(path, encoding="utf-8").read())
+    if any(isinstance(n, ast.Call) and ast.unparse(n.func).split(".")[-1] == "putenv" for n in ast.walk(tree)):
+        changed.append("os.putenv")
+    return changed
+
+
+def test_the_recall_tests_leave_the_environment_alone():
+    """Importing a test module, as collection does, sets no variable every later test and process would see: running
+    each of the p4 package tests changes nothing in os.environ."""
+    import glob
+    import os
     here = os.path.dirname(os.path.abspath(__file__))
-    env = {k: v for k, v in os.environ.items() if k != "VLDS_PT_RANKER"}
-    out = subprocess.run([sys.executable, "-c", "import os, test_p4model_recall; print(os.environ.get('VLDS_PT_RANKER'))"],
-                         cwd=here, env=env, capture_output=True, text=True)
-    assert out.stdout.strip() == "None", out.stdout + out.stderr
+    for path in sorted(glob.glob(os.path.join(here, "test_p4*.py"))):
+        assert environ_writes(path) == [], os.path.basename(path)
+
+
+@pytest.mark.parametrize("write", [
+    'os.environ["P4_ENV_PROBE"] = "1"',
+    'if True:\n    os.environ["P4_ENV_PROBE"] = "1"',
+    'try:\n    os.environ["P4_ENV_PROBE"] = "1"\nexcept OSError:\n    pass',
+    'os.environ |= {"P4_ENV_PROBE": "1"}',
+    'from os import environ\nenviron["P4_ENV_PROBE"] = "1"',
+    'os.environ.__setitem__("P4_ENV_PROBE", "1")',
+    'os.environ.setdefault("P4_ENV_PROBE", "1")',
+    'def helper():\n    os.environ["P4_ENV_PROBE"] = "1"\n\n\nhelper()',
+    'os.putenv("P4_ENV_PROBE", "1")',
+])
+def test_the_environment_check_sees_every_form_of_write(tmp_path, write):
+    """environ_writes finds a write at a module's top in each form a test module could take, and leaves os.environ
+    as it found it."""
+    import os
+    path = tmp_path / "test_p4_probe.py"
+    path.write_text("import os\n" + write + "\n", encoding="utf-8")
+    try:
+        assert environ_writes(str(path)) != []
+        assert "P4_ENV_PROBE" not in os.environ
+    finally:
+        os.unsetenv("P4_ENV_PROBE")
 
 
 def test_explicit_plugin_wins(tmp_path):
