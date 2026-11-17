@@ -32,6 +32,11 @@ MIN_JSON_TASKS = 3            # p4.py train: "fewer than 3 labelled tasks"
 MIN_PT_POOLS = 4              # phi_rank chooses its threshold by folds on at least four query groups
 
 
+def pt_on() -> bool:
+    """The dual encoder is an experiment, trained and checked only when VLDS_PT_RANKER=1."""
+    return os.environ.get("VLDS_PT_RANKER") == "1"
+
+
 def is_plugin(path: str) -> bool:
     return bool(path) and all(os.path.exists(os.path.join(path, "scripts", n)) for n in ("p4.py", "train.py"))
 
@@ -180,7 +185,7 @@ def check(p4: str, plugin: str, version: str) -> Dict:
             return side if isinstance(side, dict) and not str(side.get("kind", "")).startswith("p4 recall") else {}
     # The dual encoder is an experiment, off unless VLDS_PT_RANKER=1: retrieval has never served it. What stands is
     # reported, and nothing of it is stale.
-    pt_off = os.environ.get("VLDS_PT_RANKER") != "1"
+    pt_off = not pt_on()
     skip_pt = bool(no_torch) or pt_off
     m = modules(plugin, p4)
     mdir = layout.sub(p4, "models")
@@ -298,12 +303,18 @@ def print_check(rep: Dict) -> None:
 
 def train(p4: str, plugin: str, only: List[str], now: str, minutes: float) -> Dict[str, Dict]:
     """The plugin's own `p4.py train` for the logistic regression ranker, the trainer its Stop hook runs, and
-    `python -m phi_rank train`, its query groups read from labels.tsv, for the dual encoder, which no hook trains."""
+    `python -m phi_rank train`, its query groups read from labels.tsv, for the dual encoder, which no hook trains and
+    which trains only with VLDS_PT_RANKER=1."""
     scripts = os.path.join(plugin, "scripts")
     steps = {"json": [sys.executable, "-I", os.path.join(scripts, "p4.py"), "train", "--p4", p4] + (["--now", now] if now else []),
              "ranker": [sys.executable, "-m", "phi_rank", "train", "--p4", p4, "--minutes", str(minutes)] + (["--now", now] if now else [])}
     out: Dict[str, Dict] = {}
     for name in only:
+        if name == "ranker" and not pt_on():
+            out[name] = {"ok": True, "code": 0, "output": ["off, an experiment retrieval does not serve"], "empty": True,
+                         "busy": False}
+            print("train ranker: off, an experiment retrieval does not serve, which VLDS_PT_RANKER=1 trains")
+            continue
         if name not in steps:
             out[name] = {"ok": False, "code": 2, "output": [f"unknown model {name}"], "empty": False, "busy": False}
             print(f"train {name}: FAILED — unknown model")

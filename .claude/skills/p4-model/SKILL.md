@@ -34,7 +34,7 @@ All take `--project <repo or store>`; `--plugin` and `--now` are optional.
 ```bash
 python -m phi_model check  --project <…>            # what stands, what is stale, open notices; exit 1 when anything is stale
 python -m phi_model update --project <…>            # check, retrain what is stale, answer notices, check again
-python -m phi_model init   --project <…> --mode shadow   # first time: seed git, .gitattributes and .gitignore, train both models, set the mode
+python -m phi_model init   --project <…> --mode shadow   # first time: seed git, .gitattributes and .gitignore, train the logistic regression ranker, set the mode; VLDS_PT_RANKER=1 trains the dual encoder too
 python -m phi_model train  --project <…> --only json,ranker [--minutes 20]
 python -m phi_model test   --project <…>            # held-out evaluations of both models
 python -m phi_model mode   --project <…> shadow|active|off
@@ -58,7 +58,7 @@ When asked to update, or when a session reports open notices:
 ## The dual encoder
 
 The dual encoder is an experiment, and retrieval has never served it.
-`check` and `update` find nothing of it stale unless `VLDS_PT_RANKER=1` is set, while `init` and `train` train it whenever they are asked to train `ranker`.
+`check`, `update`, `init` and `train` leave it untrained, and find nothing of it stale, unless `VLDS_PT_RANKER=1` is set.
 Its measurements are in ezexe/p4-phi: `experiments/phi_depth/README.md` for the ensemble of `phi_rank.tree`, and `experiments/phi-p4-models` for the runs that compared it with the logistic regression ranker.
 Before switching it on for a store, show that it raises the logistic regression ranker's held-out R-precision on that store.
 

@@ -10,7 +10,9 @@ and does nothing more. This module is where those rows are read and answered, an
 the check and the trainings:
 
     python -m phi_model check  --project <repo or its .claude/p4>    what stands, what is stale, what failed
-    python -m phi_model init   --project <…> [--mode shadow]          set up, train both models, set the mode
+    python -m phi_model init   --project <…> [--mode shadow]          set up, train the logistic regression ranker,
+                                                                              and the dual encoder with VLDS_PT_RANKER=1,
+                                                                              set the mode
     python -m phi_model train  --project <…> [--only json,ranker]
     python -m phi_model test   --project <…>                          held-out evaluations of both models
     python -m phi_model update --project <…>                          check, retrain what is stale or failed,

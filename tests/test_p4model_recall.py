@@ -217,6 +217,22 @@ def test_labels_since_the_round_counts_raw_labels_as_the_round_does(tmp_path):
 
 
 @needs_plugin
+def test_init_and_train_leave_the_dual_encoder_alone_unless_asked(tmp_path, monkeypatch, capsys):
+    """Without VLDS_PT_RANKER=1 init and train build the logistic regression ranker and no checkpoint of the dual
+    encoder, as check owes none."""
+    root = str(tmp_path / "proj")
+    p4 = os.path.join(root, ".claude", "p4")
+    write_store(p4)
+    monkeypatch.delenv("VLDS_PT_RANKER")
+    args = ["--project", root, "--plugin", PLUGIN, "--now", "2026-11-09 18:00", "--minutes", "0"]
+    assert phi_model.main(["init"] + args) == 0
+    assert phi_model.main(["train", "--only", "ranker"] + args) == 0
+    assert "train ranker: off" in capsys.readouterr().out
+    assert os.path.exists(layout.sub(p4, "models", "ranker.json"))
+    assert not any(os.path.exists(layout.sub(p4, "models", n)) for n in ("ranker-anchor.pt", "ranker.pt", "ranker-pt.json"))
+
+
+@needs_plugin
 def test_labels_since_the_round_count_from_this_machines_round(tmp_path):
     """eval.tsv holds every machine's rounds once synced: check counts the labels since this machine's last round,
     a row with no machine counting as any machine's, as the plugin's own train.owed does."""
