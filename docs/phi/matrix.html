@@ -1,3 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fibonacci Q-matrix · phi docs</title>
+<meta name="description" content="The Fibonacci Q-matrix in the page: two ciphers for 0 to 15, value addition against index composition, and Q to the 20th along the Zeckendorf and the binary representation.">
+<style>
+:root{
+  --bg:#f5f3ec; --panel:#fffdf7; --sunk:#efece2; --ink:#1d1c19; --soft:#5d5a52; --line:#d9d4c6;
+  --phi:#0b6b66; --phi-bg:#dcefec; --app:#a85507; --app-bg:#f8e7d2;
+  --ok:#2c7a3f; --bad:#b3261e; --bad-bg:#fbe5e2;
+  --mono:ui-monospace,"Cascadia Code","SF Mono",Menlo,Consolas,monospace;
+  --sans:"Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,"Helvetica Neue",sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#131418; --panel:#1b1d23; --sunk:#16171c; --ink:#e9e6dd; --soft:#a29e93; --line:#33363f;
+    --phi:#62d2c6; --phi-bg:#16312f; --app:#f1ab52; --app-bg:#3a2a14;
+    --ok:#7fd494; --bad:#ff8a80; --bad-bg:#3d1c1a;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#131418; --panel:#1b1d23; --sunk:#16171c; --ink:#e9e6dd; --soft:#a29e93; --line:#33363f;
+  --phi:#62d2c6; --phi-bg:#16312f; --app:#f1ab52; --app-bg:#3a2a14;
+  --ok:#7fd494; --bad:#ff8a80; --bad-bg:#3d1c1a;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 var(--sans)}
+.wrap{max-width:1040px;margin:0 auto;padding:24px 16px 64px}
+a{color:var(--phi)}
+code,pre,kbd{font-family:var(--mono)}
+code{font-size:.88em;background:var(--sunk);border-radius:4px;padding:1px 4px;overflow-wrap:anywhere}
+:focus-visible{outline:2px solid var(--phi);outline-offset:2px}
+button,input,textarea{font:inherit;color:inherit}
+.top{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.mark{font:600 13px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--phi);text-decoration:none}
+.mark:hover{text-decoration:underline}
+.pill{font:600 12px/1 var(--mono);background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:9px 13px;cursor:pointer;white-space:nowrap}
+.pill:hover{border-color:var(--phi)}
+.tabs{display:flex;flex-wrap:wrap;gap:6px;margin:14px 0 0}
+.tabs a{font:600 13px/1 var(--sans);text-decoration:none;color:var(--soft);background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:8px 13px}
+.tabs a:hover{border-color:var(--phi)}
+.tabs a[aria-current="page"]{background:var(--phi);border-color:var(--phi);color:var(--panel)}
+h1{font-size:clamp(30px,5.4vw,46px);line-height:1.08;letter-spacing:-.02em;margin:16px 0 10px;text-wrap:balance}
+h2{font-size:24px;line-height:1.2;letter-spacing:-.01em;margin:44px 0 10px;text-wrap:balance}
+h3{font-size:18px;margin:26px 0 8px}
+p,li{max-width:74ch}
+.lede{color:var(--soft);max-width:70ch;margin:0 0 8px}
+.facts{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:18px 0 22px;padding:0;list-style:none}
+.facts li{border-left:3px solid var(--phi);padding:2px 0 2px 12px;font-size:14.5px;color:var(--soft)}
+.facts li.f-app{border-color:var(--app)}
+.facts li b{display:block;color:var(--ink);font-size:15px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;margin:12px 0}
+.card h2{margin-top:0}
+.tbl{overflow-x:auto;margin:12px 0}
+table{border-collapse:collapse;font-size:14.5px;font-variant-numeric:tabular-nums}
+th,td{text-align:left;padding:6px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--soft);font-weight:600}
+td.n,th.n{text-align:right}
+.src{font-size:13.5px;color:var(--soft)}
+pre{background:var(--sunk);border:1px solid var(--line);border-radius:10px;padding:12px 14px;overflow-x:auto;font-size:13px;line-height:1.5}
+label.f{display:grid;gap:4px;font-size:13px;color:var(--soft);margin:8px 0}
+label.f input{border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:8px 9px;font:14px var(--mono);width:100%}
+.stream{font:15px/1.9 var(--mono);overflow-wrap:anywhere;margin:10px 0 4px}
+.stream span{padding:2px 1px;border-radius:3px}
+.stream span.cw{background:var(--phi-bg)}
+.stream span.cw:nth-child(even){background:var(--app-bg)}
+.stream b{color:var(--phi)}
+.out{font:13.5px/1.6 var(--mono);color:var(--soft);overflow-wrap:anywhere}
+.out .bad{color:var(--bad)} .out .ok{color:var(--ok)}
+.prices{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-top:10px}
+.prices div{border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:var(--bg)}
+.prices b{display:block;font:600 18px var(--mono)}
+.prices span{font-size:12.5px;color:var(--soft)}
+@media (max-width:760px){.facts{grid-template-columns:minmax(0,1fr)}}
+.instrument{margin:18px 0;border-radius:14px;overflow:hidden;border:1px solid var(--line);background:#0a0a0c;color:#e8e6e1}
+.instrument .bar{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:9px 14px;border-bottom:1px solid #26262c;font:12px/1.4 var(--mono);color:#a29e93}
+.instrument #root{min-height:240px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <a class="mark" href="../index.html">← phi · docs</a>
+    <button class="pill" id="theme" type="button" aria-label="Switch between light and dark">theme</button>
+  </div>
+  <nav class="tabs" aria-label="Pages on the register model and the number codes">
+    <a href="../register.html">The register model</a>
+    <a href="codes.html">Fibonacci codes</a>
+    <a href="phi.html">Zeckendorf register</a>
+    <a href="bin.html">Binary register</a>
+    <a href="fib.html">Computing F(n)</a>
+    <a href="matrix.html" aria-current="page">Fibonacci Q-matrix</a>
+    <a href="Q.html">Related work</a>
+  </nav>
+
+    <h1>Fibonacci Q-matrix</h1>
+  <p class="lede">The matrix Q = [[1, 1], [1, 0]], whose powers hold the Fibonacci numbers: Q<sup>n</sup> = [[F(n+1), F(n)], [F(n), F(n−1)]], with F(0) = 0 and F(1) = 1. Multiplying two powers adds their exponents, so the matrix composes Fibonacci indices the way a register adds Fibonacci values. This page is mathematics: phi's code holds the one-dimensional <a href="phi.html">Zeckendorf register</a> and no matrix register, matrix power or fast doubling.</p>
+  <ul class="facts">
+    <li><b>Values and indices.</b>A Zeckendorf register adds values: F(k) + F(k+1) = F(k+2) is one adjacent 1s rule. Q adds indices: Q<sup>a</sup> Q<sup>b</sup> = Q<sup>a+b</sup>, which gives F(a+b) in one 2 × 2 product.</li>
+    <li><b>One identity.</b>Q<sup>n+2</sup> = Q<sup>n+1</sup> + Q<sup>n</sup> entry by entry is the Fibonacci recurrence, and det Q<sup>n</sup> = (−1)<sup>n</sup> is Cassini's identity.</li>
+    <li class="f-app"><b>Two ways to Q<sup>20</sup>.</b>Along the Zeckendorf representation of 20 = 13 + 5 + 2, building the Fibonacci powers and assembling them, or along its binary representation by fast doubling.</li>
+  </ul>
+  <p>The component names the matrix M. Its <b>Cipher fork</b> tab writes 0 to 15 in four binary digits and in six Zeckendorf digits, which hold 21 values of the 64 six-digit patterns, and reads the symmetry of Q, its two equal off-diagonal entries, beside the (1,∞)-RLL constraint and the comma of Fibonacci coding. <b>Arithmetic</b> sets a value addition, native to the register, against an index composition, native to the matrix. <b>Composition</b> builds Q<sup>20</sup> both ways, counting matrix multiplies on one path and doubling steps on the other from its own steps.</p>
+
+  <section class="instrument" aria-label="Fibonacci Q-matrix, interactive">
+    <div class="bar"><span>matrix.jsx, run in the page</span><span>React 18.3.1 and Babel 7.24.7 from cdnjs</span></div>
+    <div id="root">Loading the component…</div>
+  </section>
+
+  <h2>Where phi stands</h2>
+  <p>A matrix register next to the one-dimensional register, with a strategy that switches between them, is not built: <code>git grep -E 'fast_doubl|def matrix_pow|matPow|def borrow|def divide'</code> over phi's Python finds nothing. The <a href="fib.html">Computing F(n)</a> page traces matrix exponentiation and fast doubling as algorithms, and the <a href="Q.html">related work</a> page lists what others have published on Fibonacci arithmetic.</p>
+</div>
+
+<script>
+(function(){
+  var root=document.documentElement,key="dox-theme",btn=document.getElementById("theme");
+  function stored(){try{return localStorage.getItem(key)}catch(e){return null}}
+  function current(){return root.getAttribute("data-theme")||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light")}
+  function label(){btn.textContent=current()==="dark"?"light theme":"dark theme"}
+  var s=stored(); if(s==="dark"||s==="light")root.setAttribute("data-theme",s);
+  label();
+  try{matchMedia("(prefers-color-scheme: dark)").addEventListener("change",label)}catch(e){}
+  btn.addEventListener("click",function(){var n=current()==="dark"?"light":"dark";root.setAttribute("data-theme",n);try{localStorage.setItem(key,n)}catch(e){}label()});
+})();
+</script>
+<script id="src" type="text/plain">
 /**
  * ═══════════════════════════════════════════════════════════════════
  * THE MATRIX IDENTITY — Interactive Explorer
@@ -320,7 +449,7 @@ function CipherForkTab() {
               Forbid [1,1] → weights spiral: 1,2,3,5,8,13
             </div>
             <div style={{ fontSize: 10, fontFamily: MONO, color: "rgba(255,255,255,0.3)" }}>
-              6 bits → 16 valid / 64 total states
+              6 bits → 21 valid / 64 total states; 0–15 uses 16
             </div>
           </div>
           <div
@@ -383,7 +512,7 @@ function CipherForkTab() {
 
         {/* Comparison display */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-          {/* Fibonacci encoding */}
+          {/* Zeckendorf representation */}
           <div>
             <div style={{ fontSize: 10, fontFamily: MONO, color: GOLD, letterSpacing: 2, marginBottom: 8 }}>FIBONACCI</div>
             <div style={{ display: "flex", gap: 3, marginBottom: 8 }}>
@@ -586,7 +715,7 @@ function MatrixIndexExplorer({ n }) {
             maxWidth: 200
           }}
         >
-          [1,0] = [0,1] = {m[1][0]}. This degeneracy is the adjacency constraint (1D), the delimiter (Fibonacci coding), and
+          [1,0] = [0,1] = {m[1][0]}. This degeneracy is the (1,∞)-RLL constraint (1D), the comma (Fibonacci coding), and
           the symmetry (matrix) — same fact, three views.
         </div>
       )}
@@ -673,7 +802,7 @@ function ValueAdditionExample() {
         bg="rgba(64,200,120,0.02)"
       >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-          <SectionLabel color={GREEN}>1D φ-REGISTER — NATIVE</SectionLabel>
+          <SectionLabel color={GREEN}>1D ZECKENDORF REGISTER — NATIVE</SectionLabel>
           <div
             style={{
               fontFamily: MONO,
@@ -756,7 +885,7 @@ function ValueAdditionExample() {
               color: GREEN
             }}
           >
-            Cost: 1 pour + 1 carry step
+            Cost: 1 digit-wise addition + 1 adjacent 1s rule
           </div>
         )}
       </Card>
@@ -1005,7 +1134,7 @@ function IndexCompositionExample() {
         bg="rgba(224,64,64,0.02)"
       >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-          <SectionLabel color={RED}>1D φ-REGISTER — EXPENSIVE</SectionLabel>
+          <SectionLabel color={RED}>1D ZECKENDORF REGISTER — EXPENSIVE</SectionLabel>
           <div
             style={{
               fontFamily: MONO,
@@ -1026,7 +1155,7 @@ function IndexCompositionExample() {
           {step >= 1 && <div style={{ color: "rgba(255,255,255,0.3)" }}>Must build M⁵, M⁴ from scratch and multiply...</div>}
           {step >= 2 && (
             <div style={{ color: "rgba(255,255,255,0.3)" }}>
-              ...or climb the entire Fibonacci ladder with value additions.
+              ...or compute every F(k) up to it with value additions.
             </div>
           )}
           {step >= 2 && (
@@ -1035,7 +1164,7 @@ function IndexCompositionExample() {
               <br />
               F(5)=5, F(6)=8, F(7)=13, F(8)=21, F(9)=34
               <br />
-              <span style={{ color: RED }}>9 addition+normalize steps</span>
+              <span style={{ color: RED }}>8 additions, F(2) to F(9)</span>
             </div>
           )}
         </div>
@@ -1217,8 +1346,8 @@ function CompositionTab() {
         <SectionLabel>BUILDING M²⁰ — TWO PATHS TO F(20) = 6765</SectionLabel>
         <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
           {[
-            { id: "ladder", label: "Fibonacci Ladder", sub: "Zeckendorf traversal" },
-            { id: "doubling", label: "Fast Doubling", sub: "Binary traversal" }
+            { id: "ladder", label: "Zeckendorf Exponentiation", sub: "along the Zeckendorf representation" },
+            { id: "doubling", label: "Fast Doubling", sub: "along the binary representation" }
           ].map(o => (
             <button
               key={o.id}
@@ -1270,7 +1399,7 @@ function CompositionTab() {
           {method === "ladder" ?
             <>
               20 in Zeckendorf: <span style={{ color: GOLD, fontWeight: 700 }}>13 + 5 + 2</span>
-              <span style={{ color: "rgba(255,255,255,0.2)", marginLeft: 8 }}>→ climb ladder to 13, then assemble</span>
+              <span style={{ color: "rgba(255,255,255,0.2)", marginLeft: 8 }}>→ Fibonacci powers up to 13, then assemble</span>
             </>
           : <>
               20 in binary: <span style={{ color: GREEN, fontWeight: 700 }}>10100</span>
@@ -1381,8 +1510,8 @@ function CompositionTab() {
             <div style={{ fontFamily: DISPLAY, fontSize: 32, color: GOLD, fontWeight: 700 }}>F(20) = 6765</div>
             <div style={{ fontFamily: MONO, fontSize: 11, color: "rgba(255,255,255,0.3)", marginTop: 8 }}>
               {method === "ladder" ?
-                "7 matrix multiplies via Fibonacci ladder"
-              : "5 doubling steps (15 scalar multiplies) via binary scan"}
+                `${ladderSteps.length - 1} matrix multiplies along the Zeckendorf representation`
+              : `${doublingSteps.filter(s => s.bit !== null).length} doubling steps, one per bit of 20, and ${3 * doublingSteps.filter(s => s.bit !== null).length} scalar multiplies along the binary representation`}
             </div>
             <div style={{ fontFamily: MONO, fontSize: 10, color: "rgba(255,255,255,0.2)", marginTop: 4 }}>
               Same matrix. Same result. Different cipher driving the traversal.
@@ -1466,7 +1595,7 @@ function LadderStepView({ step, stepIdx }) {
             ASSEMBLE: <span style={{ color: ORANGE }}>collecting Zeckendorf term</span>
           </span>
         : <span>
-            LADDER: <span style={{ color: GOLD }}>{step.op}</span>
+            STEP: <span style={{ color: GOLD }}>{step.op}</span>
           </span>
         }
         <span style={{ marginLeft: 12, color: GREEN }}>
@@ -1614,7 +1743,7 @@ export default function MatrixIdentityExplorer() {
               lineHeight: 1.6
             }}
           >
-            Binary and Fibonacci are ciphers on the same matrix. The adjacency constraint, the symmetry, and the delimiter are
+            Binary and Fibonacci are ciphers on the same matrix. The (1,∞)-RLL constraint, the symmetry, and the comma are
             one structural fact.
           </div>
         </div>
@@ -1686,3 +1815,21 @@ export default function MatrixIdentityExplorer() {
     </div>
   );
 }
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.24.7/babel.min.js"></script>
+<script>
+(function(){
+  var src = document.getElementById("src").textContent;
+  src = src.replace(/^import\s*\{([^}]+)\}\s*from\s*["']react["'];?\s*$/m, "const {$1} = React;");
+  src = src.replace(/^export\s+default\s+/m, "window.__App = ");
+  try {
+    var out = Babel.transform(src, { presets: ["react"], filename: "matrix.jsx" }).code;
+    (0, eval)(out);
+    ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(window.__App));
+  } catch (e) { document.getElementById("root").textContent = "Could not render: " + e.message; }
+})();
+</script>
+</body>
+</html>
