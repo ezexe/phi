@@ -129,7 +129,7 @@ def test_modes_live_in_p4_json_and_keep_every_other_key(tmp_path):
 
 
 @needs_plugin
-def test_checkpoint_routine_on_a_p4_recall_store(tmp_path, capsys):
+def test_check_init_and_update_on_a_store(tmp_path, capsys):
     root = str(tmp_path / "proj")
     p4 = os.path.join(root, ".claude", "p4")
     write_store(p4)
@@ -170,7 +170,7 @@ def test_checkpoint_routine_on_a_p4_recall_store(tmp_path, capsys):
 
 
 @needs_plugin
-def test_fresh_p4_recall_store_is_no_failure(tmp_path, capsys):
+def test_fresh_store_is_no_failure(tmp_path, capsys):
     root = str(tmp_path / "proj")
     p4 = os.path.join(root, ".claude", "p4")
     os.makedirs(os.path.join(p4, "store"))
@@ -183,7 +183,7 @@ def test_fresh_p4_recall_store_is_no_failure(tmp_path, capsys):
 
 
 @needs_plugin
-def test_check_without_torch_checks_what_recall_serves(tmp_path, monkeypatch, capsys):
+def test_check_without_torch_checks_what_retrieval_serves(tmp_path, monkeypatch, capsys):
     """On a machine with no torch build, check still reads the logistic regression ranker, the labels and the
     notices; the dual encoder is reported as not checked and is never stale, since retrieval serves without it."""
     p4 = os.path.join(str(tmp_path / "proj"), ".claude", "p4")
@@ -217,7 +217,7 @@ def test_labels_since_the_round_counts_raw_labels_as_the_round_does(tmp_path):
 
 
 @needs_plugin
-def test_the_pt_ranker_is_off_unless_asked(tmp_path, monkeypatch, capsys):
+def test_the_dual_encoder_is_off_unless_asked(tmp_path, monkeypatch, capsys):
     """Retrieval has never served the dual encoder: without VLDS_PT_RANKER=1 check reports what stands and finds no
     training of it due, on a round or on a notice."""
     p4 = os.path.join(str(tmp_path / "proj"), ".claude", "p4")

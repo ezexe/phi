@@ -57,7 +57,7 @@ def labelled_store(root, rules_per_topic=4):
                                                        if d["file"] == "rules.md"), encoding="utf-8")
 
 
-def test_pools_from_labels_and_index(tmp_path):
+def test_query_groups_from_labels_and_index(tmp_path):
     labelled_store(tmp_path)
     pools = phi_rank.read_label_pools(str(tmp_path), negatives=4)
     assert [p["id"].split(":")[-1] for p in pools] == [f"t{k}" for k in range(len(TOPICS))], \
@@ -78,7 +78,7 @@ def test_pools_from_labels_and_index(tmp_path):
     assert repo and all(r["text"].startswith("src/") for r in repo), "a repository document reads as path: show"
 
 
-def test_train_and_eval_without_pairs(tmp_path):
+def test_train_and_eval_on_labels(tmp_path):
     labelled_store(tmp_path)
     args = ["--p4", str(tmp_path), "--minutes", "0.05", "--epochs", "30", "--now", "2026-11-09", "--negatives", "6"]
     assert phi_rank.main(["train"] + args) == 0

@@ -56,7 +56,7 @@ def test_train_and_eval(tmp_path):
 
 
 
-def test_rounds_ship_as_phi_deltas_and_rebuild(tmp_path, monkeypatch):
+def test_rounds_ship_incremental_checkpoints_and_rebuild(tmp_path, monkeypatch):
     """A round after the full checkpoint ships only its change; a clone without ranker.pt rebuilds the same model
     from the checkpoints."""
     monkeypatch.setattr(phi_rank, "REBASE_GAP", 1.0)        # keep the cut, whatever it costs on a toy store
@@ -82,7 +82,7 @@ def test_rounds_ship_as_phi_deltas_and_rebuild(tmp_path, monkeypatch):
     assert side["threshold_pools"] == len(TOPICS)
 
 
-def test_legacy_checkpoint_becomes_the_anchor(tmp_path, monkeypatch):
+def test_legacy_checkpoint_becomes_the_full_checkpoint(tmp_path, monkeypatch):
     monkeypatch.setattr(phi_rank, "REBASE_GAP", 1.0)
     make_store(tmp_path)
     args = ["--p4", str(tmp_path), "--minutes", "0", "--epochs", "8", "--now", "2026-10-27"]
@@ -99,7 +99,7 @@ def test_legacy_checkpoint_becomes_the_anchor(tmp_path, monkeypatch):
     assert (mdir / "ranker-anchor.pt").exists() and side["anchor_round"] == 0 and side["chain"] == ["ranker.r001.phid"]
 
 
-def test_node_tree_defaults_are_the_measured_best(tmp_path):
+def test_ensemble_defaults_are_the_measured_best(tmp_path):
     """By default the ensemble's members keep every row and skip pretraining, since phi_depth measured both to cost
     held-out R-precision."""
     import phi_rank.tree as tree
@@ -115,7 +115,7 @@ def test_node_tree_defaults_are_the_measured_best(tmp_path):
         assert bool((rows[1:] & rows[:-1]).any()), "unmasked: adjacent rows are kept"
 
 
-def test_node_tree_answers_by_effort(tmp_path):
+def test_ensemble_members_mask_and_selection(tmp_path):
     """phi_rank.tree builds K members at the first K Zeckendorf addresses, each pruned by phi_mask when asked, and
     the selection picks one member for a query."""
     import phi_rank.tree as tree
