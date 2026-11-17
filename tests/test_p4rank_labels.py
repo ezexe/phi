@@ -7,7 +7,7 @@ import torch
 
 torch.set_num_threads(1)
 
-import phi_rank as p4rank
+import phi_rank
 
 TOPICS = ["ring buffer drain", "midi transport playhead", "toolbar latency readout", "crash dump symbols",
           "plan document decisions", "render thread priority"]
@@ -59,7 +59,7 @@ def labelled_store(root, rules_per_topic=4):
 
 def test_pools_from_labels_and_index(tmp_path):
     labelled_store(tmp_path)
-    pools = p4rank.read_label_pools(str(tmp_path), negatives=4)
+    pools = phi_rank.read_label_pools(str(tmp_path), negatives=4)
     assert [p["id"].split(":")[-1] for p in pools] == [f"t{k}" for k in range(len(TOPICS))], \
         "one query group per query with a positive, in time order; never a system reminder's query"
     p = pools[0]
@@ -81,19 +81,19 @@ def test_pools_from_labels_and_index(tmp_path):
 def test_train_and_eval_without_pairs(tmp_path):
     labelled_store(tmp_path)
     args = ["--p4", str(tmp_path), "--minutes", "0.05", "--epochs", "30", "--now", "2026-11-09", "--negatives", "6"]
-    assert p4rank.main(["train"] + args) == 0
+    assert phi_rank.main(["train"] + args) == 0
     assert json.loads((tmp_path / "models" / "ranker.json").read_text()) == {"kind": "p4 recall ranker", "floor": {}},         "the plugin's logistic regression ranker keeps its file"
-    assert p4rank.sidecar_path(str(tmp_path)).endswith("ranker-pt.json")
+    assert phi_rank.sidecar_path(str(tmp_path)).endswith("ranker-pt.json")
     side = json.loads((tmp_path / "models" / "ranker-pt.json").read_text())
     assert side["round"] == 0 and len(side["pools"]) == len(TOPICS) and side["pools"][0].startswith("messages/s0.md")
-    model, _meta = p4rank.load(str(tmp_path / "models" / "ranker.pt"))
-    pools = p4rank.read_label_pools(str(tmp_path), negatives=6)
-    assert p4rank.mean_rprecision(model, pools) >= 0.8, "it learned the query groups it was trained on"
-    assert p4rank.main(["eval", "--folds", "3"] + args) == 0
+    model, _meta = phi_rank.load(str(tmp_path / "models" / "ranker.pt"))
+    pools = phi_rank.read_label_pools(str(tmp_path), negatives=6)
+    assert phi_rank.mean_rprecision(model, pools) >= 0.8, "it learned the query groups it was trained on"
+    assert phi_rank.main(["eval", "--folds", "3"] + args) == 0
 
 
 def test_no_labels_is_a_clean_exit(tmp_path, capsys):
     (tmp_path / "models").mkdir()
-    assert p4rank.read_label_pools(str(tmp_path)) == []
-    assert p4rank.main(["train", "--p4", str(tmp_path), "--minutes", "0"]) == 1
+    assert phi_rank.read_label_pools(str(tmp_path)) == []
+    assert phi_rank.main(["train", "--p4", str(tmp_path), "--minutes", "0"]) == 1
     assert "no labelled pool" in capsys.readouterr().out

@@ -4,7 +4,7 @@ with a plan and a log, and the plugin's labels and queries under models/."""
 
 import pytest
 
-import phi_model as p4model
+import phi_model
 from phi_store import main, read_p4, sha8, split
 
 from test_p4 import store, write
@@ -112,10 +112,10 @@ def test_module_summary_on_both_layouts(tmp_path, capsys):
 def test_store_with_store_and_models_is_a_root(tmp_path):
     (tmp_path / "store").mkdir()
     (tmp_path / "models").mkdir()
-    assert p4model.p4_root(str(tmp_path)) == str(tmp_path)
+    assert phi_model.p4_root(str(tmp_path)) == str(tmp_path)
     proj = tmp_path / "proj"
     (proj / ".claude" / "p4" / "store").mkdir(parents=True)
     (proj / ".claude" / "p4" / "models").mkdir()
-    assert p4model.p4_root(str(proj)) == str(proj / ".claude" / "p4")
+    assert phi_model.p4_root(str(proj)) == str(proj / ".claude" / "p4")
     with pytest.raises(SystemExit):
-        p4model.p4_root(str(tmp_path / "models"))
+        phi_model.p4_root(str(tmp_path / "models"))
