@@ -376,6 +376,13 @@ class TestAPI:
         assert report["_summary"]["all_masks_valid"]
         assert report["_summary"]["all_zeros_enforced"]
 
+    def test_check_counts_every_layer(self):
+        """check's n_layers counts every masked layer: the two convolutions here."""
+        model = self._make_model()
+        pruned, masks = prune(model, layer_types=(nn.Conv2d,))
+        assert len(masks) == 2
+        assert check(pruned, masks)["_summary"]["n_layers"] == len(masks)
+
     def test_density_under_half(self):
         model = self._make_model()
         pruned, masks = prune(model, prune_head=True)  # every eligible layer pruned, head included

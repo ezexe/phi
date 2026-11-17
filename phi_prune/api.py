@@ -362,7 +362,7 @@ def check(
     results["_summary"] = {
         "all_masks_valid": all_valid,
         "all_zeros_enforced": all_zeros_enforced,
-        "n_layers": len(results) - 1,
+        "n_layers": len(results),                      # counted before "_summary" joins results
         "pattern": pattern,
         "axis": axis,
     }
