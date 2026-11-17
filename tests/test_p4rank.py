@@ -37,6 +37,24 @@ def test_corpus_follows_git(tmp_path):
     assert all(not f.startswith("models") for f in files)
 
 
+def test_corpus_of_a_store_its_repository_ignores(tmp_path):
+    """A store inside a project repository that ignores .claude/p4 is read by walking it, not left empty."""
+    if subprocess.run(["git", "init", "-q", str(tmp_path)]).returncode != 0:
+        pytest.skip("git is not available")
+    (tmp_path / ".gitignore").write_text(".claude/p4/\n", encoding="utf-8")
+    store = tmp_path / ".claude" / "p4" / "phi" / "store"
+    store.mkdir(parents=True)
+    (store / "rules.md").write_text("- ruling: keep the ring buffer drained\n", encoding="utf-8")
+    p4 = tmp_path / ".claude" / "p4"
+    # the store's own .gitignore, as the plugin seeds it, still decides: temportal's tmp and the session pages stay out
+    (p4 / ".gitignore").write_text("temportal/tmp/\nphi/sessions/*/session.md\n", encoding="utf-8")
+    for rel in ("temportal/tmp/x/probe.txt", "phi/sessions/s1/session.md"):
+        (p4 / rel).parent.mkdir(parents=True, exist_ok=True)
+        (p4 / rel).write_text("a scratch note no model should learn from\n", encoding="utf-8")
+    files = sorted(os.path.relpath(p, p4).replace(os.sep, "/") for p in phi_rank.text_files(str(p4)))
+    assert files == [".gitignore", "phi/store/rules.md"]
+
+
 def test_train_and_eval(tmp_path):
     make_store(tmp_path)
     args = ["--p4", str(tmp_path), "--minutes", "0.05", "--epochs", "8", "--now", "2026-10-27"]

@@ -185,16 +185,27 @@ def info_nce(a: torch.Tensor, b: torch.Tensor, temperature: float = 0.05) -> tor
 
 def candidate_files(root: str) -> List[str]:
     """What git keeps in the store's repository, its tracked files and the untracked ones its .gitignore does not
-    exclude, so the store's .gitignore is the one rule for what is trainable; a directory that is no git repository
-    is walked."""
+    exclude, so the store's .gitignore is the one rule for what is trainable. A directory git lists nothing in, as
+    one that is no git repository or one its repository ignores, is listed by git as its own work tree, so its own
+    .gitignore files still decide; only where git cannot run is it walked whole."""
     import subprocess
+    import tempfile
+
+    def listed(cmd):
+        r = subprocess.run(cmd, capture_output=True, timeout=120)
+        rels = [x for x in r.stdout.decode("utf-8", "replace").split("\0") if x] if r.returncode == 0 else []
+        return [os.path.join(root, *x.split("/")) for x in rels if not set(x.split("/")[:-1]) & SKIP_DIRS]
+
     try:
-        r = subprocess.run(["git", "-C", root, "ls-files", "-co", "--exclude-standard", "-z"], capture_output=True,
-                           timeout=120)
-        if r.returncode == 0:
-            rels = [x for x in r.stdout.decode("utf-8", "replace").split("\0") if x]
-            return [os.path.join(root, *x.split("/")) for x in rels
-                    if not set(x.split("/")[:-1]) & SKIP_DIRS]
+        files = listed(["git", "-C", root, "ls-files", "-co", "--exclude-standard", "-z"])
+        if files:
+            return files
+        # an empty throwaway repository whose work tree is the store: every file is untracked, and the store's own
+        # .gitignore files exclude, as they would in a repository of the store's own
+        with tempfile.TemporaryDirectory() as g:
+            if subprocess.run(["git", "init", "-q", "--bare", g], capture_output=True, timeout=60).returncode == 0:
+                return listed(["git", f"--git-dir={g}", f"--work-tree={root}", "ls-files", "-o", "--exclude-standard",
+                               "-z"])
     except (OSError, subprocess.SubprocessError):
         pass
     out = []
