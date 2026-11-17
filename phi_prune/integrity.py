@@ -13,7 +13,7 @@ stored digits shows up with no parity bits or CRC, by a scan for 11. Only a 0 fl
 set digit does that, so the share of single-digit flips the scan catches depends on the quantization
 levels stored: on synthetic weights, simulated rates run from 0.4116 to 0.5181 of flips at 8 and 10
 digits, and over every level of 8 and 10 digits the expectation is 0.4091 and 0.4167, as
-experiments/phi-prune/results/measure_detection.txt in ezexe/p4-phi holds, from the
+experiments/phi-prune/results/measure_detection.txt in ezexe/p4-phi-experiments holds, from the
 scripts/measure_detection.py beside it. simulate_corruption draws such flips.
 """
 

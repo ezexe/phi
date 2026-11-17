@@ -285,7 +285,7 @@ class TestIntegrity:
         sigma = np.sqrt(exact * (1 - exact) / n)
         assert abs(detected / n - exact) < 4 * sigma
         # 0.4091 over every 8-digit quantization level, as experiments/phi-prune/results/measure_detection.txt in
-        # ezexe/p4-phi holds
+        # ezexe/p4-phi-experiments holds
         assert 0.40 < exact < 0.42
 
     @pytest.mark.parametrize("axis", [None, 0])
