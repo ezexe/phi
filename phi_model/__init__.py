@@ -186,35 +186,29 @@ def test(p4: str, plugin: str, now: str, minutes: float, folds: int) -> Dict[str
 
 # ─── init / update / mode ──────────────────────────────────────────────────────────────────────────────
 
-def seed_repo(p4: str, plugin: str) -> List[str]:
+def seed_repo(p4: str) -> List[str]:
     """git, the plugin's .gitignore and .gitattributes, and git-lfs's hooks. A .gitattributes of the owner's own gets the LFS lines appended when
     it lacks them; nothing else of the owner's is changed."""
     done = []
     if run(["git", "-C", p4, "rev-parse", "--show-toplevel"]).returncode != 0:
         run(["git", "init", "-q", p4])
         done.append("git init")
-    for name, src in ((".gitignore", "p4-gitignore"), (".gitattributes", "p4-gitattributes")):
-        dst, tpl = os.path.join(p4, name), os.path.join(plugin, "hooks", src)
-        if os.path.exists(tpl):
-            with open(tpl, encoding="utf-8") as f:
-                template = f.read()
-        elif name == ".gitattributes":
-            template = in_layout(p4, LFS_LINES)   # p4-recall seeds the .gitignore itself and ships no .gitattributes
-        else:
-            continue
-        if not os.path.exists(dst):
-            with open(dst, "w", encoding="utf-8", newline="\n") as g:
-                g.write(template)
-            done.append(f"seeded {name}")
-        elif name == ".gitattributes":
-            have = open(dst, encoding="utf-8").read()
-            missing = [l for l in template.splitlines() if "filter=lfs" in l and l not in have]
-            if missing:
-                with open(dst, "a", encoding="utf-8", newline="\n") as g:
-                    g.write(("" if have.endswith("\n") else "\n")
-                            + "# the models' checkpoints in git LFS (added by the p4-model skill)\n"
-                            + "\n".join(missing) + "\n")
-                done.append("added the LFS lines to .gitattributes")
+    name = ".gitattributes"
+    dst = os.path.join(p4, name)
+    template = in_layout(p4, LFS_LINES)   # p4-recall seeds the .gitignore itself and ships no .gitattributes
+    if not os.path.exists(dst):
+        with open(dst, "w", encoding="utf-8", newline="\n") as g:
+            g.write(template)
+        done.append(f"seeded {name}")
+    else:
+        have = open(dst, encoding="utf-8").read()
+        missing = [l for l in template.splitlines() if "filter=lfs" in l and l not in have]
+        if missing:
+            with open(dst, "a", encoding="utf-8", newline="\n") as g:
+                g.write(("" if have.endswith("\n") else "\n")
+                        + "# the models' checkpoints in git LFS (added by the p4-model skill)\n"
+                        + "\n".join(missing) + "\n")
+            done.append("added the LFS lines to .gitattributes")
     gi = os.path.join(p4, ".gitignore")
     have = open(gi, encoding="utf-8").read() if os.path.exists(gi) else ""
     if in_layout(p4, LOCAL_BUILD) not in have.split("\n"):
@@ -235,7 +229,7 @@ def update(p4: str, plugin: str, now: str, minutes: float) -> int:
     rep = check(p4, plugin)
     print_check(rep)
     if any(o.startswith("seed") for o in rep["owed"]):
-        print("seed: " + (", ".join(seed_repo(p4, plugin)) or "nothing"))
+        print("seed: " + (", ".join(seed_repo(p4)) or "nothing"))
     owed = list(dict.fromkeys(o.split()[1] for o in rep["owed"] if o.startswith("train ")))
     if not owed:
         print("update — nothing to train")
@@ -286,7 +280,7 @@ def main(argv=None) -> int:
         test(p4, plugin, args.now, args.minutes, args.folds)
         return 0
     if args.cmd == "init":
-        print("seed: " + (", ".join(seed_repo(p4, plugin)) or "nothing to seed"))
+        print("seed: " + (", ".join(seed_repo(p4)) or "nothing to seed"))
         trained = train(p4, plugin, ["json", "dispatch", "ranker"], args.now, args.minutes)
         resolve_notices(p4, plugin, trained, args.now)
         print(f"mode {args.mode} → {write_mode(p4, args.mode, args.now)}")
