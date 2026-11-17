@@ -41,13 +41,11 @@ evaluation is on sessions the model never saw.
 Run as a module for a summary: python -m phi_store <p4 root>
 """
 
-import csv
 import hashlib
 import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from statistics import mean
 from typing import Dict, Iterator, List, Optional, Tuple
 from . import layout  # noqa: E402  (the store's layout: recall/, temportal/)
 
@@ -62,7 +60,6 @@ STAMPED_NAME_RE = re.compile(r"^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})\b")
 WORK_FILES = (("plan.md", None), ("report.md", REPORT_CAP))   # what makes a folder a piece of planned work
 # the parts of a store other readers cover; scratchpad/ is build output, traces and binaries
 STORE_PARTS = ("store", "memory", "models", "scratchpad", "sessions", "mrindex")
-SRC_SUFFIXES = {".py", ".ts", ".js", ".ps1", ".sh", ".cmake"}  # the frags' scripts; wav, png and json run output stay out
 
 
 @dataclass
@@ -74,24 +71,6 @@ class Record:
     text: str  # pretrain text, or the prompt of a pair
     target: str = ""
     weight: float = 1.0
-
-
-def session_id(name: str) -> str:
-    """'p4-plugins-and-marketplace-migration--8257a0d2' -> '8257a0d2'."""
-    return name.rsplit("--", 1)[-1]
-
-
-def mind_reader_scores(p4: Path) -> Dict[str, float]:
-    """Mean turn score per session id, from mrindex/history.tsv."""
-    path = p4 / "mrindex" / "history.tsv"
-    if not path.exists():
-        return {}
-    by_session: Dict[str, List[float]] = {}
-    with open(path, encoding="utf-8") as f:
-        for row in csv.reader((line for line in f if not line.startswith("#")), delimiter="\t"):
-            if len(row) >= 3 and row[2]:
-                by_session.setdefault(session_id(row[1]), []).append(float(row[2]))
-    return {s: mean(v) for s, v in by_session.items()}
 
 
 def _read(path: Path, cap: Optional[int] = None) -> str:
@@ -332,7 +311,6 @@ def read_recall_layout(p4: Path) -> Iterator[Record]:
 def read_p4(root: str, plans: Optional[str] = None) -> Iterator[Record]:
     """Every record of the store at `root`, and of the repository's plans directory `plans` when it is given."""
     p4 = Path(root)
-    scores = mind_reader_scores(p4)
     new = layout.sub(p4, "store").is_dir()
 
     for path in sorted(layout.sub(p4, "memory").glob("*.md")):
@@ -342,16 +320,6 @@ def read_p4(root: str, plans: Optional[str] = None) -> Iterator[Record]:
 
     if new:
         yield from read_recall_layout(p4)
-
-    sessions = sorted(p for p in (p4 / "sessions").iterdir() if p.is_dir()) if (p4 / "sessions").is_dir() else []
-    for session in sessions:
-        sid = session_id(session.name)
-        w = scores.get(sid, 1.0)
-        paths = sorted(session.glob("vlds/**/*.md")) + sorted(
-            p for p in session.glob("src/**/*") if p.suffix in SRC_SUFFIXES or p.name == "frags.md")
-        for path in paths:
-            text = _read(path)
-            yield Record("pretrain", path.relative_to(p4).as_posix(), sid, _time_of(text), text, weight=w)
 
     # planned work, wherever it is kept: inside the store, and in the repository's plans directory when one is given
     yield from work_records(p4, top_skip=STORE_PARTS)
