@@ -101,11 +101,10 @@ def find_plugin(given: str = "", project: str = "") -> str:
         if up == d:
             break
         d = up
-    for name in ("p4-phi", "p4-recall"):
+    for name in ("p4-phi",):
         for pattern in (os.path.join(home, ".claude", "plugins", "**", name, ".claude-plugin", "plugin.json"),
-                        # the marketplace's directory is lbiza (Ibiza in a checkout from before the rename)
-                        *(os.path.join(a, "*", m, "plugins", name, ".claude-plugin", "plugin.json")
-                          for a in ancestors for m in ("lbiza", "Ibiza"))):
+                        *(os.path.join(a, "*", "lbiza", "plugins", name, ".claude-plugin", "plugin.json")
+                          for a in ancestors)):
             cands += [os.path.dirname(os.path.dirname(p)) for p in glob.glob(pattern, recursive=True)]
     # the marketplaces Claude Code knows (a directory marketplace is read in place, never copied under cache/)
     for reg, key in (("known_marketplaces.json", "installLocation"), ("installed_plugins.json", "installPath")):
@@ -120,7 +119,7 @@ def find_plugin(given: str = "", project: str = "") -> str:
                 loc = rec.get(key, "") if isinstance(rec, dict) else ""
                 if not loc:
                     continue
-                cands += [loc] if is_plugin(loc) else [os.path.join(loc, "plugins", n) for n in ("p4-phi", "p4-recall")]
+                cands += [loc] if is_plugin(loc) else [os.path.join(loc, "plugins", "p4-phi")]
     found = [c for c in dict.fromkeys(cands) if is_plugin(c)]
     if not found:
         raise SystemExit("p4model — no p4-recall plugin was found: pass --plugin <…/lbiza/plugins/p4-phi> or set "

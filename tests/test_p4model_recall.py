@@ -17,7 +17,7 @@ from phi_store import layout  # noqa: E402
 HERE = os.path.dirname(os.path.abspath(__file__))
 os.environ["VLDS_PT_RANKER"] = "1"      # these tests build the .pt ranker: on only as an experiment (below)
 PLUGIN = os.environ.get("P4_RECALL_PLUGIN_ROOT") or next(
-    (p for p in (os.path.normpath(os.path.join(HERE, "..", "..", "p4", "lbiza", "plugins", n)) for n in ("p4-phi", "p4-recall"))
+    (p for p in (os.path.normpath(os.path.join(HERE, "..", "..", "p4", "lbiza", "plugins", "p4-phi")),)
      if os.path.exists(os.path.join(p, "scripts", "p4.py"))), "")
 needs_plugin = pytest.mark.skipif(not recall.is_plugin(PLUGIN), reason="the p4-recall plugin is not beside this checkout")
 
@@ -83,12 +83,12 @@ def test_p4_root_and_explicit_plugin(tmp_path):
 def test_find_plugin_reads_claude_codes_marketplace_registry(tmp_path, monkeypatch):
     """A directory marketplace is read in place, so the plugin sits wherever known_marketplaces.json says."""
     market = tmp_path / "market" / "lbiza"
-    plugin = market / "plugins" / "p4-recall"
+    plugin = market / "plugins" / "p4-phi"
     (plugin / "scripts").mkdir(parents=True)
     for n in ("p4.py", "train.py"):
         (plugin / "scripts" / n).write_text("", encoding="utf-8")
     (plugin / ".claude-plugin").mkdir()
-    (plugin / ".claude-plugin" / "plugin.json").write_text('{"name": "p4-recall", "version": "0.2.0"}', encoding="utf-8")
+    (plugin / ".claude-plugin" / "plugin.json").write_text('{"name": "p4-phi", "version": "0.2.0"}', encoding="utf-8")
     home = tmp_path / "home"
     (home / ".claude" / "plugins").mkdir(parents=True)
     import json
