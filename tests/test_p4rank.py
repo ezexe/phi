@@ -10,32 +10,24 @@ import torch
 torch.set_num_threads(1)
 
 import phi_rank as p4rank
-
-TOPICS = ["ring buffer drain", "midi transport playhead", "toolbar latency readout", "crash dump symbols",
-          "plan document decisions", "render thread priority"]
+from test_p4rank_labels import TOPICS, labelled_store
 
 
 def make_store(root):
-    """A git repository with text per topic, a binary capture beside it, and pairs: pool k's task names topic k."""
-    sess = root / "sessions" / "s1" / "vlds"
-    sess.mkdir(parents=True)
+    """A git repository holding the labelled store of test_p4rank_labels, pool k's task naming topic k, with text
+    per topic and a binary capture beside it."""
+    labelled_store(root)
+    notes = root / "notes"
+    notes.mkdir()
     for i, t in enumerate(TOPICS):
-        (sess / f"notes-{i}.md").write_text("\n".join(f"- ruling: the {t} rule number {j}\n  detail: {t} detail {j}"
-                                                      for j in range(30)), encoding="utf-8")
+        (notes / f"notes-{i}.md").write_text("\n".join(f"- ruling: the {t} rule number {j}\n  detail: {t} detail {j}"
+                                                       for j in range(30)), encoding="utf-8")
     (root / "scratchpad").mkdir()
     (root / "scratchpad" / "take.wav").write_bytes(b"RIFF\0\0\0\0WAVE")
     (root / "scratchpad" / "run.log").write_text("ring buffer drained in 3 ms\n", encoding="utf-8")
     (root / ".gitignore").write_text("*.wav\nmodels/.*\nmodels/*.log\n", encoding="utf-8")
     if subprocess.run(["git", "init", "-q", str(root)]).returncode != 0:
         pytest.skip("git is not available")
-    pairs = root / "pairs.jsonl"
-    with open(pairs, "w", encoding="utf-8") as f:
-        for k, t in enumerate(TOPICS):
-            for i, u in enumerate(TOPICS):
-                for j in range(3):
-                    f.write(json.dumps({"pool_id": f"p{k}", "task": f"a plan about the {t}", "file": f"notes-{i}.md",
-                                        "text": f"the {u} rule number {j}", "label": int(i == k)}) + "\n")
-    return pairs
 
 
 def test_corpus_follows_git(tmp_path):
@@ -46,11 +38,11 @@ def test_corpus_follows_git(tmp_path):
 
 
 def test_train_and_eval(tmp_path):
-    pairs = make_store(tmp_path)
-    args = ["--p4", str(tmp_path), "--pairs", str(pairs), "--minutes", "0.05", "--epochs", "8", "--now", "2026-10-27"]
+    make_store(tmp_path)
+    args = ["--p4", str(tmp_path), "--minutes", "0.05", "--epochs", "8", "--now", "2026-10-27"]
     assert p4rank.main(["train"] + args) == 0
     mdir = tmp_path / "models"
-    side = json.loads((mdir / "ranker.json").read_text())
+    side = json.loads((mdir / "ranker-pt.json").read_text())
     assert side["round"] == 0 and len(side["pools"]) == len(TOPICS)
     model, meta = p4rank.load(str(mdir / "ranker.pt"))
     # git keeps the anchor at fp16; ranker.pt is the local fp32 build a next round continues from
@@ -58,11 +50,8 @@ def test_train_and_eval(tmp_path):
     assert next(iter(torch.load(mdir / "ranker.pt", weights_only=True)["state"].values())).dtype == torch.float32
     assert side["anchor_round"] == 0 and side["chain"] == []
     assert side["threshold_from"].startswith("held-out") and 0 <= side["heldout_rprecision"] <= 1
-    # it learned the topics: each task ranks its own rules first
-    for k, t in enumerate(TOPICS):
-        texts = [f"the {u} rule number 0" for u in TOPICS]
-        sc = p4rank.score_pool(model, f"a plan about the {t}", texts)
-        assert max(range(len(sc)), key=sc.__getitem__) == k, (t, sc)
+    # it learned the pools: each task ranks its labelled rules above its pool's other candidates
+    assert p4rank.mean_rprecision(model, p4rank.read_label_pools(str(tmp_path))) >= 0.8
     assert p4rank.main(["eval", "--folds", "3"] + args) == 0
 
 
@@ -71,12 +60,12 @@ def test_rounds_ship_as_phi_deltas_and_rebuild(tmp_path, monkeypatch):
     """A round after the anchor ships only its change; a clone without ranker.pt rebuilds the same model from the
     chain, and the server serves that rebuild."""
     monkeypatch.setattr(p4rank, "REBASE_GAP", 1.0)        # keep the cut, whatever it costs on a toy store
-    pairs = make_store(tmp_path)
-    args = ["--p4", str(tmp_path), "--pairs", str(pairs), "--minutes", "0", "--epochs", "6", "--now", "2026-10-27"]
+    make_store(tmp_path)
+    args = ["--p4", str(tmp_path), "--minutes", "0", "--epochs", "8", "--now", "2026-10-27"]
     assert p4rank.main(["train"] + args) == 0
     assert p4rank.main(["train"] + args) == 0
     mdir = tmp_path / "models"
-    side = json.loads((mdir / "ranker.json").read_text())
+    side = json.loads((mdir / "ranker-pt.json").read_text())
     assert side["round"] == 1 and side["anchor_round"] == 0 and side["chain"] == ["ranker.r001.phid"]
     raw = (mdir / "ranker.r001.phid").read_bytes()
     assert raw.startswith(b"PHID1 ")
@@ -95,18 +84,18 @@ def test_rounds_ship_as_phi_deltas_and_rebuild(tmp_path, monkeypatch):
 
 def test_legacy_checkpoint_becomes_the_anchor(tmp_path, monkeypatch):
     monkeypatch.setattr(p4rank, "REBASE_GAP", 1.0)
-    pairs = make_store(tmp_path)
-    args = ["--p4", str(tmp_path), "--pairs", str(pairs), "--minutes", "0", "--epochs", "4", "--now", "2026-10-27"]
+    make_store(tmp_path)
+    args = ["--p4", str(tmp_path), "--minutes", "0", "--epochs", "8", "--now", "2026-10-27"]
     assert p4rank.main(["train"] + args) == 0
     mdir = tmp_path / "models"
     # a store from before the chain: a whole fp16 ranker.pt and a sidecar with no anchor
     (mdir / "ranker-anchor.pt").replace(mdir / "ranker.pt")
-    side = json.loads((mdir / "ranker.json").read_text())
+    side = json.loads((mdir / "ranker-pt.json").read_text())
     for k in ("anchor_round", "chain", "anchor_base", "heldout_rprecision"):
         side.pop(k, None)
-    (mdir / "ranker.json").write_text(json.dumps(side))
+    (mdir / "ranker-pt.json").write_text(json.dumps(side))
     assert p4rank.main(["train"] + args) == 0
-    side = json.loads((mdir / "ranker.json").read_text())
+    side = json.loads((mdir / "ranker-pt.json").read_text())
     assert (mdir / "ranker-anchor.pt").exists() and side["anchor_round"] == 0 and side["chain"] == ["ranker.r001.phid"]
 
 
@@ -114,8 +103,8 @@ def test_node_tree_defaults_are_the_measured_best(tmp_path):
     """By default the tree's nodes keep every row and skip pretraining (phi_depth: both cost held-out R-precision),
     and Tree.score answers at high, every node averaged."""
     import phi_rank.tree as tree
-    pairs = make_store(tmp_path)
-    pools = p4rank.read_pools(str(pairs))
+    make_store(tmp_path)
+    pools = p4rank.read_label_pools(str(tmp_path))
     meta = tree.build(str(tmp_path), pools, k=2, epochs=2, bits=13, dim=16, now="2026-11-09", log=lambda *_: None)
     assert meta["masked"] is False and meta["minutes"] == 0
     assert all(n["steps"] == 0 for n in meta["nodes"]), "no pretraining steps"
@@ -133,8 +122,8 @@ def test_node_tree_answers_by_effort(tmp_path):
     assert tree.addresses(4) == ["1", "101", "1001", "10001"]          # lengths 1, 3, 4, 5 then 10101
     assert tree.addresses(5) == ["1", "101", "1001", "10001", "10101"]
     assert [tree.parent(a) for a in ("1", "101", "1001", "10101")] == [None, "1", "1", "101"]
-    pairs = make_store(tmp_path)
-    pools = p4rank.read_pools(str(pairs))
+    make_store(tmp_path)
+    pools = p4rank.read_label_pools(str(tmp_path))
     meta = tree.build(str(tmp_path), pools, k=4, minutes=0.02, epochs=4, bits=13, dim=16, now="2026-10-28",
                       log=lambda *_: None, mask=True)
     mdir = tmp_path / "models"

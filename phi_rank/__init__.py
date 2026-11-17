@@ -51,8 +51,8 @@ pretraining from the base it has. The pick threshold is chosen on held-out
 pools (each fold's model fine-tuned from the base without the pools it is
 scored on) and chosen again when the labelled pools have grown by a quarter.
 
-    python -m phi_rank train --p4 <p4 root> [--pairs pairs.jsonl] --now "2026-10-27 09:00"
-    python -m phi_rank eval --p4 <p4 root> [--pairs pairs.jsonl]
+    python -m phi_rank train --p4 <p4 root> --now "2026-10-27 09:00"
+    python -m phi_rank eval --p4 <p4 root>
 """
 
 import argparse
@@ -263,20 +263,6 @@ def corpus_pairs(root: str, exclude: Sequence[str] = ()) -> Tuple[List[Tuple[str
 
 # ─── the labelled pools ────────────────────────────────────────────────────────────────────────────────
 
-def read_pools(pairs_jsonl: str) -> List[Dict]:
-    """[{id, task, rows: [{file, text, label}]}] from the plugin's pairs export, one per labelled pool."""
-    pools: Dict[str, Dict] = {}
-    with open(pairs_jsonl, encoding="utf-8") as f:
-        for line in f:
-            if not line.strip():
-                continue
-            r = json.loads(line)
-            key = r.get("pool_id") or f"{r.get('pool')}|{r.get('pooled')}"
-            p = pools.setdefault(key, {"id": key, "task": r["task"], "rows": []})
-            p["rows"].append({"file": r["file"], "text": r["text"], "label": int(r["label"])})
-    return [p for p in pools.values() if any(x["label"] for x in p["rows"])]
-
-
 def _tsv(path: str) -> List[Dict]:
     try:
         with open(path, encoding="utf-8") as f:
@@ -369,9 +355,7 @@ def read_label_pools(p4: str, negatives: int = NEGATIVES) -> List[Dict]:
 
 
 def pools_for(args) -> List[Dict]:
-    """The pools a command trains or evaluates on: --pairs when given, else the store's own labels."""
-    if getattr(args, "pairs", None):
-        return read_pools(args.pairs)
+    """The pools a command trains or evaluates on: the store's own labels."""
     return read_label_pools(args.p4, getattr(args, "negatives", NEGATIVES))
 
 
@@ -750,8 +734,7 @@ def cmd_train(args) -> int:
     the chain's model on every pool and ships its change as a φ-delta."""
     pools = pools_for(args)
     if not pools:
-        print("train — no labelled pool in the pairs" if args.pairs else
-              "train — no labelled pool in models/labels.tsv + tasks.tsv + index.json; nothing written")
+        print("train — no labelled pool in models/labels.tsv + tasks.tsv + index.json; nothing written")
         return 1
     mdir = models_dir(args.p4)
     base, bmeta = base_model(args.p4, args.minutes, args.now, nb=args.buckets, dim=args.dim)
@@ -870,10 +853,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     for name in ("train", "eval"):
         p = sub.add_parser(name)
         p.add_argument("--p4", required=True)
-        p.add_argument("--pairs", default="", help="pick_model.py pairs --jsonl output; without it the pools come "
-                                                   "from the store's models/labels.tsv, tasks.tsv and index.json")
         p.add_argument("--negatives", type=int, default=NEGATIVES,
-                       help="unlabelled BM25 candidates added to each label pool as negatives (no --pairs)")
+                       help="unlabelled BM25 candidates added to each label pool as negatives")
         p.add_argument("--minutes", type=float, default=5, help="pretraining budget when the base is (re)built")
         p.add_argument("--buckets", type=int, default=NB, help="hashed feature buckets of a new base")
         p.add_argument("--dim", type=int, default=DIM, help="embedding width of a new base")
