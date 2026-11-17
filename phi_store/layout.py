@@ -1,10 +1,11 @@
-"""The p4 store's layout: each plugin writes in a directory of its own under `.claude/p4/`.
+"""The store's layout: each plugin writes in a folder of its own under `.claude/p4/`.
 
-p4-phi keeps `phi/store/` and `phi/models/`, recall being part of it since p4-phi 0.7.0, and p4-temportal keeps
-`temportal/memory/` and `temportal/src/`. Older stores have store/ and models/ under `recall/`, written while p4-recall
-was a plugin of its own, or flat at the top, until the next session start moves them. `sub()` reads the layout once
-per store: the newest one the store holds, else the newest of all. This mirrors lbiza/plugins/*/p4conf.py LAYOUT
-and OLDER, which the plugins use.
+p4-phi keeps `phi/store/` and `phi/models/`, and p4-temportal keeps `temportal/memory/`, `temportal/scratchpad/`,
+`temportal/tmp/` and `temportal/src/`. A store an older plugin wrote holds store/ and models/ under `recall/`, or
+flat at its top, until the plugins' next session start moves them. `sub()` and `rel()` find the layout the store
+holds: the newest one it holds, else the newest of all. LAYOUT holds the places of
+lbiza/plugins/p4-phi/scripts/p4conf.py's LAYOUT that phi reads, and OLDER the older places of store/ and models/,
+newest first.
 """
 
 import os
