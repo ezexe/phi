@@ -1,5 +1,5 @@
-"""python -m phi_model. Started by an interpreter without numpy (the system python, where the package lives in a
-checkout's .venv), it runs itself again in that .venv instead of checking and training with half a package."""
+"""python -m phi_model. Started by an interpreter without numpy, such as the system python where the package lives
+in a checkout's .venv, it runs itself again in that .venv instead of checking and training with half a package."""
 import importlib.util
 import os
 import subprocess
@@ -7,8 +7,8 @@ import sys
 
 
 def venv_python():
-    """The first .venv python that exists: this checkout's, the one beside it, or a sibling p4 checkout's
-    (scripts/make_venv.py builds that one)."""
+    """The first .venv python that exists: this checkout's, the one beside it, or a sibling p4 checkout's, which
+    that checkout's scripts/make_venv.py builds."""
     repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     up = os.path.dirname(repo)
     rel = os.path.join("Scripts", "python.exe") if os.name == "nt" else os.path.join("bin", "python")

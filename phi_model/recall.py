@@ -1,17 +1,19 @@
 """
-The p4-model checkpoint on a store recall writes (the fresh marketplace, ezexe/p4 lbiza/plugins/p4-phi, once p4-recall).
+Model monitoring and on-demand retraining on the store the p4-phi plugin writes, lbiza/plugins/p4-phi in ezexe/p4.
 
-Such a store has `store/` and `models/` at its top and its settings in `p4.json`; its models are the plugin's own
-JSON ranker (`models/ranker.json`, trained by `p4.py train`, evaluated by `p4.py eval`) and this package's .pt ranker
-(`phi_rank`, its sidecar `models/ranker-pt.json` there, trained from `models/labels.tsv` with no pairs file). There
-is no dispatch model: the close hook judges ECHO and SUPERSEDED itself. The plugin leaves its retrain notices in
-`models/retrain-needed.tsv` (its scripts/notices.py), which `update` answers.
+The store keeps its entries under `phi/store` and its training files under `phi/models`, in the layout
+phi_store.layout reads, and its settings in `p4.json`. Its models are the plugin's logistic regression ranker,
+`ranker.json`, trained by `p4.py train` and evaluated by `p4.py eval`, and this package's asymmetric dual encoder,
+phi_rank, which trains from `labels.tsv` and keeps its sidecar there as `ranker-pt.json`. The plugin's
+scripts/notices.py appends its retrain notices to `retrain-needed.tsv`, which `update` answers.
 
-Modes, written to p4.json's `recall` section (the plugin reads `inject` on every message and `learn` at every Stop):
-    shadow — inject off, learn true: recall's lines are computed and logged (usage labels say `shadow`) but never
-             shown; every Stop still trains
-    active — inject rules-facts, learn true: the rule and fact lines are shown (finding 28); every Stop trains
-    off    — inject off, learn false: nothing shown, nothing trained; the models stay on disk, untouched
+A mode writes the recall section of `p4.json`, whose `inject` the plugin reads at every prompt and whose `learn` it
+reads at every Stop hook:
+    shadow — inject off, learn true: retrieval's lines are computed and logged, the usage labels say `shadow`, and none
+             reaches the model; the Stop hook trains when a round is due
+    active — inject rules-facts, learn true: the rule and fact lines reach the model; the Stop hook trains when a
+             round is due
+    off    — inject off, learn false: nothing reaches the model and nothing trains; the models stay on disk, untouched
 """
 
 import json
@@ -21,13 +23,13 @@ import sys
 import tempfile
 from types import SimpleNamespace
 from typing import Dict, List
-from phi_store import layout  # noqa: E402  (the store's layout: recall/, temportal/)
+from phi_store import layout  # the store's layout: phi/ and temportal/
 
 MODES = {"shadow": {"inject": "off", "learn": True},
          "active": {"inject": "rules-facts", "learn": True},
          "off": {"inject": "off", "learn": False}}
 MIN_JSON_TASKS = 3            # p4.py train: "fewer than 3 labelled tasks"
-MIN_PT_POOLS = 4              # phi_rank folds its threshold on at least four pools
+MIN_PT_POOLS = 4              # phi_rank chooses its threshold by folds on at least four query groups
 
 
 def is_plugin(path: str) -> bool:
@@ -39,7 +41,7 @@ def is_store(p4: str) -> bool:
 
 
 def modules(plugin: str, p4: str = ""):
-    """The plugin's labels, notices, p4conf and ranker modules, imported from its scripts/ (standard library only).
+    """The plugin's labels, notices, p4conf and ranker modules, imported from its scripts/, standard library only.
     With `p4`, a store the plugin's older versions wrote flat is moved into its layout first, as the plugin's own
     hooks would at the next session start, so the plugin's modules find it."""
     d = os.path.join(plugin, "scripts")
@@ -55,19 +57,19 @@ def modules(plugin: str, p4: str = ""):
 
 
 def run(cmd: List[str], cwd=None) -> subprocess.CompletedProcess:
-    env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUTF8="1")   # the trainers print arrows; Windows consoles are cp1252
+    env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUTF8="1")   # the trainers print arrows, and Windows consoles are cp1252
     return subprocess.run(cmd, cwd=cwd or tempfile.gettempdir(), env=env, capture_output=True, text=True,
                           encoding="utf-8", errors="replace")
 
 
-# ─── the recall config: p4.json ────────────────────────────────────────────────────────────────────────
+# ─── the recall section of p4.json ─────────────────────────────────────────────────────────────────────
 
 def config_path(p4: str) -> str:
     return os.path.join(p4, "p4.json")
 
 
 def read_recall(p4: str) -> Dict[str, str]:
-    """The recall section's mode keys as strings: inject, learn, updated (absent keys left out)."""
+    """The recall section's mode keys inject, learn and updated, as strings, an absent key left out."""
     try:
         with open(config_path(p4), encoding="utf-8") as f:
             data = json.load(f)
@@ -85,8 +87,8 @@ def read_recall(p4: str) -> Dict[str, str]:
 
 
 def write_mode(p4: str, mode: str, now: str) -> str:
-    """Set recall.inject and recall.learn in p4.json to the mode, every other key kept; a file the plugin has not
-    written yet is created with just the recall section (the plugin merges its defaults over it on first use)."""
+    """Set recall.inject and recall.learn in p4.json to the mode, every other key kept. A file the plugin has not
+    written yet is created with the recall section alone, and the plugin merges its defaults over it on first use."""
     path = config_path(p4)
     try:
         with open(path, encoding="utf-8") as f:
@@ -100,7 +102,7 @@ def write_mode(p4: str, mode: str, now: str) -> str:
         sec = data["recall"] = {}
     sec.update(MODES[mode])
     if now:
-        sec["updated"] = f"{now} by the p4-model skill (phi_model mode {mode})"
+        sec["updated"] = f"{now} by the p4-model skill, phi_model mode {mode}"
     from phi_rank import write_text_atomic
     write_text_atomic(json.dumps(data, indent=1, ensure_ascii=False) + "\n", path)
     return path
@@ -136,20 +138,21 @@ def load_json(path: str):
 
 
 def labelled_tasks(m, p4: str) -> int:
-    """Tasks with at least one label 1 whose task row exists."""
+    """Queries with at least one label 1 whose row in tasks.tsv exists."""
     tasks = m.labels.read_tasks(p4)
     pos = {r["task"] for r in m.labels.read_tsv(m.labels.mpath(p4, m.labels.TRAIN)) if r.get("label") == "1" and r.get("task") in tasks}
     return len(pos)
 
 
 def check(p4: str, plugin: str, version: str) -> Dict:
-    """Everything that stands and everything owed, for a p4-recall store; `owed` lists what update would do."""
+    """Everything that stands and everything stale on the store; `owed` lists what update would do."""
     no_torch = None
     try:
         from phi_rank import ANCHOR, CURRENT, read_sidecar, sidecar_name
     except ModuleNotFoundError as e:
-        # A machine with no torch build (an Intel Mac on Python 3.13 or later has none) still checks everything recall
-        # serves: the JSON ranker, the labels, the notices. Only the .pt ranker, which recall does not serve, is out.
+        # A machine with no torch build, as an Intel Mac on Python 3.13 or later is, still checks everything retrieval
+        # serves: the logistic regression ranker, the labels and the notices. Only the dual encoder, which retrieval
+        # does not serve, is left out.
         no_torch = e.name
         ANCHOR, CURRENT = "ranker-anchor.pt", "ranker.pt"
 
@@ -159,10 +162,8 @@ def check(p4: str, plugin: str, version: str) -> Dict:
         def read_sidecar(p4: str) -> Dict:
             side, _err = load_json(layout.sub(p4, "models", sidecar_name(p4)))
             return side if isinstance(side, dict) and not str(side.get("kind", "")).startswith("p4 recall") else {}
-    # The .pt ranker is an experiment, off unless VLDS_PT_RANKER=1: recall never served it, and measured on one store
-    # (2026-11-11, 67 tasks, held out, every candidate scored by a model fine-tuned without the task) its score as a
-    # feature moved the JSON ranker's r-precision from 0.085 to 0.110, 0.078 and 0.100 at 30, 100 and 300 epochs,
-    # and ranked alone at 0.013 to 0.028 against term overlap's 0.079. What stands is reported; nothing is owed.
+    # The dual encoder is an experiment, off unless VLDS_PT_RANKER=1: retrieval has never served it. What stands is
+    # reported, and nothing of it is stale.
     pt_off = os.environ.get("VLDS_PT_RANKER") != "1"
     skip_pt = bool(no_torch) or pt_off
     m = modules(plugin, p4)
@@ -200,8 +201,9 @@ def check(p4: str, plugin: str, version: str) -> Dict:
     evals = m.labels.read_tsv(m.labels.mpath(p4, "eval.tsv"))
     last = evals[-1] if evals else {}
     rep["eval_last"] = {k: last.get(k, "") for k in ("round", "time", "labels", "r_precision", "precision", "promoted", "why")} if last else None
-    # eval.tsv's labels column is the plugin's count_labels (labels-raw.tsv and labels.tsv together), so the count
-    # since the last round is taken the same way; labels.tsv alone read 46 below the round on a store with raw labels
+    # eval.tsv's labels column is the plugin's count_labels, labels-raw.tsv and labels.tsv together, so the count
+    # since the last round is taken the same way; labels.tsv alone counts fewer than the round on a store with raw
+    # labels
     total = m.labels.count_labels(p4) if hasattr(m.labels, "count_labels") else len(labels)
     try:
         since = total - int(last.get("labels", 0) or 0)
@@ -211,8 +213,10 @@ def check(p4: str, plugin: str, version: str) -> Dict:
     if "ranker.json" in rep["corrupt"] or (n_lab >= MIN_JSON_TASKS and (not evals or since >= owed_labels)):
         rep["owed"].append("train json")
 
-    n_pools = n_lab                         # the pools phi_rank would build now: a task with a positive the index holds
-    if os.path.exists(os.path.join(mdir, "index.json")):    # no index yet (before the first JSON round): every labelled task
+    # the query groups phi_rank would build now, one per query with a positive the index holds; before the ranker's
+    # first round there is no index, and every labelled query counts
+    n_pools = n_lab
+    if os.path.exists(os.path.join(mdir, "index.json")):
         try:
             from phi_rank import read_label_pools
             n_pools = len(read_label_pools(p4))
@@ -236,9 +240,9 @@ def check(p4: str, plugin: str, version: str) -> Dict:
                                                              or state == "missing"))):
         rep["owed"].append("train ranker")
     if state == "lfs-pointer" and not pt_off:
-        rep["owed"].append("git lfs pull (the ranker's checkpoint is a pointer)")
+        rep["owed"].append("git lfs pull: the dual encoder's checkpoint is an LFS pointer file")
     if run(["git", "-C", p4, "ls-files", "--error-unmatch", "models/ranker.pt"]).returncode == 0:
-        rep["owed"].append("untrack models/ranker.pt (git rm --cached; the chain replaces it)")
+        rep["owed"].append("untrack models/ranker.pt with git rm --cached: the checkpoints git keeps rebuild it")
 
     notices = m.notices.open_notices(p4)
     rep["notices"] = notices
@@ -251,23 +255,23 @@ def check(p4: str, plugin: str, version: str) -> Dict:
 
 
 def print_check(rep: Dict) -> None:
-    print(f"p4 store {rep['p4']} — p4-recall {rep['plugin_version']} at {rep['plugin']}")
-    print(f"  mode: {rep['mode']} ({', '.join(f'{k}: {v}' for k, v in rep['recall'].items()) or 'p4.json has no recall keys: the plugin defaults'})")
+    print(f"store {rep['p4']} — p4-phi {rep['plugin_version']} at {rep['plugin']}")
+    print(f"  mode: {rep['mode']}: {', '.join(f'{k}: {v}' for k, v in rep['recall'].items()) or 'p4.json has no recall keys, so the plugin defaults'}")
     print(f"  git: {'yes' if rep['git'] else 'NO'}; lfs for checkpoints: {'yes' if rep['lfs'] else 'no'}; .gitignore: {'yes' if rep['gitignore'] else 'no'}")
     print(f"  labels: {rep['labels'] or 'none'}; tasks: {rep['tasks']}, with a positive: {rep['labelled_tasks']}; "
           f"labels since the last round: {rep['labels_since_round']}")
-    print(f"  json ranker: {json.dumps(rep['json_ranker']) if rep['json_ranker'] else 'none (the no-ranker road)'}; "
+    print(f"  json ranker: {json.dumps(rep['json_ranker']) if rep['json_ranker'] else 'none, BM25 alone'}; "
           f"last round: {json.dumps(rep['eval_last']) if rep['eval_last'] else 'none'}")
     if rep.get("no_torch"):
         print(f"  pt ranker: not checked or trained here: {rep['no_torch']} is not installed in {rep['python']} "
-              "(recall serves without it; `python3 <p4 checkout>/scripts/make_venv.py` installs it where a build exists)")
+              "and retrieval serves without it; `python3 <p4 checkout>/scripts/make_venv.py` installs it where a build exists")
     elif rep.get("pt_off"):
-        print(f"  pt ranker: off, an experiment recall does not serve (VLDS_PT_RANKER=1 trains it); on disk: "
+        print(f"  pt ranker: off, an experiment retrieval does not serve, which VLDS_PT_RANKER=1 trains; on disk: "
               f"{json.dumps(rep['pt_ranker']) if rep['pt_ranker'] else 'none'}")
     else:
         print(f"  pt ranker: {json.dumps(rep['pt_ranker']) if rep['pt_ranker'] else 'none'}")
     for f, e in rep["corrupt"].items():
-        print(f"  CORRUPT models/{f}: {e}")
+        print(f"  CORRUPT {f}: {e}")
     for n in rep["notices"]:
         print(f"  NOTICE {n['time']} {n['component']}: {n['kind']} — {n['error'][:120]}")
     print("  owed: " + (", ".join(rep["owed"]) if rep["owed"] else "nothing — every model is current"))
@@ -276,8 +280,8 @@ def print_check(rep: Dict) -> None:
 # ─── train / test ──────────────────────────────────────────────────────────────────────────────────────
 
 def train(p4: str, plugin: str, only: List[str], now: str, minutes: float) -> Dict[str, Dict]:
-    """The plugin's own `p4.py train` for the JSON ranker and `python -m phi_rank train` (pools from labels.tsv)
-    for the .pt ranker, so a model is built here exactly as the Stop hook builds it."""
+    """The plugin's own `p4.py train` for the logistic regression ranker, the trainer its Stop hook runs, and
+    `python -m phi_rank train`, its query groups read from labels.tsv, for the dual encoder, which no hook trains."""
     scripts = os.path.join(plugin, "scripts")
     steps = {"json": [sys.executable, "-I", os.path.join(scripts, "p4.py"), "train", "--p4", p4] + (["--now", now] if now else []),
              "ranker": [sys.executable, "-m", "phi_rank", "train", "--p4", p4, "--minutes", str(minutes)] + (["--now", now] if now else [])}
@@ -297,8 +301,8 @@ def train(p4: str, plugin: str, only: List[str], now: str, minutes: float) -> Di
 
 
 def resolve_notices(p4: str, plugin: str, trained: Dict[str, Dict], now: str) -> int:
-    """Answer the open notices of every model a training just rebuilt (a hook's or a round's failure counts as the
-    JSON ranker's), appending to models/retrain-resolved.tsv; retrain-needed.tsv is never rewritten."""
+    """Answer the open notices of every model a training just rebuilt, appending them to retrain-resolved.tsv;
+    retrain-needed.tsv is never rewritten. A hook's failure and a round's count as the logistic regression ranker's."""
     m = modules(plugin, p4)
     rebuilt = {k for k, v in trained.items() if v["ok"] and not v.get("empty")}
     fam_of = lambda c: "ranker" if m.notices.notice_family(c) == "ranker" else "json"  # noqa: E731
@@ -316,8 +320,8 @@ def resolve_notices(p4: str, plugin: str, trained: Dict[str, Dict], now: str) ->
 
 
 def test(p4: str, plugin: str, now: str, minutes: float, folds: int) -> Dict[str, List[str]]:
-    """Held-out evaluations of both rankers (`p4.py eval`, `phi_rank eval` on the labels' pools) and a live server
-    check when a checkpoint exists. Nothing the store serves is written."""
+    """Held-out evaluations of both rankers, `p4.py eval` and `phi_rank eval` on the labels' query groups. Nothing
+    the store serves is written."""
     scripts = os.path.join(plugin, "scripts")
     out: Dict[str, List[str]] = {}
     r = run([sys.executable, "-I", os.path.join(scripts, "p4.py"), "eval", "--p4", p4] + (["--now", now] if now else []))
