@@ -101,15 +101,16 @@ density 53.0%</pre>
 
     <li>
       <h2>Check it</h2>
-      <p><code>check</code> reads every mask against its pattern and checks that every pruned weight is zero. <code>save_checkpoint</code> writes the model with its masks, so the <code>phi-prune</code> command can check the file again.</p>
+      <p><code>check</code> reads every mask against its pattern and checks that every pruned weight is zero. Its summary counts the masked layers. <code>save_checkpoint</code> writes the model with its masks, so the <code>phi-prune</code> command can check the file again.</p>
       <pre><code>from phi_prune import check
 from phi_prune.export import save_checkpoint
 
 report = check(pruned, masks)
-print(report["_summary"]["all_masks_valid"], report["_summary"]["all_zeros_enforced"])
+summary = report["_summary"]
+print(summary["n_layers"], summary["all_masks_valid"], summary["all_zeros_enforced"])
 save_checkpoint(pruned, masks, "pruned.pt")</code></pre>
       <p class="label">Output</p>
-      <pre class="out">True True</pre>
+      <pre class="out">2 True True</pre>
       <pre><code>phi-prune check pruned.pt
 phi-prune info pruned.pt</code></pre>
       <p class="label">Output</p>
