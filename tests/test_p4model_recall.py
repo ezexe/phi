@@ -103,6 +103,14 @@ def test_find_plugin_reads_claude_codes_marketplace_registry(tmp_path, monkeypat
     assert phi_model.find_plugin("", str(project)) == str(plugin)
 
 
+def test_mode_needs_no_torch(tmp_path, monkeypatch):
+    """`mode` writes p4.json on a machine with no torch build, where phi_rank does not import."""
+    monkeypatch.setitem(sys.modules, "phi_rank", None)
+    os.makedirs(os.path.join(str(tmp_path), "store"))
+    phi_model.write_mode(str(tmp_path), "off", "2026-11-17 10:00")
+    assert phi_model.mode_of(phi_model.read_recall(str(tmp_path))) == "off"
+
+
 def test_modes_live_in_p4_json_and_keep_every_other_key(tmp_path):
     p4 = str(tmp_path)
     os.makedirs(os.path.join(p4, "store"))

@@ -64,6 +64,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from phi_prune.delta import apply_delta, delta_stats, encode_delta, load_delta, save_delta
+from phi_store import replace_retrying, write_text_atomic  # noqa: F401  phi_rank's names for them too
 
 NB = 1 << 15                  # hashed feature buckets
 DIM = 64                      # 2^15 x 64 at fp16: a 4 MB checkpoint that pretrains in a few minutes on a CPU; a model
@@ -505,35 +506,11 @@ def models_dir(p4: str) -> str:
     return layout.sub(p4, "models")
 
 
-def replace_retrying(tmp: str, path: str, tries: int = 50) -> None:
-    """os.replace, retried: Windows refuses it while a reader, such as a hook, holds the target open."""
-    for attempt in range(tries):
-        try:
-            os.replace(tmp, path)
-            return
-        except PermissionError:
-            if attempt == tries - 1:
-                try:
-                    os.remove(tmp)
-                except OSError:
-                    pass
-                raise
-            time.sleep(min(0.002 * (attempt + 1), 0.05))
-
-
 def save_atomic(obj, path: str) -> None:
     """Written whole or not at all: a temp file beside it, then the retried replace."""
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     tmp = f"{path}.{os.getpid()}.tmp"
     torch.save(obj, tmp)
-    replace_retrying(tmp, path)
-
-
-def write_text_atomic(text: str, path: str) -> None:
-    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
-    tmp = f"{path}.{os.getpid()}.tmp"
-    with open(tmp, "w", encoding="utf-8", newline="\n") as f:
-        f.write(text)
     replace_retrying(tmp, path)
 
 

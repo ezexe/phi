@@ -39,7 +39,9 @@ Run as a module for a summary: python -m phi_store <store root>
 
 import hashlib
 import json
+import os
 import re
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterator, List, Optional, Tuple
@@ -67,6 +69,31 @@ class Record:
     text: str  # pretrain text, or the prompt of a pair
     target: str = ""
     weight: float = 1.0
+
+
+def replace_retrying(tmp: str, path: str, tries: int = 50) -> None:
+    """os.replace, retried: Windows refuses it while a reader, such as a hook, holds the target open."""
+    for attempt in range(tries):
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError:
+            if attempt == tries - 1:
+                try:
+                    os.remove(tmp)
+                except OSError:
+                    pass
+                raise
+            time.sleep(min(0.002 * (attempt + 1), 0.05))
+
+
+def write_text_atomic(text: str, path: str) -> None:
+    """Written whole or not at all: a temp file beside it, then the retried replace."""
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    tmp = f"{path}.{os.getpid()}.tmp"
+    with open(tmp, "w", encoding="utf-8", newline="\n") as f:
+        f.write(text)
+    replace_retrying(tmp, path)
 
 
 def _read(path: Path, cap: Optional[int] = None) -> str:
@@ -117,7 +144,6 @@ def work_folders(root: Path, top_skip=()) -> List[Path]:
     what came of it. Nothing here knows where such folders are kept, in a store, a repository's plans directory or
     anywhere else: the files make the folder, not its place. Dot directories are not entered, nor the top-level
     names in top_skip, the parts of a store another reader already covers."""
-    import os
     out = []
     for d, dirs, files in os.walk(root):
         at_top = Path(d) == root

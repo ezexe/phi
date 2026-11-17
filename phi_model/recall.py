@@ -113,7 +113,7 @@ def write_mode(p4: str, mode: str, now: str) -> str:
     sec.update(MODES[mode])
     if now:
         sec["updated"] = f"{now} by the p4-model skill, phi_model mode {mode}"
-    from phi_rank import write_text_atomic
+    from phi_store import write_text_atomic   # no torch: a machine without it still sets its mode
     write_text_atomic(json.dumps(data, indent=1, ensure_ascii=False) + "\n", path)
     return path
 
