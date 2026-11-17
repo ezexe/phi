@@ -1,3 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Binary register · phi docs</title>
+<meta name="description" content="A binary register run in the page: digit-wise addition and its carries, the call chain of to_bin(n), and one number&#x27;s bits, beside what phi_prune.register&#x27;s binary kind holds.">
+<style>
+:root{
+  --bg:#f5f3ec; --panel:#fffdf7; --sunk:#efece2; --ink:#1d1c19; --soft:#5d5a52; --line:#d9d4c6;
+  --phi:#0b6b66; --phi-bg:#dcefec; --app:#a85507; --app-bg:#f8e7d2;
+  --ok:#2c7a3f; --bad:#b3261e; --bad-bg:#fbe5e2;
+  --mono:ui-monospace,"Cascadia Code","SF Mono",Menlo,Consolas,monospace;
+  --sans:"Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,"Helvetica Neue",sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#131418; --panel:#1b1d23; --sunk:#16171c; --ink:#e9e6dd; --soft:#a29e93; --line:#33363f;
+    --phi:#62d2c6; --phi-bg:#16312f; --app:#f1ab52; --app-bg:#3a2a14;
+    --ok:#7fd494; --bad:#ff8a80; --bad-bg:#3d1c1a;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#131418; --panel:#1b1d23; --sunk:#16171c; --ink:#e9e6dd; --soft:#a29e93; --line:#33363f;
+  --phi:#62d2c6; --phi-bg:#16312f; --app:#f1ab52; --app-bg:#3a2a14;
+  --ok:#7fd494; --bad:#ff8a80; --bad-bg:#3d1c1a;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 var(--sans)}
+.wrap{max-width:1040px;margin:0 auto;padding:24px 16px 64px}
+a{color:var(--phi)}
+code,pre,kbd{font-family:var(--mono)}
+code{font-size:.88em;background:var(--sunk);border-radius:4px;padding:1px 4px;overflow-wrap:anywhere}
+:focus-visible{outline:2px solid var(--phi);outline-offset:2px}
+button,input,textarea{font:inherit;color:inherit}
+.top{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.mark{font:600 13px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--phi);text-decoration:none}
+.mark:hover{text-decoration:underline}
+.pill{font:600 12px/1 var(--mono);background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:9px 13px;cursor:pointer;white-space:nowrap}
+.pill:hover{border-color:var(--phi)}
+.tabs{display:flex;flex-wrap:wrap;gap:6px;margin:14px 0 0}
+.tabs a{font:600 13px/1 var(--sans);text-decoration:none;color:var(--soft);background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:8px 13px}
+.tabs a:hover{border-color:var(--phi)}
+.tabs a[aria-current="page"]{background:var(--phi);border-color:var(--phi);color:var(--panel)}
+h1{font-size:clamp(30px,5.4vw,46px);line-height:1.08;letter-spacing:-.02em;margin:16px 0 10px;text-wrap:balance}
+h2{font-size:24px;line-height:1.2;letter-spacing:-.01em;margin:44px 0 10px;text-wrap:balance}
+h3{font-size:18px;margin:26px 0 8px}
+p,li{max-width:74ch}
+.lede{color:var(--soft);max-width:70ch;margin:0 0 8px}
+.facts{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:18px 0 22px;padding:0;list-style:none}
+.facts li{border-left:3px solid var(--phi);padding:2px 0 2px 12px;font-size:14.5px;color:var(--soft)}
+.facts li.f-app{border-color:var(--app)}
+.facts li b{display:block;color:var(--ink);font-size:15px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;margin:12px 0}
+.card h2{margin-top:0}
+.tbl{overflow-x:auto;margin:12px 0}
+table{border-collapse:collapse;font-size:14.5px;font-variant-numeric:tabular-nums}
+th,td{text-align:left;padding:6px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--soft);font-weight:600}
+td.n,th.n{text-align:right}
+.src{font-size:13.5px;color:var(--soft)}
+pre{background:var(--sunk);border:1px solid var(--line);border-radius:10px;padding:12px 14px;overflow-x:auto;font-size:13px;line-height:1.5}
+label.f{display:grid;gap:4px;font-size:13px;color:var(--soft);margin:8px 0}
+label.f input{border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:8px 9px;font:14px var(--mono);width:100%}
+.stream{font:15px/1.9 var(--mono);overflow-wrap:anywhere;margin:10px 0 4px}
+.stream span{padding:2px 1px;border-radius:3px}
+.stream span.cw{background:var(--phi-bg)}
+.stream span.cw:nth-child(even){background:var(--app-bg)}
+.stream b{color:var(--phi)}
+.out{font:13.5px/1.6 var(--mono);color:var(--soft);overflow-wrap:anywhere}
+.out .bad{color:var(--bad)} .out .ok{color:var(--ok)}
+.prices{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-top:10px}
+.prices div{border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:var(--bg)}
+.prices b{display:block;font:600 18px var(--mono)}
+.prices span{font-size:12.5px;color:var(--soft)}
+@media (max-width:760px){.facts{grid-template-columns:minmax(0,1fr)}}
+.instrument{margin:18px 0;border-radius:14px;overflow:hidden;border:1px solid var(--line);background:#0a0a0c;color:#e8e6e1}
+.instrument .bar{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:9px 14px;border-bottom:1px solid #26262c;font:12px/1.4 var(--mono);color:#a29e93}
+.instrument #root{min-height:240px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <a class="mark" href="../index.html">← phi · docs</a>
+    <button class="pill" id="theme" type="button" aria-label="Switch between light and dark">theme</button>
+  </div>
+  <nav class="tabs" aria-label="Pages on the register model and the number codes">
+    <a href="../register.html">The register model</a>
+    <a href="codes.html">Fibonacci codes</a>
+    <a href="phi.html">Zeckendorf register</a>
+    <a href="bin.html" aria-current="page">Binary register</a>
+    <a href="fib.html">Computing F(n)</a>
+    <a href="matrix.html">Fibonacci Q-matrix</a>
+    <a href="Q.html">Related work</a>
+  </nav>
+
+    <h1>Binary register</h1>
+  <p class="lede">The register the <a href="phi.html">Zeckendorf register</a> is measured against: digits weighing 1, 2, 4, 8, …, every pattern of 0s and 1s a valid number, and one rule, the carry. <a href="https://github.com/ezexe/phi/blob/main/phi_prune/register.py"><code>phi_prune.register</code></a> models it as the kind <code>"binary"</code>, with the same functions as the Zeckendorf register.</p>
+  <ul class="facts">
+    <li><b>One rule.</b>The carry fires on a digit of 2 or more: <code>d[k] − 2, d[k+1] + 1</code>, since 2 · 2<sup>k</sup> = 2<sup>k+1</sup>. It only moves up.</li>
+    <li><b>Normal form.</b>Every digit 0 or 1. Each value has one normal form, so the carries reach it in any order, as the Zeckendorf register's rules do.</li>
+    <li class="f-app"><b>No check.</b>Every pattern is a valid number, so <code>flip_detected</code> is false for every single-bit flip, where a Zeckendorf register catches the flips that leave two adjacent 1s.</li>
+  </ul>
+  <p>The component below works on an 8-bit register drawn most significant bit first. <b>Arithmetic</b> adds two numbers digit by digit and then carries in passes from the least significant end, each pass carrying every digit of 2 or more it meets into the next place up, until no digit is 2 or more; it also subtracts with a borrow, which <code>phi_prune.register</code> does not model, since both of its registers hold non-negative values only. <b>Tree</b> draws the calls of a recursive <code>to_bin(n)</code>: each call halves n and takes its last bit as a leaf, so the calls form one chain, where fib(n) branches into two full subtrees. <b>Properties</b> shows one number's bits, its runs, its density of 1s and its two's complement.</p>
+
+  <section class="instrument" aria-label="Binary register, interactive">
+    <div class="bar"><span>bin.jsx, run in the page</span><span>React 18.3.1 and Babel 7.24.7 from cdnjs</span></div>
+    <div id="root">Loading the component…</div>
+  </section>
+
+  <h2>Measured against the Zeckendorf register</h2>
+  <p>The <a href="../register.html">register model</a> page holds the figures. Binary needs fewer digits for a given number of levels, 8 for 144 levels against 10, and its additions reach normal form in fewer rewrite steps and fewer normalization rounds: over every sum of two values below 144, 2.80 rewrite steps and 2.08 rounds on average against 4.17 and 2.73. The Zeckendorf register's quantization levels have the lower Hamming weight, so its multiply–accumulate takes fewer additions, and only it detects single-bit flips.</p>
+  <p class="src">From <a href="https://github.com/ezexe/p4-phi-experiments/blob/6576c16/experiments/phi-register/results/register/register_measure.txt"><code>results/register/register_measure.txt</code></a> and <a href="https://github.com/ezexe/p4-phi-experiments/blob/6576c16/experiments/phi-register/results/register/growth_rates.txt"><code>growth_rates.txt</code></a> in ezexe/p4-phi-experiments.</p>
+</div>
+
+<script>
+(function(){
+  var root=document.documentElement,key="dox-theme",btn=document.getElementById("theme");
+  function stored(){try{return localStorage.getItem(key)}catch(e){return null}}
+  function current(){return root.getAttribute("data-theme")||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light")}
+  function label(){btn.textContent=current()==="dark"?"light theme":"dark theme"}
+  var s=stored(); if(s==="dark"||s==="light")root.setAttribute("data-theme",s);
+  label();
+  try{matchMedia("(prefers-color-scheme: dark)").addEventListener("change",label)}catch(e){}
+  btn.addEventListener("click",function(){var n=current()==="dark"?"light":"dark";root.setAttribute("data-theme",n);try{localStorage.setItem(key,n)}catch(e){}label()});
+})();
+</script>
+<script id="src" type="text/plain">
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 
 const BITS = 8;
@@ -781,7 +911,7 @@ function PropertiesTab() {
     },
     {
       title: "Hard overflow",
-      desc: `At ${BITS} bits the ceiling is ${maxVal}. Adding 1 to ${maxVal} wraps to 0 — a cliff, not a graceful degrade. Fibonacci registers overflow gently through the Zeckendorf theorem.`,
+      desc: `At ${BITS} bits the ceiling is ${maxVal}. Adding 1 to ${maxVal} wraps to 0. A Zeckendorf register has its own ceiling, 54 at 8 digits.`,
       color: C.red,
       bg: C.redDim,
       detail: n > maxVal ? "Overflow!" : `${n} uses ${minBits} of ${BITS} bits — ${maxVal - n} from overflow`
@@ -795,14 +925,14 @@ function PropertiesTab() {
     },
     {
       title: "Run-length structure",
-      desc: "Consecutive identical bits form runs. Run patterns reveal nothing self-similar — unlike Fibonacci where adjacent-1 prohibition creates fractal-like gaps.",
+      desc: "Consecutive identical bits form runs. Any run of 1s is valid here, while a Zeckendorf register in normal form never holds two adjacent 1s.",
       color: C.purple,
       bg: C.purpleDim,
       detail: runs.map(r => `${r.val}×${r.len}`).join(" ")
     },
     {
       title: "Two's complement",
-      desc: "Negation via invert-and-add-1. A mechanical trick with no analog in Fibonacci encoding — binary's linearity makes it work.",
+      desc: "Negation via invert-and-add-1. The binary register of phi_prune.register does not model it: both of its registers hold non-negative values only.",
       color: C.warm,
       bg: C.warmDim,
       detail: `−${n} = ~${bits.join("")} + 1 = ${toBits(twoComp).join("")} (${twoComp})`
@@ -988,9 +1118,27 @@ export default function BinaryRegister() {
             letterSpacing: 1
           }}
         >
-          Binary counterpart to φ-Register · single recurrence P(n) = 2·P(n−1) · chain, not tree
+          Binary counterpart to the Zeckendorf register · single recurrence P(n) = 2·P(n−1) · chain, not tree
         </div>
       </div>
     </>
   );
 }
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.24.7/babel.min.js"></script>
+<script>
+(function(){
+  var src = document.getElementById("src").textContent;
+  src = src.replace(/^import\s*\{([^}]+)\}\s*from\s*["']react["'];?\s*$/m, "const {$1} = React;");
+  src = src.replace(/^export\s+default\s+/m, "window.__App = ");
+  try {
+    var out = Babel.transform(src, { presets: ["react"], filename: "bin.jsx" }).code;
+    (0, eval)(out);
+    ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(window.__App));
+  } catch (e) { document.getElementById("root").textContent = "Could not render: " + e.message; }
+})();
+</script>
+</body>
+</html>
