@@ -1,6 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Zeckendorf register · phi docs</title>
+<meta name="description" content="A Zeckendorf register run in the page: digit-wise addition and the two rules that bring it to normal form, the call tree of fib(n), and the register&#x27;s properties, beside what phi_prune.register holds.">
+<style>
+:root{
+  --bg:#f5f3ec; --panel:#fffdf7; --sunk:#efece2; --ink:#1d1c19; --soft:#5d5a52; --line:#d9d4c6;
+  --phi:#0b6b66; --phi-bg:#dcefec; --app:#a85507; --app-bg:#f8e7d2;
+  --ok:#2c7a3f; --bad:#b3261e; --bad-bg:#fbe5e2;
+  --mono:ui-monospace,"Cascadia Code","SF Mono",Menlo,Consolas,monospace;
+  --sans:"Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,"Helvetica Neue",sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#131418; --panel:#1b1d23; --sunk:#16171c; --ink:#e9e6dd; --soft:#a29e93; --line:#33363f;
+    --phi:#62d2c6; --phi-bg:#16312f; --app:#f1ab52; --app-bg:#3a2a14;
+    --ok:#7fd494; --bad:#ff8a80; --bad-bg:#3d1c1a;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#131418; --panel:#1b1d23; --sunk:#16171c; --ink:#e9e6dd; --soft:#a29e93; --line:#33363f;
+  --phi:#62d2c6; --phi-bg:#16312f; --app:#f1ab52; --app-bg:#3a2a14;
+  --ok:#7fd494; --bad:#ff8a80; --bad-bg:#3d1c1a;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 var(--sans)}
+.wrap{max-width:1040px;margin:0 auto;padding:24px 16px 64px}
+a{color:var(--phi)}
+code,pre,kbd{font-family:var(--mono)}
+code{font-size:.88em;background:var(--sunk);border-radius:4px;padding:1px 4px;overflow-wrap:anywhere}
+:focus-visible{outline:2px solid var(--phi);outline-offset:2px}
+button,input,textarea{font:inherit;color:inherit}
+.top{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.mark{font:600 13px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--phi);text-decoration:none}
+.mark:hover{text-decoration:underline}
+.pill{font:600 12px/1 var(--mono);background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:9px 13px;cursor:pointer;white-space:nowrap}
+.pill:hover{border-color:var(--phi)}
+.tabs{display:flex;flex-wrap:wrap;gap:6px;margin:14px 0 0}
+.tabs a{font:600 13px/1 var(--sans);text-decoration:none;color:var(--soft);background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:8px 13px}
+.tabs a:hover{border-color:var(--phi)}
+.tabs a[aria-current="page"]{background:var(--phi);border-color:var(--phi);color:var(--panel)}
+h1{font-size:clamp(30px,5.4vw,46px);line-height:1.08;letter-spacing:-.02em;margin:16px 0 10px;text-wrap:balance}
+h2{font-size:24px;line-height:1.2;letter-spacing:-.01em;margin:44px 0 10px;text-wrap:balance}
+h3{font-size:18px;margin:26px 0 8px}
+p,li{max-width:74ch}
+.lede{color:var(--soft);max-width:70ch;margin:0 0 8px}
+.facts{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:18px 0 22px;padding:0;list-style:none}
+.facts li{border-left:3px solid var(--phi);padding:2px 0 2px 12px;font-size:14.5px;color:var(--soft)}
+.facts li.f-app{border-color:var(--app)}
+.facts li b{display:block;color:var(--ink);font-size:15px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;margin:12px 0}
+.card h2{margin-top:0}
+.tbl{overflow-x:auto;margin:12px 0}
+table{border-collapse:collapse;font-size:14.5px;font-variant-numeric:tabular-nums}
+th,td{text-align:left;padding:6px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--soft);font-weight:600}
+td.n,th.n{text-align:right}
+.src{font-size:13.5px;color:var(--soft)}
+pre{background:var(--sunk);border:1px solid var(--line);border-radius:10px;padding:12px 14px;overflow-x:auto;font-size:13px;line-height:1.5}
+label.f{display:grid;gap:4px;font-size:13px;color:var(--soft);margin:8px 0}
+label.f input{border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:8px 9px;font:14px var(--mono);width:100%}
+.stream{font:15px/1.9 var(--mono);overflow-wrap:anywhere;margin:10px 0 4px}
+.stream span{padding:2px 1px;border-radius:3px}
+.stream span.cw{background:var(--phi-bg)}
+.stream span.cw:nth-child(even){background:var(--app-bg)}
+.stream b{color:var(--phi)}
+.out{font:13.5px/1.6 var(--mono);color:var(--soft);overflow-wrap:anywhere}
+.out .bad{color:var(--bad)} .out .ok{color:var(--ok)}
+.prices{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-top:10px}
+.prices div{border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:var(--bg)}
+.prices b{display:block;font:600 18px var(--mono)}
+.prices span{font-size:12.5px;color:var(--soft)}
+@media (max-width:760px){.facts{grid-template-columns:minmax(0,1fr)}}
+.instrument{margin:18px 0;border-radius:14px;overflow:hidden;border:1px solid var(--line);background:#0a0a0c;color:#e8e6e1}
+.instrument .bar{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:9px 14px;border-bottom:1px solid #26262c;font:12px/1.4 var(--mono);color:#a29e93}
+.instrument #root{min-height:240px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <a class="mark" href="../index.html">← phi · docs</a>
+    <button class="pill" id="theme" type="button" aria-label="Switch between light and dark">theme</button>
+  </div>
+  <nav class="tabs" aria-label="Pages on the register model and the number codes">
+    <a href="../register.html">The register model</a>
+    <a href="codes.html">Fibonacci codes</a>
+    <a href="phi.html" aria-current="page">Zeckendorf register</a>
+    <a href="bin.html">Binary register</a>
+    <a href="fib.html">Computing F(n)</a>
+    <a href="matrix.html">Fibonacci Q-matrix</a>
+    <a href="Q.html">Related work</a>
+  </nav>
+
+    <h1>Zeckendorf register</h1>
+  <p class="lede">A register whose digits weigh 1, 2, 3, 5, 8, …, the Fibonacci numbers from 1 and 2, and whose normal form holds no two adjacent 1s, which makes it the Zeckendorf representation of its value. <a href="https://github.com/ezexe/phi/blob/main/phi_prune/register.py"><code>phi_prune.register</code></a> models it beside a binary register, and the <a href="../register.html">register model</a> page measures the two.</p>
+  <ul class="facts">
+    <li><b>One identity, two rules.</b>F(k) + F(k+1) = F(k+2) gives the adjacent 1s rule, which merges two adjacent 1s upward. Applied to a doubled digit it gives the removal of 2 digits, 2F(k) = F(k+1) + F(k−2), which sends one carry up and one down.</li>
+    <li><b>Any order.</b>Each rule keeps the value and touches at most three nearby digits, so the rules can fire in any order and every order ends at the same normal form.</li>
+    <li class="f-app"><b>What the code holds.</b>Non-negative values only: <code>from_int</code> refuses a negative one, and the module has no borrow, comparison or division. The component's subtraction is the page's own.</li>
+  </ul>
+  <p>The component below has three tabs. <b>Arithmetic</b> writes two numbers in the register, adds them digit by digit, or subtracts them, and replays each rule it fires until the register is in normal form. Its adjacent 1s rule and removal of 2 digits are <code>merge</code> and <code>split</code> in <code>phi_prune.register</code>, with the same cases at the bottom, 2 + 2 = 3 + 1 and 1 + 1 = 2, and the component fires one rule at a time, the removal of 2 digits before the adjacent 1s rule, where the module's <code>normalize</code> fires the lowest position first. Since both rule sets are confluent, the two reach the same normal form. Its borrow rule, F(k) = F(k−1) + F(k−2) read downward, has no counterpart in the code. <b>Tree</b> draws the call tree of the naive recursive fib(n), with fib(0) = 0 and fib(1) = 1, so it has fib(n + 1) leaves, fib(n) of them returning 1. <b>Properties</b> counts the valid patterns of a few cells, shows Fibonacci codewords and their comma, and compares how many values each cell adds in the two kinds of register.</p>
+
+  <section class="instrument" aria-label="Zeckendorf register, interactive">
+    <div class="bar"><span>phi.jsx, run in the page</span><span>React 18.3.1 and Babel 7.24.7 from cdnjs</span></div>
+    <div id="root">Loading the component…</div>
+  </section>
+
+  <h2>What the code does with it</h2>
+  <ul>
+    <li><b>Quantization levels.</b> <code>FibonacciEncoder(n_digits)</code> quantizes to the F(n_digits + 2) integers whose Zeckendorf representations fit in <code>n_digits</code> digits, every integer from 0 to F(n_digits + 2) − 1, and <code>to_codeword</code> writes a level's digits, which <code>from_int</code> matches on all 144 levels of 10 digits.</li>
+    <li><b>Addition.</b> <code>pour</code> adds two registers digit by digit with no carries, and <code>normalize</code> or <code>normalize_rounds</code> fires the rules until no digit is 2 or more and no two adjacent digits are both 1. The same scan that finds no rule left to fire is the register's completion signal.</li>
+    <li><b>Multiply–accumulate.</b> <code>dot</code> multiplies an activation by a weight level by adding the Fibonacci multiples of the activation for each 1 digit of the level, so a level's Hamming weight is its count of additions.</li>
+    <li><b>Single-bit errors.</b> <code>flip_detected</code> reads a register with two adjacent 1s as corrupt, and <code>correction_candidates</code> lists the registers in normal form a single change from 1 to 0 away. Normalization keeps a corrupted value, so the check comes before it.</li>
+    <li><b>Fibonacci coding.</b> <code>phi_prune.gaps.fib_code</code> appends a 1 to the Zeckendorf representation of n, and the <a href="codes.html">Fibonacci codes</a> page follows the codewords into the bitstream and the <code>.phid</code> file.</li>
+  </ul>
+  <p>The dual register that pairs this one with the Fibonacci Q-matrix for powers is not in the code: <code>git grep</code> over phi's Python finds no matrix power, fast doubling, borrow or division. The <a href="matrix.html">Fibonacci Q-matrix</a> and <a href="fib.html">Computing F(n)</a> pages show that mathematics as mathematics.</p>
+</div>
+
+<script>
+(function(){
+  var root=document.documentElement,key="dox-theme",btn=document.getElementById("theme");
+  function stored(){try{return localStorage.getItem(key)}catch(e){return null}}
+  function current(){return root.getAttribute("data-theme")||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light")}
+  function label(){btn.textContent=current()==="dark"?"light theme":"dark theme"}
+  var s=stored(); if(s==="dark"||s==="light")root.setAttribute("data-theme",s);
+  label();
+  try{matchMedia("(prefers-color-scheme: dark)").addEventListener("change",label)}catch(e){}
+  btn.addEventListener("click",function(){var n=current()==="dark"?"light":"dark";root.setAttribute("data-theme",n);try{localStorage.setItem(key,n)}catch(e){}label()});
+})();
+</script>
+<script id="src" type="text/plain">
 /**
  * ═══════════════════════════════════════════════════════════════════
- * φ-REGISTER — Fibonacci-Weighted Arithmetic Machine
+ * Zeckendorf register — arithmetic on Fibonacci place values
  * ═══════════════════════════════════════════════════════════════════
  *
  * A complete interactive exploration of the Zeckendorf number system:
@@ -9,8 +145,8 @@
  *   - PROPERTIES: The four intrinsic advantages of φ-weighted encoding
  *
  * The single axiom: F(n) = F(n-1) + F(n-2)
- *   Read left-to-right  → CARRY   (adjacent 1s merge upward)
- *   Applied to doubles   → RESOLVE (2×F(k) splits apart)
+ *   Read left-to-right  → the adjacent 1s rule  (adjacent 1s merge upward)
+ *   Applied to doubles   → removal of 2 digits   (2×F(k) splits apart)
  *   Read right-to-left  → BORROW  (F(k) decomposes downward)
  */
 
@@ -97,11 +233,11 @@ function findViolations(digits) {
  *  Rule priority:
  *  1. BORROW — fix negatives (from subtraction). Find nearest higher
  *     positive cell and decompose it downward: F(j) → F(j-1) + F(j-2)
- *  2. RESOLVE — fix doubles (cell >= 2). Split using:
+ *  2. Removal of 2 digits — fix doubles (cell >= 2). Split using:
  *     2·F(k) = F(k+1) + F(k-2)  [for k >= 2]
  *     2·F(1) = F(2) + F(0)       [special: 2×2 = 3+1]
  *     2·F(0) = F(1)              [special: 2×1 = 2]
- *  3. CARRY — fix adjacencies. Merge upward:
+ *  3. The adjacent 1s rule — fix adjacencies. Merge upward:
  *     F(k) + F(k+1) = F(k+2) */
 function normalizeStep(digits, maxLen) {
   const d = [...digits];
@@ -132,7 +268,7 @@ function normalizeStep(digits, maxLen) {
     }
   }
 
-  // ─── RESOLVE: fix doubles (cell >= 2) ───
+  // ─── Removal of 2 digits: fix doubles (cell >= 2) ───
   for (let i = 0; i < d.length; i++) {
     if (d[i] >= 2) {
       const targets = [];
@@ -161,7 +297,7 @@ function normalizeStep(digits, maxLen) {
     }
   }
 
-  // ─── CARRY: fix adjacent 1s ───
+  // ─── The adjacent 1s rule: fix adjacent 1s ───
   for (let i = 0; i < d.length - 1; i++) {
     if (d[i] >= 1 && d[i + 1] >= 1) {
       d[i] -= 1;
@@ -172,7 +308,7 @@ function normalizeStep(digits, maxLen) {
     }
   }
 
-  return null; // No violations — register is settled
+  return null; // No violations — the register is in normal form
 }
 
 /** Run the full normalization cascade, collecting every intermediate step.
@@ -236,13 +372,13 @@ function layoutTree(node, depth = 0, leafIndex = { current: 0 }) {
 // UI: CELL — a single position in the register
 // ═══════════════════════════════════════════════════════════════════
 
-/** Renders one cell of the φ-register with semantic coloring:
+/** Renders one cell of the Zeckendorf register with semantic coloring:
  *  - source (red): value was consumed by the current rule
  *  - target (green): value was deposited by the current rule
- *  - violation-double (dashed red): cell holds 2+ — needs RESOLVE
- *  - violation-adjacent (dashed orange): adjacent to another 1 — needs CARRY
+ *  - violation-double (dashed red): cell holds 2+ — needs the removal of 2 digits
+ *  - violation-adjacent (dashed orange): adjacent to another 1 — needs the adjacent 1s rule
  *  - violation-negative (dashed red, italic): cell is negative — needs BORROW
- *  - settled (green glow): register is in valid Zeckendorf form */
+ *  - settled (green glow): the register is in normal form, the Zeckendorf representation */
 function Cell({ value, weight, status }) {
   const styles = {
     source: { bg: "rgba(224,64,64,0.2)", border: `2px solid ${RED}`, glow: `0 0 10px rgba(224,64,64,0.5)`, color: RED },
@@ -405,7 +541,7 @@ function RuleBanner({ step, isSettled, isRaw }) {
         }}
       >
         <span style={{ fontSize: 16 }}>⬡</span>
-        <span>SETTLED — valid Zeckendorf form</span>
+        <span>NORMAL FORM — the Zeckendorf representation</span>
       </div>
     );
   if (isRaw)
@@ -432,7 +568,7 @@ function RuleBanner({ step, isSettled, isRaw }) {
       bg: "rgba(212,160,23,0.06)",
       bdr: "rgba(212,160,23,0.25)",
       hdr: GOLD,
-      title: "CARRY — adjacent 1s merge upward",
+      title: "ADJACENT 1S RULE — adjacent 1s merge upward",
       eq: (
         <>
           <span style={{ color: RED }}>
@@ -476,7 +612,7 @@ function RuleBanner({ step, isSettled, isRaw }) {
       bg: "rgba(224,64,64,0.05)",
       bdr: "rgba(224,64,64,0.25)",
       hdr: RED,
-      title: "RESOLVE — double splits apart",
+      title: "REMOVAL OF 2 DIGITS — a 2 splits apart",
       eq:
         index === 0 ?
           <>
@@ -777,8 +913,8 @@ function ArithmeticTab() {
             <div
               style={{ marginTop: 10, textAlign: "center", fontSize: 10, fontFamily: MONO, color: "rgba(255,255,255,0.3)" }}
             >
-              {ruleCounts.carry > 0 && <span style={{ color: GOLD, marginRight: 12 }}>CARRY ×{ruleCounts.carry}</span>}
-              {ruleCounts.double > 0 && <span style={{ color: RED, marginRight: 12 }}>RESOLVE ×{ruleCounts.double}</span>}
+              {ruleCounts.carry > 0 && <span style={{ color: GOLD, marginRight: 12 }}>ADJACENT 1S ×{ruleCounts.carry}</span>}
+              {ruleCounts.double > 0 && <span style={{ color: RED, marginRight: 12 }}>REMOVAL OF 2 ×{ruleCounts.double}</span>}
               {ruleCounts.borrow > 0 && <span style={{ color: GREEN }}>BORROW ×{ruleCounts.borrow}</span>}
             </div>
           )}
@@ -1094,7 +1230,7 @@ function TreeTab() {
         <span style={{ fontFamily: MONO, fontSize: 14, color: GOLD }}>{n}</span>
         <span style={{ fontFamily: MONO, fontSize: 12, color: "rgba(255,255,255,0.4)" }}>)</span>
         <span style={{ fontFamily: MONO, fontSize: 12, color: "rgba(255,255,255,0.25)" }}>
-          = {FIB[n - 1] || (n <= 1 ? n : "?")} · {nodes.length} nodes · {nodes.filter(nd => nd.n <= 1).length} leaves
+          = {n <= 1 ? n : FIB[n - 2]} · {nodes.length} nodes · {nodes.filter(nd => nd.n <= 1).length} leaves
         </span>
       </div>
 
@@ -1321,7 +1457,7 @@ function TreeTab() {
         <div>
           <span style={{ color: GOLD }}>Leaf count = value:</span> {nodes.filter(nd => nd.n === 1).length} ones +{" "}
           {nodes.filter(nd => nd.n === 0).length} zeros = the tree has {nodes.filter(nd => nd.n <= 1).length} leaf nodes, of
-          which {nodes.filter(nd => nd.n === 1).length} are 1-leaves — and fib({n}) = {FIB[n - 1] || n}.
+          which {nodes.filter(nd => nd.n === 1).length} are 1-leaves — and fib({n}) = {n <= 1 ? n : FIB[n - 2]}.
         </div>
         <div>
           <span style={{ color: GOLD }}>Click any node</span> to highlight its subtree. Scroll to zoom, drag to pan.
@@ -1342,16 +1478,16 @@ function PropertiesTab() {
       <PropertyCard
         title="Built-In Redundancy Detection"
         color={ORANGE}
-        subtitle="The adjacency constraint makes invalid states immediately visible"
+        subtitle="The (1,∞)-RLL constraint makes some invalid states visible at once"
       >
         <RedundancyDemo />
       </PropertyCard>
 
-      {/* 2. COMPRESSION DELIMITER */}
+      {/* 2. THE COMMA OF FIBONACCI CODING */}
       <PropertyCard
-        title="Natural Compression Delimiter"
+        title="The Comma of Fibonacci Coding"
         color={GREEN}
-        subtitle="'11' can never appear inside a valid number — free end-of-number marker"
+        subtitle="'11' never appears inside a Zeckendorf representation, so it can end each codeword"
       >
         <CompressionDemo />
       </PropertyCard>
@@ -1360,7 +1496,7 @@ function PropertiesTab() {
       <PropertyCard
         title="Gentle Overflow"
         color={GOLD}
-        subtitle="Capacity grows by φ ≈ 1.618× per cell, not 2×"
+        subtitle="The number of values grows by φ ≈ 1.618× per cell, not 2×"
       >
         <OverflowDemo />
       </PropertyCard>
@@ -1381,7 +1517,7 @@ function PropertiesTab() {
             follows the golden ratio spiral.
           </div>
           <div style={{ marginTop: 8 }}>
-            In the φ-register, this manifests as: the normalization rules that work at scale n are the <em>same rules</em>{" "}
+            In the Zeckendorf register, this shows as: the normalization rules that work at scale n are the <em>same rules</em>{" "}
             that work at scale n-1. The machine is scale-invariant.
           </div>
         </div>
@@ -1434,7 +1570,7 @@ function RedundancyDemo() {
       <div style={{ fontFamily: MONO, fontSize: 11, color: "rgba(255,255,255,0.4)", marginBottom: 10 }}>
         {width}-cell register: <span style={{ color: GREEN }}>{validCount} valid</span> / {total} total patterns
         <span style={{ color: "rgba(255,255,255,0.25)", marginLeft: 8 }}>
-          ({((validCount / total) * 100).toFixed(1)}% density — F({width + 2}) = {FIB[width + 1]})
+          ({((validCount / total) * 100).toFixed(1)}% density — F({width + 2}) = {FIB[width]})
         </span>
       </div>
       {/* Grid of patterns */}
@@ -1468,14 +1604,14 @@ function RedundancyDemo() {
         ))}
       </div>
       <div style={{ marginTop: 8, fontFamily: MONO, fontSize: 10, color: "rgba(255,255,255,0.25)", lineHeight: 1.7 }}>
-        Any bit corruption that creates adjacent 1s is <span style={{ color: RED }}>immediately detectable</span> — the
-        representation itself is a checksum. Binary has no such property: every bit pattern is valid, corruption is silent.
+        Any bit corruption that creates adjacent 1s is <span style={{ color: RED }}>detectable at once</span> — a flip from 1 to 0 is not.
+        Binary has no such property: every bit pattern is valid, corruption is silent.
       </div>
     </div>
   );
 }
 
-/** COMPRESSION: Show Fibonacci universal coding with 11 delimiter */
+/** COMPRESSION: Show Fibonacci coding with the 11 comma */
 function CompressionDemo() {
   const [inputStr, setInputStr] = useState("3 7 1 5 12");
   const numbers = inputStr
@@ -1496,7 +1632,7 @@ function CompressionDemo() {
     e.bits.map((b, bi) => ({
       bit: b,
       numIdx: idx,
-      // Is this bit part of the "11" delimiter? It's the last two bits of each encoded number.
+      // Is this bit part of the "11" comma? It's the last two bits of each encoded number.
       isDelimiter: bi >= e.bits.length - 2 && b === 1 && (bi === e.bits.length - 1 || e.bits[bi + 1] === 1)
     }))
   );
@@ -1580,8 +1716,8 @@ function CompressionDemo() {
       </div>
       <div style={{ marginTop: 8, fontFamily: MONO, fontSize: 10, color: "rgba(255,255,255,0.25)", lineHeight: 1.7 }}>
         Since no valid Zeckendorf number contains adjacent 1s, appending a <span style={{ color: GREEN }}>1</span> creates a{" "}
-        <span style={{ color: GREEN }}>11</span> pattern that unambiguously marks the boundary. Zero framing overhead — the
-        delimiter falls out of the representation constraint itself.
+        <span style={{ color: GREEN }}>11</span> pattern that unambiguously marks the boundary. No length or separator is written — the
+        comma costs one appended 1 and comes from the representation itself.
       </div>
     </div>
   );
@@ -1650,7 +1786,7 @@ function OverflowDemo() {
               verticalAlign: "middle"
             }}
           />
-          φ capacity (×1.618/cell)
+          φ values (×1.618/cell)
         </span>
         <span>
           <span
@@ -1664,7 +1800,7 @@ function OverflowDemo() {
               verticalAlign: "middle"
             }}
           />
-          Binary capacity (×2/cell)
+          Binary values (×2/cell)
         </span>
       </div>
       {/* Data table */}
@@ -1692,8 +1828,8 @@ function OverflowDemo() {
         ))}
       </div>
       <div style={{ marginTop: 8, fontFamily: MONO, fontSize: 10, color: "rgba(255,255,255,0.25)", lineHeight: 1.7 }}>
-        Binary doubles capacity per cell — explosive growth that wastes headroom. The φ-register grows by the golden ratio,
-        spiraling gently. Adding one cell increases capacity by ~61.8%, not 100%.
+        Binary doubles the number of values per cell. The Zeckendorf register multiplies it by about the golden ratio:
+        adding one cell gives about 61.8% more values, not 100%.
       </div>
     </div>
   );
@@ -1733,10 +1869,10 @@ export default function PhiRegister() {
               fontFamily: SERIF
             }}
           >
-            φ-Register
+            Zeckendorf Register
           </h1>
           <div style={{ fontSize: 10, color: "rgba(212,160,23,0.4)", marginTop: 5, fontFamily: MONO, letterSpacing: 3 }}>
-            FIBONACCI-WEIGHTED ARITHMETIC MACHINE
+            ARITHMETIC ON FIBONACCI PLACE VALUES
           </div>
         </div>
 
@@ -1784,13 +1920,13 @@ export default function PhiRegister() {
           </div>
           <div style={{ fontSize: 11, fontFamily: MONO, color: "rgba(255,255,255,0.25)", lineHeight: 2.0 }}>
             <div>
-              <span style={{ color: GOLD }}>CARRY</span> F(k) + F(k+1) = F(k+2) — adjacent 1s merge upward
+              <span style={{ color: GOLD }}>ADJACENT 1S RULE</span> F(k) + F(k+1) = F(k+2) — adjacent 1s merge upward
             </div>
             <div>
-              <span style={{ color: RED }}>RESOLVE</span> 2·F(k) = F(k+1) + F(k−2) — doubles split apart
+              <span style={{ color: RED }}>REMOVAL OF 2 DIGITS</span> 2·F(k) = F(k+1) + F(k−2) — doubles split apart
             </div>
             <div>
-              <span style={{ color: GREEN }}>BORROW</span> F(k) = F(k−1) + F(k−2) — expand downward for subtraction
+              <span style={{ color: GREEN }}>BORROW</span> F(k) = F(k−1) + F(k−2) — expand downward for subtraction, this page only
             </div>
           </div>
         </div>
@@ -1836,3 +1972,21 @@ export default function PhiRegister() {
     </div>
   );
 }
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.24.7/babel.min.js"></script>
+<script>
+(function(){
+  var src = document.getElementById("src").textContent;
+  src = src.replace(/^import\s*\{([^}]+)\}\s*from\s*["']react["'];?\s*$/m, "const {$1} = React;");
+  src = src.replace(/^export\s+default\s+/m, "window.__App = ");
+  try {
+    var out = Babel.transform(src, { presets: ["react"], filename: "phi.jsx" }).code;
+    (0, eval)(out);
+    ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(window.__App));
+  } catch (e) { document.getElementById("root").textContent = "Could not render: " + e.message; }
+})();
+</script>
+</body>
+</html>

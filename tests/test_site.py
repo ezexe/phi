@@ -29,7 +29,7 @@ def test_site_builds(tmp_path):
         if folder != out:
             assert (folder / "index.html").exists(), folder
     phi = (out / "docs" / "phi" / "index.html").read_text(encoding="utf-8")
-    assert 'href="phi.html"' in phi and 'href="phi.jsx.html"' in phi
+    assert 'href="phi.html"' in phi
     assert ('docs/phi/codes.html', 'Fibonacci codes · phi docs', 'page') in listed and 'href="codes.html"' in phi
     assert 'href="phi/index.html"' in (out / "docs" / "index.html").read_text(encoding="utf-8")
     html = (out / "docs" / "register.html").read_text(encoding="utf-8")
