@@ -217,6 +217,29 @@ def test_labels_since_the_round_counts_raw_labels_as_the_round_does(tmp_path):
 
 
 @needs_plugin
+def test_labels_since_the_round_count_from_this_machines_round(tmp_path):
+    """eval.tsv holds every machine's rounds once synced: check counts the labels since this machine's last round,
+    a row with no machine counting as any machine's, as the plugin's own train.owed does."""
+    p4 = os.path.join(str(tmp_path / "proj"), ".claude", "p4")
+    write_store(p4)
+    m = recall.modules(PLUGIN, p4)
+    sys.path.insert(0, os.path.join(PLUGIN, "scripts"))
+    import train
+    me = train.machine(p4)
+    total = m.labels.count_labels(p4)
+    with open(layout.sub(p4, "models", "eval.tsv"), "w", encoding="utf-8") as f:
+        f.write("round\ttime\tlabels\tmachine\n")
+        f.write(f"1\t2026-11-09 10:00\t{total - 9}\t\n")
+        f.write(f"2\t2026-11-09 11:00\t{total - 2}\t{me}\n")
+        f.write(f"3\t2026-11-09 12:00\t{total}\tanother-{me}\n")
+    rep = phi_model.check(p4, PLUGIN)
+    assert rep["labels_since_round"] == 2 and rep["eval_last"]["round"] == "2", rep["eval_last"]
+    with open(layout.sub(p4, "models", "eval.tsv"), "a", encoding="utf-8") as f:
+        f.write(f"4\t2026-11-09 13:00\t{total - 5}\t\n")
+    assert phi_model.check(p4, PLUGIN)["labels_since_round"] == 5
+
+
+@needs_plugin
 def test_the_dual_encoder_is_off_unless_asked(tmp_path, monkeypatch, capsys):
     """Retrieval has never served the dual encoder: without VLDS_PT_RANKER=1 check reports what stands and finds no
     training of it due, on a round or on a notice."""

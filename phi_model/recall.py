@@ -41,7 +41,8 @@ def is_store(p4: str) -> bool:
 
 
 def modules(plugin: str, p4: str = ""):
-    """The plugin's labels, notices, p4conf and ranker modules, imported from its scripts/, standard library only.
+    """The plugin's labels, notices, p4conf, ranker and train modules, imported from its scripts/, standard library
+    only; train is None for a plugin whose train module does not import.
     With `p4`, a store the plugin's older versions wrote flat is moved into its layout first, as the plugin's own
     hooks would at the next session start, so the plugin's modules find it."""
     d = os.path.join(plugin, "scripts")
@@ -51,9 +52,13 @@ def modules(plugin: str, p4: str = ""):
     import notices  # noqa: E402
     import p4conf  # noqa: E402
     import ranker  # noqa: E402
+    try:
+        import train  # noqa: E402
+    except Exception:  # noqa: BLE001 — an older plugin's train module: the plain last round is read instead
+        train = None
     if p4 and hasattr(p4conf, "migrate_layout"):
         p4conf.migrate_layout(p4)
-    return SimpleNamespace(labels=labels, notices=notices, conf=p4conf, ranker=ranker)
+    return SimpleNamespace(labels=labels, notices=notices, conf=p4conf, ranker=ranker, train=train)
 
 
 def run(cmd: List[str], cwd=None) -> subprocess.CompletedProcess:
@@ -137,6 +142,17 @@ def load_json(path: str):
         return None, f"{type(e).__name__}: {e}"
 
 
+def my_rounds(m, p4: str, rows: List[Dict]) -> List[Dict]:
+    """The rows of eval.tsv this machine's rounds wrote: a synced log holds every machine's rounds, and the plugin's
+    train.machine names this one, the store's git branch or else the host name. A row with no machine counts as any
+    machine's, and a plugin whose train module has no machine reads every row."""
+    machine = getattr(m.train, "machine", None)
+    if machine is None:
+        return rows
+    me = machine(p4)
+    return [r for r in rows if r.get("machine", "") in ("", me)]
+
+
 def labelled_tasks(m, p4: str) -> int:
     """Queries with at least one label 1 whose row in tasks.tsv exists."""
     tasks = m.labels.read_tasks(p4)
@@ -199,7 +215,8 @@ def check(p4: str, plugin: str, version: str) -> Dict:
     rep["json_ranker"] = None if not jr else {"round": jr.get("round"), "trained": jr.get("trained"),
                                                "threshold": jr.get("threshold"), "features": jr.get("features")}
     evals = m.labels.read_tsv(m.labels.mpath(p4, "eval.tsv"))
-    last = evals[-1] if evals else {}
+    mine = my_rounds(m, p4, evals) if evals else []
+    last = mine[-1] if mine else {}
     rep["eval_last"] = {k: last.get(k, "") for k in ("round", "time", "labels", "r_precision", "precision", "promoted", "why")} if last else None
     # eval.tsv's labels column is the plugin's count_labels, labels-raw.tsv and labels.tsv together, so the count
     # since the last round is taken the same way; labels.tsv alone counts fewer than the round on a store with raw
