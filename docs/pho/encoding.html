@@ -1,0 +1,413 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>Quantization and the code · phi docs</title>
+<meta name="description" content="phi_prune.encoding, export and integrity: uniform affine quantization to F(n+2) levels, each level's Zeckendorf digits and Fibonacci code, the bitstream file, and the checks of quantized weights.">
+<style>
+:root{
+  --bg:#f5f3ec; --panel:#fffdf7; --sunk:#efece2; --ink:#1d1c19; --soft:#5d5a52; --line:#d9d4c6; --link:#a9a392;
+  --phi:#0b6b66; --phi-bg:#dcefec; --app:#a85507; --app-bg:#f8e7d2; --you:#6a4bb0; --you-bg:#ebe4f7;
+  --ok:#2c7a3f; --bad:#b3261e; --bad-bg:#fbe5e2;
+  --mono:ui-monospace,"Cascadia Code","SF Mono",Menlo,Consolas,monospace;
+  --sans:"Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,"Helvetica Neue",sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#131418; --panel:#1b1d23; --sunk:#16171c; --ink:#e9e6dd; --soft:#a29e93; --line:#33363f; --link:#5b5f6b;
+    --phi:#62d2c6; --phi-bg:#16312f; --app:#f1ab52; --app-bg:#3a2a14; --you:#b9a2f2; --you-bg:#2a2340;
+    --ok:#7fd494; --bad:#ff8a80; --bad-bg:#3d1c1a;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#131418; --panel:#1b1d23; --sunk:#16171c; --ink:#e9e6dd; --soft:#a29e93; --line:#33363f; --link:#5b5f6b;
+  --phi:#62d2c6; --phi-bg:#16312f; --app:#f1ab52; --app-bg:#3a2a14; --you:#b9a2f2; --you-bg:#2a2340;
+  --ok:#7fd494; --bad:#ff8a80; --bad-bg:#3d1c1a;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 var(--sans)}
+.wrap{max-width:1040px;margin:0 auto;padding:24px 16px 64px}
+a{color:var(--phi)}
+code,pre,kbd{font-family:var(--mono)}
+code{font-size:.88em;background:var(--sunk);border-radius:4px;padding:1px 4px;overflow-wrap:anywhere}
+pre{background:var(--sunk);border:1px solid var(--line);border-radius:10px;padding:12px 14px;font-size:12.5px;line-height:1.55;overflow-x:auto;margin:10px 0 14px}
+pre code{background:none;padding:0;font-size:inherit}
+:focus-visible{outline:2px solid var(--phi);outline-offset:2px}
+button,select,input{font:inherit;color:inherit}
+.top{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.mark{font:600 13px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--phi);text-decoration:none}
+.mark:hover{text-decoration:underline}
+.pill{font:600 12px/1 var(--mono);background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:9px 13px;cursor:pointer;white-space:nowrap}
+.pill:hover{border-color:var(--phi)}
+.tabs{display:flex;flex-wrap:wrap;gap:6px;margin:14px 0 0}
+.tabs a{font:600 13px/1 var(--sans);text-decoration:none;color:var(--soft);background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:8px 13px}
+.tabs a:hover{border-color:var(--phi)}
+.tabs a[aria-current="page"]{background:var(--phi);border-color:var(--phi);color:var(--panel)}
+h1{font-size:clamp(30px,5.4vw,46px);line-height:1.08;letter-spacing:-.02em;margin:16px 0 10px;text-wrap:balance}
+.lede{color:var(--soft);max-width:68ch;margin:0 0 8px}
+.facts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:18px 0 22px;padding:0;list-style:none}
+.facts li{border-left:3px solid var(--line);padding:2px 0 2px 12px;font-size:14.5px;color:var(--soft)}
+.facts li b{display:block;color:var(--ink);font-size:15px}
+.facts li.f-phi{border-color:var(--phi)} .facts li.f-app{border-color:var(--app)} .facts li.f-you{border-color:var(--you)}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px}
+.figtabs{display:flex;flex-wrap:wrap;gap:4px;padding:10px 12px;border-bottom:1px solid var(--line)}
+.figtabs [role="tab"]{border:1px solid transparent;background:none;border-radius:999px;padding:7px 12px;font:600 13px/1 var(--sans);color:var(--soft);cursor:pointer}
+.figtabs [role="tab"][aria-selected="true"]{background:var(--phi);color:var(--panel)}
+.figtabs [role="tab"]:hover{border-color:var(--line)}
+[role="tabpanel"]{padding:14px}
+.ctl{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;margin:0 0 12px;font-size:14px}
+.ctl label{display:flex;gap:8px;align-items:center;color:var(--soft)}
+.ctl select,.ctl input[type="number"]{border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:6px 8px;font-size:14px}
+.ctl input[type="range"]{accent-color:var(--phi);width:140px}
+.btn{border:1px solid var(--line);background:var(--bg);border-radius:9px;padding:7px 11px;font-size:13.5px;font-weight:600;cursor:pointer}
+.btn:hover{border-color:var(--ink)}
+.btn:disabled{opacity:.42;cursor:not-allowed}
+svg.chart{display:block;width:100%;height:auto;user-select:none;-webkit-user-select:none;touch-action:none}
+svg .axis{stroke:var(--line);stroke-width:1}
+svg .tick{font:11px var(--mono);fill:var(--soft)}
+svg .lbl{font:600 12px var(--sans);fill:var(--soft)}
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:13px;color:var(--soft);margin:8px 0 0}
+.legend i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.readout{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:12px 0 0}
+.side{border-radius:10px;padding:10px 12px;font-size:14px;line-height:1.45;min-width:0;overflow-wrap:anywhere}
+.side b{display:block;font:600 11px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;margin-bottom:6px}
+.side.phi{background:var(--phi-bg)} .side.phi b{color:var(--phi)}
+.side.app{background:var(--app-bg)} .side.app b{color:var(--app)}
+.console{margin:12px 0 0;background:var(--sunk);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font:12.5px/1.5 var(--mono);overflow-wrap:anywhere;position:relative}
+.console .cmd::before{content:">>> ";color:var(--soft)}
+.console .out{color:var(--phi)}
+.copy{position:absolute;top:8px;right:8px;font:600 11px/1 var(--mono);border:1px solid var(--line);background:var(--panel);border-radius:6px;padding:6px 8px;cursor:pointer}
+.copy:hover{border-color:var(--phi)}
+.maskgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.masklist{display:grid;gap:3px;font:12px/1 var(--mono)}
+.maskrow{display:flex;gap:2px;align-items:center}
+.maskrow span.c{display:inline-block;width:13px;height:13px;border-radius:2px;background:var(--sunk);border:1px solid var(--line)}
+.maskrow.phi span.on{background:var(--phi);border-color:var(--phi)}
+.maskrow.app span.on{background:var(--app);border-color:var(--app)}
+.maskrow em{font-style:normal;color:var(--soft);margin-left:8px}
+.masklist h3{font:600 13px var(--sans);margin:0 0 6px}
+.note{font-size:13.5px;color:var(--soft);margin:10px 0 0}
+main.doc{margin-top:28px;display:grid;grid-template-columns:minmax(0,1fr);gap:14px}
+section.sec{min-width:0}
+section.sec{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--phi);border-radius:14px;padding:16px 18px}
+section.sec.app{border-left-color:var(--app)}
+section.sec h2{font-size:21px;letter-spacing:-.01em;margin:0 0 8px}
+section.sec p{margin:8px 0;max-width:76ch}
+section.sec ul{margin:6px 0;padding-left:20px;max-width:76ch}
+section.sec li{margin:4px 0}
+.tbl{overflow-x:auto;margin:8px 0}
+table{border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums}
+th,td{text-align:left;padding:6px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--soft);font-weight:600}
+td.n{text-align:right;font-family:var(--mono);font-size:13px}
+.src{font-size:13px;color:var(--soft)}
+footer{margin-top:34px;padding-top:14px;border-top:1px solid var(--line);font-size:14px;color:var(--soft)}
+@media (max-width:760px){
+  .facts{grid-template-columns:minmax(0,1fr)}
+  .maskgrid,.readout{grid-template-columns:minmax(0,1fr)}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+<style>
+.digits{display:flex;flex-wrap:wrap;gap:4px;margin:6px 0}
+.digit{display:grid;justify-items:center;gap:3px;font:11px var(--mono);color:var(--soft)}
+.digit button{width:34px;height:34px;border-radius:8px;border:1px solid var(--line);background:var(--bg);font:600 15px var(--mono);cursor:pointer}
+.digit button.on{background:var(--phi);border-color:var(--phi);color:var(--panel)}
+.digit button.flip{outline:2px solid var(--you);outline-offset:1px}
+.digit button.bad{background:var(--bad-bg);border-color:var(--bad);color:var(--bad)}
+.verdict{font-weight:600}
+.verdict.ok{color:var(--ok)} .verdict.bad{color:var(--bad)}
+.stream{font:13px/1.9 var(--mono);overflow-wrap:anywhere;background:var(--sunk);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.stream span{padding:1px 0;border-radius:3px}
+.stream span.a{background:var(--phi-bg);color:var(--phi)}
+.stream span.b{background:var(--app-bg);color:var(--app)}
+.stream span.comma{font-weight:700;text-decoration:underline}
+textarea{width:100%;min-height:58px;border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:8px;font:13px var(--mono);color:var(--ink)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <a class="mark" href="../index.html">← phi · docs</a>
+    <button class="pill" id="theme" type="button" aria-label="Switch between light and dark">theme</button>
+  </div>
+  <nav class="tabs" aria-label="Pages about pruning">
+    <a href="pruning.html">Pruning a model</a>
+    <a href="masks.html">The masks</a>
+    <a href="encoding.html" aria-current="page">Quantization and the code</a>
+    <a href="benchmarks.html">Measurements</a>
+  </nav>
+  <h1>Quantization and the code</h1>
+  <p class="lede">After pruning, phi can quantize the kept weights to the integers 0 to F(n+2) − 1, write each level as its Zeckendorf digits, which never hold two adjacent 1s, and store a model's levels as a Fibonacci-coded bitstream that a reader splits with no lengths written. This page is <code>phi_prune.encoding</code>, the bitstream half of <code>phi_prune.export</code>, and <code>phi_prune.integrity</code>. The figure runs their arithmetic in the page.</p>
+  <ul class="facts">
+    <li class="f-phi"><b>The levels</b>n Zeckendorf digits write every integer from 0 to F(n+2) − 1, and those integers are the levels: 55 for 8 digits, 144 for 10, 377 for 12. The grid is uniform.</li>
+    <li class="f-phi"><b>The code</b>A level plus 1 is written as its Fibonacci code, its digits followed by a 1, so each codeword ends at its first 11. It is a prefix code.</li>
+    <li class="f-app"><b>The checks</b>A kept weight passes when it sits exactly on its level. A single digit flipped from 0 to 1 beside a 1 makes 11, which the minimal-form check catches.</li>
+  </ul>
+
+  <div class="card" id="fig">
+    <div class="figtabs" role="tablist" aria-label="Quantization, by hand">
+      <button role="tab" id="t-q" aria-controls="p-q" aria-selected="true">Quantize</button>
+      <button role="tab" id="t-d" aria-controls="p-d" aria-selected="false" tabindex="-1">Digits and codewords</button>
+      <button role="tab" id="t-s" aria-controls="p-s" aria-selected="false" tabindex="-1">Bitstream</button>
+      <button role="tab" id="t-f" aria-controls="p-f" aria-selected="false" tabindex="-1">Flips caught</button>
+    </div>
+
+    <div role="tabpanel" id="p-q" aria-labelledby="t-q">
+      <div class="ctl">
+        <label>n_digits <select id="q-n"><option>4</option><option>5</option><option>6</option><option>7</option><option selected>8</option><option>9</option><option>10</option><option>12</option><option>14</option></select></label>
+        <span class="src" id="q-levels"></span>
+      </div>
+      <label class="src" for="q-w">Kept weights of one tensor, separated by spaces or commas:</label>
+      <textarea id="q-w">-0.412 0.087 0.233 -0.051 0.640 -0.298 0.012 0.377 -0.705 0.164 0.049 -0.126</textarea>
+      <svg class="chart" id="q-svg" viewBox="0 0 640 170" role="img" aria-label="Each weight and the level it rounds to"></svg>
+      <div class="tbl"><table id="q-tab"></table></div>
+      <div class="console"><button class="copy" id="q-copy" type="button">copy</button><div class="cmd" id="q-cmd"></div><div class="out" id="q-out"></div></div>
+    </div>
+
+    <div role="tabpanel" id="p-d" aria-labelledby="t-d" hidden>
+      <div class="ctl">
+        <label>n_digits <select id="d-n"><option>6</option><option selected>8</option><option>10</option><option>12</option></select></label>
+        <label>level <input type="range" id="d-l" min="0" max="54" value="30"><span id="d-lv">30</span></label>
+      </div>
+      <p class="note">The level's Zeckendorf digits, least significant first, as <code>to_codeword</code> writes them. Click a digit to flip it and run <code>adjacency_check</code> on the result.</p>
+      <div class="digits" id="d-digits"></div>
+      <p id="d-verdict"></p>
+      <p class="note">The codeword <code>export_bitstream</code> writes for this level is the Fibonacci code of the level plus 1:</p>
+      <div class="stream" id="d-code"></div>
+    </div>
+
+    <div role="tabpanel" id="p-s" aria-labelledby="t-s" hidden>
+      <p class="note">The levels of the weights on the Quantize tab, each plus 1, written one Fibonacci code after another and split again at each 11. Codewords alternate in colour, and the last 1 of each, which makes its 11, is underlined.</p>
+      <div class="stream" id="s-bits"></div>
+      <div class="readout">
+        <div class="side phi"><b>Fibonacci-coded</b><span id="s-fib"></span></div>
+        <div class="side app"><b>Fixed-length code</b><span id="s-fix"></span></div>
+      </div>
+      <p class="note" id="s-read"></p>
+    </div>
+
+    <div role="tabpanel" id="p-f" aria-labelledby="t-f" hidden>
+      <svg class="chart" id="f-svg" viewBox="0 0 640 250" role="img" aria-label="Share of single-digit flips the minimal-form check catches, averaged over every level"></svg>
+      <div class="legend"><span><i style="background:var(--phi)"></i>exact share over every level, computed here</span><span><i style="background:var(--app)"></i>the "uniform" column of measure_detection.txt</span></div>
+      <p class="note">For one level, the share is the fraction of its n digit positions whose flip makes 11: a 0 next to a 1. A flip from 1 to 0 never makes 11. The bars average that share over every level, the baseline <code>measure_detection.py</code> prints beside its simulated rates.</p>
+    </div>
+  </div>
+
+  <main class="doc">
+    <section class="sec">
+      <h2>FibonacciEncoder and its levels</h2>
+      <p><code>FibonacciEncoder(n_digits=8)</code> takes the place values 1, 2, 3, 5, 8 and onward, the first <code>n_digits</code> of them, and builds its levels as every sum of place values no two of which are adjacent. Those sums are every integer from 0 to F(n_digits + 2) − 1, with F(1) = F(2) = 1, so the levels are evenly spaced. It keeps them as <code>grid</code>, their count as <code>n_levels</code> and the highest as <code>max_value</code>.</p>
+      <div class="tbl"><table>
+        <thead><tr><th>n_digits</th><th>n_levels</th><th>max_value</th><th>bits of a fixed-length code</th></tr></thead>
+        <tbody>
+          <tr><td class="n">6</td><td class="n">21</td><td class="n">20</td><td class="n">5</td></tr>
+          <tr><td class="n">8</td><td class="n">55</td><td class="n">54</td><td class="n">6</td></tr>
+          <tr><td class="n">10</td><td class="n">144</td><td class="n">143</td><td class="n">8</td></tr>
+          <tr><td class="n">12</td><td class="n">377</td><td class="n">376</td><td class="n">9</td></tr>
+        </tbody>
+      </table></div>
+      <p><code>to_codeword(level)</code> writes a level greedily from the top place value down, least significant digit first, <code>n_digits</code> long. A greedy Zeckendorf representation never holds two adjacent 1s.</p>
+      <p class="src">Source: <a href="https://github.com/ezexe/phi/blob/main/phi_prune/encoding.py">phi_prune/encoding.py</a>. The representation is <a href="https://en.wikipedia.org/wiki/Zeckendorf%27s_theorem">Zeckendorf's theorem</a>: every positive integer is a unique sum of non-consecutive Fibonacci numbers.</p>
+    </section>
+
+    <section class="sec">
+      <h2>encode_tensor: uniform affine quantization</h2>
+      <p><code>encode_tensor(tensor, mask=None, *, return_offset=False, axis=None)</code> rounds each kept weight to the nearest level and writes back the value that level stands for, which is fake quantization: the tensor stays float. Only positions where <code>mask</code> is set are touched, or every position when it is <code>None</code>.</p>
+      <ul>
+        <li>The offset is the smallest kept weight, which lands on level 0.</li>
+        <li>The scale is <code>max_value / span</code>, levels per unit of weight, the inverse of the quantization step.</li>
+        <li>The level is <code>round((w - offset) * scale)</code>, computed as a floor plus a compare of the remainder with 0.5, so a tie goes up in every dtype, and clipped to 0 to <code>max_value</code>. A NaN goes to <code>max_value</code>.</li>
+        <li>The weight written back is <code>level / scale + offset</code>, in the tensor's dtype.</li>
+        <li>Kept weights spanning less than 1e-10 all go to level 0 with a scale of 1.0, and a mask that keeps nothing returns the tensor unchanged with a scale of 1.0.</li>
+      </ul>
+      <p>It returns the quantized tensor, the scale and the RMSE of the kept weights, with the quantization offset as a fourth value when <code>return_offset</code> is set. <code>export_bitstream</code>, <code>save_checkpoint</code> and <code>cassini_check</code> take that scale and quantization offset as a pair per parameter.</p>
+      <p>With <code>axis=None</code> one scale and one quantization offset serve the whole tensor, which is per-tensor quantization. With <code>axis=0</code> each output channel gets its own, which is per-channel quantization, and the scale and quantization offset come back as float64 arrays shaped to broadcast against the tensor. On torchvision's ImageNet ResNets per-tensor quantization changed the top-1 class of every probed image for three of the four models, and per-channel kept most of them; <a href="benchmarks.html">Measurements</a> has the run.</p>
+      <p><code>levels(tensor, scale, offset, mask=None)</code> inverts the scale-back: it returns the int64 level of each kept weight in row-major order.</p>
+      <p class="src">The terms are those of <a href="https://ar5iv.labs.arxiv.org/html/2106.08295">Nagel et al., "A White Paper on Neural Network Quantization"</a>, sections 2.2 and 2.3.</p>
+    </section>
+
+    <section class="sec">
+      <h2>The Fibonacci code and the bitstream file</h2>
+      <p><code>phi_prune.gaps.fib_code(n)</code> writes an integer n of at least 1 as its Zeckendorf digits, least significant first, followed by a 1: 1 → <code>11</code>, 2 → <code>011</code>, 3 → <code>0011</code>, 4 → <code>1011</code>, 5 → <code>00011</code>. The top digit of a Zeckendorf representation is a 1 and no two of its 1s are adjacent, so the appended 1 makes the first 11 of each codeword, which ends it. No codeword is the start of another, so <code>read_codes</code> splits a stream with no lengths or separators. This is <a href="https://en.wikipedia.org/wiki/Fibonacci_coding">Fibonacci coding</a>, after Apostolico and Fraenkel, 1987.</p>
+      <p><code>export_bitstream(model, masks, encoder, scales, path)</code> writes a model's kept weights as one file:</p>
+      <ol>
+        <li>One JSON line: each layer's <code>name</code>, <code>shape</code>, kept count <code>n_active</code>, <code>scale</code> and <code>offset</code>, with <code>scale_shape</code> for per-channel pairs stored flattened, the encoder's <code>n_digits</code>, <code>codeword_digits</code> = n_digits + 1 and <code>level_bias</code> = 1, and <code>payload_bits</code>.</li>
+        <li>The payload: the Fibonacci code of every kept weight's level plus 1, in parameter order, packed eight bits to a byte with the first bit high and the last byte padded with zeros. The bias of 1 is there because Fibonacci codes start at 1.</li>
+      </ol>
+      <p>It returns <code>path</code>, <code>n_weights</code>, <code>bitstream_length</code> in bits, <code>bits_per_weight</code> and <code>header_bytes</code>. A small level takes fewer bits than a large one, so the bits per weight depend on where the weights fall on the grid, and a fixed-length code of the same levels can be shorter.</p>
+      <p><code>load_bitstream(model, masks, path)</code> reads the file back into the kept positions of a model, in place, and returns the header. The header holds no masks, so pass the masks the export used, which <code>save_checkpoint</code> stores. Before it writes any weight it raises <code>ValueError</code> for a header whose <code>codeword_digits</code> and <code>level_bias</code> are not n_digits + 1 and 1, for packed bytes that do not hold <code>payload_bits</code> with zero padding, for a level above the grid, for a count of levels other than the header's, and for a layer missing from the model or from <code>masks</code> or whose shape, mask, kept count or <code>scale_shape</code> does not fit. It also reads a file whose header has no <code>payload_bits</code> and whose payload is the characters 0 and 1.</p>
+      <p class="src">Source: <a href="https://github.com/ezexe/phi/blob/main/phi_prune/export/__init__.py">phi_prune/export/__init__.py</a> and <a href="https://github.com/ezexe/phi/blob/main/phi_prune/gaps.py">phi_prune/gaps.py</a>.</p>
+    </section>
+
+    <section class="sec app">
+      <h2>Checking quantized weights</h2>
+      <ul>
+        <li><code>check_tensor_integrity(tensor, mask, encoder, scale, offset)</code> passes a kept weight when it is finite, its level lies in 0 to <code>max_value</code>, and it equals <code>level / scale + offset</code> in the tensor's dtype, the value <code>encode_tensor</code> and <code>load_bitstream</code> write. Noise, a NaN or a flipped bit of a stored float almost never lands on a level, so it fails. It returns <code>passed</code>, <code>failed</code>, <code>total</code> and <code>pass_rate</code>.</li>
+        <li><code>cassini_check(model, masks, encoder, scales)</code> runs that check on every masked parameter and adds <code>"_aggregate"</code>. A masked layer missing from <code>scales</code> raises <code>ValueError</code>.</li>
+        <li><code>adjacency_check(codeword)</code> is the minimal-form check of one list of Zeckendorf digits: false when two adjacent digits are 1. A single-bit error in stored digits that makes such a pair shows up with no parity bits or CRC. Only a 0 flipped to 1 beside a 1 does that, so the share caught depends on the levels stored.</li>
+        <li><code>simulate_corruption(tensor, mask, encoder, scale, offset, n_flips=1000)</code> flips one random digit of the digits of a random kept weight's level, <code>n_flips</code> times, and returns how many flips <code>adjacency_check</code> caught and <code>n_flips</code>, or 0 and 0 when the mask keeps nothing.</li>
+      </ul>
+      <p>On synthetic weights the simulated share runs from 0.4116 to 0.5181 at 8 and 10 digits, and over every level it is 0.4091 and 0.4167; <a href="benchmarks.html">Measurements</a> has the table.</p>
+      <p class="src">Source: <a href="https://github.com/ezexe/phi/blob/main/phi_prune/integrity.py">phi_prune/integrity.py</a>.</p>
+    </section>
+
+    <section class="sec">
+      <h2>Multiplying by a quantized weight</h2>
+      <p>phi holds no multiplication kernel. A weight written in Zeckendorf digits multiplies an input by adding the input's Fibonacci multiples, one per 1 digit; those multiples are not shifts of the input, as binary partial products are.</p>
+      <p>Simon, Rey, Levisse, Ansaloni, Zapater and Atienza, <a href="https://doi.org/10.1109/DAC18074.2021.9586245">DAC 2021</a>, quantize weights to values whose binary form has no two adjacent 1s, and report an approximate multiplier that cuts area by 73% and power-delay product by 43% and computes exactly when one input is such a value. That is a rule on the binary digits of the weight, a different representation from the Zeckendorf digits phi stores, and no circuit cost has been estimated for phi's. <a href="https://arxiv.org/abs/2511.01921">Fiandaca and Gomony, 2025</a>, apply the same quantization to neural radio receivers.</p>
+    </section>
+  </main>
+
+  <footer>
+    The code is <a href="https://github.com/ezexe/phi/tree/main/phi_prune">phi_prune</a> in <a href="https://github.com/ezexe/phi">ezexe/phi</a>. This page is <code>docs/pho/encoding.html</code> in the same repository.
+  </footer>
+</div>
+<script>
+(function(){
+  var root=document.documentElement,key="dox-theme",btn=document.getElementById("theme");
+  function stored(){try{return localStorage.getItem(key)}catch(e){return null}}
+  function current(){return root.getAttribute("data-theme")||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light")}
+  function label(){btn.textContent=current()==="dark"?"light theme":"dark theme"}
+  var s=stored(); if(s==="dark"||s==="light")root.setAttribute("data-theme",s);
+  label();
+  try{matchMedia("(prefers-color-scheme: dark)").addEventListener("change",label)}catch(e){}
+  btn.addEventListener("click",function(){var n=current()==="dark"?"light":"dark";root.setAttribute("data-theme",n);try{localStorage.setItem(key,n)}catch(e){}label()});
+})();
+
+/* Tabs, by the WAI-ARIA tabs pattern */
+(function(){
+  var tabs=[].slice.call(document.querySelectorAll('#fig [role="tab"]'));
+  function select(t){
+    tabs.forEach(function(x){var on=x===t;x.setAttribute("aria-selected",on);x.tabIndex=on?0:-1;document.getElementById(x.getAttribute("aria-controls")).hidden=!on});
+    t.focus();
+  }
+  tabs.forEach(function(t,i){
+    t.addEventListener("click",function(){select(t)});
+    t.addEventListener("keydown",function(e){
+      var j=e.key==="ArrowRight"?(i+1)%tabs.length:e.key==="ArrowLeft"?(i-1+tabs.length)%tabs.length:e.key==="Home"?0:e.key==="End"?tabs.length-1:-1;
+      if(j>=0){e.preventDefault();select(tabs[j])}
+    });
+  });
+})();
+
+
+var NS="http://www.w3.org/2000/svg";
+function el(tag,attrs,parent,text){var e=document.createElementNS(NS,tag);for(var k in attrs)e.setAttribute(k,attrs[k]);if(text!=null)e.textContent=text;if(parent)parent.appendChild(e);return e}
+function css(v){return getComputedStyle(document.documentElement).getPropertyValue(v).trim()}
+function clear(s){while(s.firstChild)s.removeChild(s.firstChild)}
+
+/* phi_prune.encoding and gaps, ported */
+function places(n){var p=[1,2];while(p.length<n)p.push(p[p.length-1]+p[p.length-2]);return p.slice(0,n)}
+function maxValue(n){var p=places(n+2);return p[n]-1}           /* F(n+2) - 1 */
+function toCodeword(v,n){var p=places(n),d=new Array(n).fill(0);for(var i=n-1;i>=0;i--)if(p[i]<=v){d[i]=1;v-=p[i]}return d}
+function zeck(v){var p=[1,2];while(p[p.length-1]<=v)p.push(p[p.length-1]+p[p.length-2]);var d=new Array(p.length).fill(0);for(var i=p.length-1;i>=0;i--)if(p[i]<=v){d[i]=1;v-=p[i]}var top=d.lastIndexOf(1);return d.slice(0,Math.max(1,top+1))}
+function fibCode(n){return zeck(n).join("")+"1"}
+function readCodes(bits){var out=[],cur="";for(var i=0;i<bits.length;i++){cur+=bits[i];if(cur.length>=2&&cur.slice(-2)==="11"){out.push(cur);cur=""}}return out}
+function codeValue(cw){var p=places(cw.length),v=0;for(var i=0;i<cw.length-1;i++)if(cw[i]==="1")v+=p[i];return v}
+function adjacencyCheck(d){for(var i=0;i<d.length-1;i++)if(d[i]===1&&d[i+1]===1)return false;return true}
+function encode(ws,n){
+  var mv=maxValue(n),vmin=Math.min.apply(null,ws),vmax=Math.max.apply(null,ws),span=vmax-vmin,scale,lv;
+  if(span<1e-10){scale=1.0;lv=ws.map(function(){return 0})}
+  else{scale=mv/span;lv=ws.map(function(w){var x=(w-vmin)*scale,lo=Math.floor(x);return Math.min(mv,Math.max(0,lo+(x-lo>=0.5?1:0)))})}
+  var dec=lv.map(function(l){return l/scale+vmin}),se=0;ws.forEach(function(w,i){se+=(w-dec[i])*(w-dec[i])});
+  return{scale:scale,offset:vmin,levels:lv,decoded:dec,rmse:Math.sqrt(se/ws.length),max:mv};
+}
+var Q=null;
+function weights(){return document.getElementById("q-w").value.split(/[\s,]+/).filter(function(x){return x!==""}).map(Number).filter(function(x){return isFinite(x)})}
+
+/* Quantize */
+function drawQ(){
+  var n=+document.getElementById("q-n").value,ws=weights();
+  document.getElementById("q-levels").textContent=(maxValue(n)+1)+" levels, max_value "+maxValue(n);
+  var svg=document.getElementById("q-svg");clear(svg);
+  var tab=document.getElementById("q-tab");tab.innerHTML="";
+  if(ws.length===0){Q=null;document.getElementById("q-cmd").textContent="";document.getElementById("q-out").textContent="no weights";drawS();return}
+  Q=encode(ws,n);
+  var W=640,L=20,R=20,y0=60,y1=130,lo=Q.offset,hi=Q.offset+Q.max/Q.scale||lo+1;if(hi===lo)hi=lo+1;
+  function X(v){return L+(v-lo)/(hi-lo)*(W-L-R)}
+  el("line",{x1:L,y1:y1,x2:W-R,y2:y1,class:"axis"},svg);
+  var step=Math.max(1,Math.ceil(Q.max/60));
+  for(var l=0;l<=Q.max;l+=step)el("line",{x1:X(l/Q.scale+lo),y1:y1-6,x2:X(l/Q.scale+lo),y2:y1+6,stroke:css("--link")},svg);
+  el("text",{x:L,y:y1+24,class:"tick"},svg,"level 0 = "+lo.toFixed(3));
+  el("text",{x:W-R,y:y1+24,"text-anchor":"end",class:"tick"},svg,"level "+Q.max+" = "+hi.toFixed(3));
+  el("text",{x:L,y:16,class:"lbl"},svg,"weights");el("text",{x:L,y:y1-14,class:"lbl"},svg,"levels");
+  ws.forEach(function(w,i){
+    var xa=X(w),xb=X(Q.decoded[i]),ya=y0-20+(i%3)*8;
+    el("line",{x1:xa,y1:ya,x2:xb,y2:y1,stroke:css("--phi"),"stroke-width":1.2,opacity:.7},svg);
+    el("circle",{cx:xa,cy:ya,r:4,fill:css("--app")},svg);
+    el("circle",{cx:xb,cy:y1,r:3.5,fill:css("--phi")},svg);
+  });
+  var head="<thead><tr><th>weight</th><th>level</th><th>written back</th><th>Zeckendorf digits</th></tr></thead><tbody>";
+  ws.forEach(function(w,i){head+="<tr><td class='n'>"+w+"</td><td class='n'>"+Q.levels[i]+"</td><td class='n'>"+Q.decoded[i].toFixed(6)+"</td><td><code>"+toCodeword(Q.levels[i],n).join("")+"</code></td></tr>"});
+  tab.innerHTML=head+"</tbody>";
+  document.getElementById("q-cmd").textContent="FibonacciEncoder("+n+").encode_tensor(torch.tensor(["+ws.join(", ")+"], dtype=torch.float64), return_offset=True)";
+  document.getElementById("q-out").textContent="scale "+Q.scale.toPrecision(8)+", rmse "+Q.rmse.toPrecision(6)+", offset "+Q.offset;
+  drawS();
+}
+document.getElementById("q-n").addEventListener("change",drawQ);
+document.getElementById("q-w").addEventListener("input",drawQ);
+document.getElementById("q-copy").addEventListener("click",function(){try{navigator.clipboard.writeText("from phi_prune import FibonacciEncoder\nimport torch\n"+document.getElementById("q-cmd").textContent)}catch(e){}});
+
+/* Digits and codewords */
+var flipped=-1;
+function drawD(){
+  var n=+document.getElementById("d-n").value,lI=document.getElementById("d-l");
+  lI.max=maxValue(n);if(+lI.value>maxValue(n))lI.value=maxValue(n);
+  var v=+lI.value,d=toCodeword(v,n),p=places(n);document.getElementById("d-lv").textContent=v;
+  if(flipped>=n)flipped=-1;
+  var shown=d.slice();if(flipped>=0)shown[flipped]=1-shown[flipped];
+  var ok=adjacencyCheck(shown),box=document.getElementById("d-digits");box.innerHTML="";
+  shown.forEach(function(b,i){
+    var wrap=document.createElement("div");wrap.className="digit";
+    var bt=document.createElement("button");bt.type="button";bt.textContent=b;
+    var bad=!ok&&b===1&&((i>0&&shown[i-1]===1)||(i<n-1&&shown[i+1]===1));
+    bt.className=(b?"on":"")+(i===flipped?" flip":"")+(bad?" bad":"");
+    bt.setAttribute("aria-label","digit "+i+", place value "+p[i]+", "+b);
+    bt.addEventListener("click",function(){flipped=flipped===i?-1:i;drawD()});
+    var pv=document.createElement("span");pv.textContent=p[i];
+    wrap.appendChild(bt);wrap.appendChild(pv);box.appendChild(wrap);
+  });
+  var vd=document.getElementById("d-verdict");
+  if(flipped<0){vd.innerHTML="<span class='verdict ok'>adjacency_check: True</span>. Level "+v+" = "+d.map(function(b,i){return b?p[i]:0}).filter(Boolean).join(" + ")+(v===0?"0":"")+". Click a digit to flip it."}
+  else{var dir=d[flipped]===0?"0 to 1":"1 to 0";vd.innerHTML="Digit "+flipped+" flipped from "+dir+": <span class='verdict "+(ok?"bad":"ok")+"'>adjacency_check: "+(ok?"True, the flip goes unseen":"False, the flip is caught")+"</span>."}
+  var cw=fibCode(v+1);document.getElementById("d-code").innerHTML="<span class='a'>"+cw.slice(0,-1)+"<span class='comma'>1</span></span> &nbsp; fib_code("+(v+1)+"), "+cw.length+" bits";
+}
+document.getElementById("d-n").addEventListener("change",function(){flipped=-1;drawD()});
+document.getElementById("d-l").addEventListener("input",function(){flipped=-1;drawD()});
+
+/* Bitstream */
+function drawS(){
+  var box=document.getElementById("s-bits");box.innerHTML="";
+  if(!Q){document.getElementById("s-fib").textContent="";document.getElementById("s-fix").textContent="";document.getElementById("s-read").textContent="";return}
+  var n=+document.getElementById("q-n").value,bits="";
+  Q.levels.forEach(function(l,i){var cw=fibCode(l+1);bits+=cw;var s=document.createElement("span");s.className=i%2?"b":"a";s.innerHTML=cw.slice(0,-1)+"<span class='comma'>1</span>";box.appendChild(s)});
+  var nb=bits.length,k=Q.levels.length,fixed=Math.ceil(Math.log2(maxValue(n)+1));
+  document.getElementById("s-fib").textContent=nb+" bits for "+k+" weights, "+(nb/k).toFixed(2)+" bits per weight, "+Math.ceil(nb/8)+" bytes packed";
+  document.getElementById("s-fix").textContent=fixed+" bits per weight for "+(maxValue(n)+1)+" levels, "+(fixed*k)+" bits for "+k+" weights; the reader must know the width and the count";
+  var back=readCodes(bits).map(function(c){return codeValue(c)-1});
+  document.getElementById("s-read").textContent="Split at each 11 and less the bias of 1, the stream reads back as levels "+back.join(", ")+".";
+}
+
+/* Flips caught */
+function exactShare(n){var mv=maxValue(n),tot=0;for(var v=0;v<=mv;v++){var c=toCodeword(v,n),k=0;for(var i=0;i<n;i++)if(c[i]===0&&((i>0&&c[i-1])||(i<n-1&&c[i+1])))k++;tot+=k/n}return tot/(mv+1)}
+function drawF(){
+  var svg=document.getElementById("f-svg");clear(svg);
+  var W=640,H=250,L=48,R=14,T=14,B=36,pw=W-L-R,ph=H-T-B,ns=[],n;for(n=3;n<=16;n++)ns.push(n);
+  var bw=pw/ns.length;function Y(v){return T+ph-v/0.6*ph}
+  [0,0.1,0.2,0.3,0.4,0.5,0.6].forEach(function(v){el("line",{x1:L,y1:Y(v),x2:W-R,y2:Y(v),class:"axis","stroke-dasharray":"2 4"},svg);el("text",{x:L-6,y:Y(v)+4,"text-anchor":"end",class:"tick"},svg,v.toFixed(1))});
+  var file={8:0.4091,10:0.4167};
+  ns.forEach(function(n,i){var s=exactShare(n),x=L+i*bw;el("rect",{x:x+bw*0.15,y:Y(s),width:bw*0.7,height:Y(0)-Y(s),rx:2,fill:css("--phi")},svg);el("text",{x:x+bw/2,y:Y(s)-5,"text-anchor":"middle",class:"tick"},svg,s.toFixed(4).slice(1));el("text",{x:x+bw/2,y:H-16,"text-anchor":"middle",class:"tick"},svg,n);
+    if(file[n]!=null)el("line",{x1:x+bw*0.05,y1:Y(file[n]),x2:x+bw*0.95,y2:Y(file[n]),stroke:css("--app"),"stroke-width":3},svg)});
+  el("text",{x:L+pw/2,y:H-1,"text-anchor":"middle",class:"lbl"},svg,"n_digits");
+}
+function redraw(){drawQ();drawD();drawF()}
+redraw();
+document.getElementById("theme").addEventListener("click",redraw);
+try{matchMedia("(prefers-color-scheme: dark)").addEventListener("change",redraw)}catch(e){}
+</script>
+</body>
+</html>

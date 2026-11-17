@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>Pruning a model · phi docs</title>
+<meta name="description" content="phi_prune's Python interface and command: prune, fine-tune with the masks fixed, evaluate, check, save a checkpoint, export to ONNX, and phi-prune check and info.">
+<style>
+:root{
+  --bg:#f5f3ec; --panel:#fffdf7; --sunk:#efece2; --ink:#1d1c19; --soft:#5d5a52; --line:#d9d4c6; --link:#a9a392;
+  --phi:#0b6b66; --phi-bg:#dcefec; --app:#a85507; --app-bg:#f8e7d2; --you:#6a4bb0; --you-bg:#ebe4f7;
+  --ok:#2c7a3f; --bad:#b3261e; --bad-bg:#fbe5e2;
+  --mono:ui-monospace,"Cascadia Code","SF Mono",Menlo,Consolas,monospace;
+  --sans:"Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,"Helvetica Neue",sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#131418; --panel:#1b1d23; --sunk:#16171c; --ink:#e9e6dd; --soft:#a29e93; --line:#33363f; --link:#5b5f6b;
+    --phi:#62d2c6; --phi-bg:#16312f; --app:#f1ab52; --app-bg:#3a2a14; --you:#b9a2f2; --you-bg:#2a2340;
+    --ok:#7fd494; --bad:#ff8a80; --bad-bg:#3d1c1a;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#131418; --panel:#1b1d23; --sunk:#16171c; --ink:#e9e6dd; --soft:#a29e93; --line:#33363f; --link:#5b5f6b;
+  --phi:#62d2c6; --phi-bg:#16312f; --app:#f1ab52; --app-bg:#3a2a14; --you:#b9a2f2; --you-bg:#2a2340;
+  --ok:#7fd494; --bad:#ff8a80; --bad-bg:#3d1c1a;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 var(--sans)}
+.wrap{max-width:1040px;margin:0 auto;padding:24px 16px 64px}
+a{color:var(--phi)}
+code,pre,kbd{font-family:var(--mono)}
+code{font-size:.88em;background:var(--sunk);border-radius:4px;padding:1px 4px;overflow-wrap:anywhere}
+pre{background:var(--sunk);border:1px solid var(--line);border-radius:10px;padding:12px 14px;font-size:12.5px;line-height:1.55;overflow-x:auto;margin:10px 0 14px}
+pre code{background:none;padding:0;font-size:inherit}
+:focus-visible{outline:2px solid var(--phi);outline-offset:2px}
+button,select,input{font:inherit;color:inherit}
+.top{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.mark{font:600 13px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--phi);text-decoration:none}
+.mark:hover{text-decoration:underline}
+.pill{font:600 12px/1 var(--mono);background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:9px 13px;cursor:pointer;white-space:nowrap}
+.pill:hover{border-color:var(--phi)}
+.tabs{display:flex;flex-wrap:wrap;gap:6px;margin:14px 0 0}
+.tabs a{font:600 13px/1 var(--sans);text-decoration:none;color:var(--soft);background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:8px 13px}
+.tabs a:hover{border-color:var(--phi)}
+.tabs a[aria-current="page"]{background:var(--phi);border-color:var(--phi);color:var(--panel)}
+h1{font-size:clamp(30px,5.4vw,46px);line-height:1.08;letter-spacing:-.02em;margin:16px 0 10px;text-wrap:balance}
+.lede{color:var(--soft);max-width:68ch;margin:0 0 8px}
+.facts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:18px 0 22px;padding:0;list-style:none}
+.facts li{border-left:3px solid var(--line);padding:2px 0 2px 12px;font-size:14.5px;color:var(--soft)}
+.facts li b{display:block;color:var(--ink);font-size:15px}
+.facts li.f-phi{border-color:var(--phi)} .facts li.f-app{border-color:var(--app)} .facts li.f-you{border-color:var(--you)}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px}
+.figtabs{display:flex;flex-wrap:wrap;gap:4px;padding:10px 12px;border-bottom:1px solid var(--line)}
+.figtabs [role="tab"]{border:1px solid transparent;background:none;border-radius:999px;padding:7px 12px;font:600 13px/1 var(--sans);color:var(--soft);cursor:pointer}
+.figtabs [role="tab"][aria-selected="true"]{background:var(--phi);color:var(--panel)}
+.figtabs [role="tab"]:hover{border-color:var(--line)}
+[role="tabpanel"]{padding:14px}
+.ctl{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;margin:0 0 12px;font-size:14px}
+.ctl label{display:flex;gap:8px;align-items:center;color:var(--soft)}
+.ctl select,.ctl input[type="number"]{border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:6px 8px;font-size:14px}
+.ctl input[type="range"]{accent-color:var(--phi);width:140px}
+.btn{border:1px solid var(--line);background:var(--bg);border-radius:9px;padding:7px 11px;font-size:13.5px;font-weight:600;cursor:pointer}
+.btn:hover{border-color:var(--ink)}
+.btn:disabled{opacity:.42;cursor:not-allowed}
+svg.chart{display:block;width:100%;height:auto;user-select:none;-webkit-user-select:none;touch-action:none}
+svg .axis{stroke:var(--line);stroke-width:1}
+svg .tick{font:11px var(--mono);fill:var(--soft)}
+svg .lbl{font:600 12px var(--sans);fill:var(--soft)}
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:13px;color:var(--soft);margin:8px 0 0}
+.legend i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.readout{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:12px 0 0}
+.side{border-radius:10px;padding:10px 12px;font-size:14px;line-height:1.45;min-width:0;overflow-wrap:anywhere}
+.side b{display:block;font:600 11px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;margin-bottom:6px}
+.side.phi{background:var(--phi-bg)} .side.phi b{color:var(--phi)}
+.side.app{background:var(--app-bg)} .side.app b{color:var(--app)}
+.console{margin:12px 0 0;background:var(--sunk);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font:12.5px/1.5 var(--mono);overflow-wrap:anywhere;position:relative}
+.console .cmd::before{content:">>> ";color:var(--soft)}
+.console .out{color:var(--phi)}
+.copy{position:absolute;top:8px;right:8px;font:600 11px/1 var(--mono);border:1px solid var(--line);background:var(--panel);border-radius:6px;padding:6px 8px;cursor:pointer}
+.copy:hover{border-color:var(--phi)}
+.maskgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.masklist{display:grid;gap:3px;font:12px/1 var(--mono)}
+.maskrow{display:flex;gap:2px;align-items:center}
+.maskrow span.c{display:inline-block;width:13px;height:13px;border-radius:2px;background:var(--sunk);border:1px solid var(--line)}
+.maskrow.phi span.on{background:var(--phi);border-color:var(--phi)}
+.maskrow.app span.on{background:var(--app);border-color:var(--app)}
+.maskrow em{font-style:normal;color:var(--soft);margin-left:8px}
+.masklist h3{font:600 13px var(--sans);margin:0 0 6px}
+.note{font-size:13.5px;color:var(--soft);margin:10px 0 0}
+main.doc{margin-top:28px;display:grid;grid-template-columns:minmax(0,1fr);gap:14px}
+section.sec{min-width:0}
+section.sec{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--phi);border-radius:14px;padding:16px 18px}
+section.sec.app{border-left-color:var(--app)}
+section.sec h2{font-size:21px;letter-spacing:-.01em;margin:0 0 8px}
+section.sec p{margin:8px 0;max-width:76ch}
+section.sec ul{margin:6px 0;padding-left:20px;max-width:76ch}
+section.sec li{margin:4px 0}
+.tbl{overflow-x:auto;margin:8px 0}
+table{border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums}
+th,td{text-align:left;padding:6px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--soft);font-weight:600}
+td.n{text-align:right;font-family:var(--mono);font-size:13px}
+.src{font-size:13px;color:var(--soft)}
+footer{margin-top:34px;padding-top:14px;border-top:1px solid var(--line);font-size:14px;color:var(--soft)}
+@media (max-width:760px){
+  .facts{grid-template-columns:minmax(0,1fr)}
+  .maskgrid,.readout{grid-template-columns:minmax(0,1fr)}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+<style>
+td.dense{color:var(--soft)}
+td .bar{display:inline-block;height:8px;border-radius:2px;background:var(--phi);vertical-align:middle}
+td .bar.app{background:var(--app)}
+.err{color:var(--bad)}
+.ctl input[type="text"]{border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:6px 8px;font:13px var(--mono);min-width:0;width:150px}
+.ctl input[type="number"]{width:64px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <a class="mark" href="../index.html">← phi · docs</a>
+    <button class="pill" id="theme" type="button" aria-label="Switch between light and dark">theme</button>
+  </div>
+  <nav class="tabs" aria-label="Pages about pruning">
+    <a href="pruning.html" aria-current="page">Pruning a model</a>
+    <a href="masks.html">The masks</a>
+    <a href="encoding.html">Quantization and the code</a>
+    <a href="benchmarks.html">Measurements</a>
+  </nav>
+  <h1>Pruning a model</h1>
+  <p class="lede"><code>phi_prune</code> prunes a trained PyTorch model by output channels, fine-tunes it with the pruned weights held at zero, checks every mask, and saves the result as a checkpoint the <code>phi-prune</code> command can check again. This page is that interface, from <code>phi_prune/api.py</code>, <code>cli.py</code> and <code>export</code>. The figure below runs <code>prune</code>'s choice of layers on two model shapes.</p>
+  <ul class="facts">
+    <li class="f-phi"><b><code>prune</code></b>One φ mask per eligible Conv2d or Linear weight, the pruned weights zeroed. The last weight layer stays dense unless asked.</li>
+    <li class="f-phi"><b><code>finetune</code></b>SGD with a cosine schedule; after each backward pass and each step the masks multiply gradients and weights, so pruned weights stay zero.</li>
+    <li class="f-app"><b><code>check</code></b>Every mask holds its pattern along its axis, and every pruned weight is within 1e-10 of zero. <code>phi-prune check</code> does the same on a saved file.</li>
+  </ul>
+
+<pre><code>from phi_prune import prune, finetune, check, evaluate
+from phi_prune.export import save_checkpoint
+
+pruned, masks = prune(model)                       # a deep copy, one mask per pruned weight
+finetune(pruned, train_loader, epochs=40, masks=masks, val_loader=test_loader)
+report = check(pruned, masks)
+assert report["_summary"]["all_masks_valid"] and report["_summary"]["all_zeros_enforced"]
+save_checkpoint(pruned, masks, "pruned.pt")</code></pre>
+
+  <div class="card" id="fig">
+    <div class="figtabs" role="tablist" aria-label="prune, by hand">
+      <button role="tab" id="t-p" aria-controls="p-p" aria-selected="true">Which weights get a mask</button>
+    </div>
+    <div role="tabpanel" id="p-p" aria-labelledby="t-p">
+      <div class="ctl">
+        <label>model <select id="m"><option value="r18" selected>ResNet-18 shapes, 10-class fc</option><option value="small">the export test's small CNN</option></select></label>
+        <label>pattern <select id="pat"><option value="phi">"phi"</option><option value="2:4">"2:4"</option></select></label>
+        <label>density <input type="range" id="dens" min="0.1" max="0.6" step="0.05" value="0.5"><span id="densv">0.50</span></label>
+        <label>layer_types <select id="lt"><option value="both">(nn.Conv2d, nn.Linear)</option><option value="conv">(nn.Conv2d,)</option></select></label>
+        <label>min_dim <input type="number" id="md" min="1" max="1024" value="8"></label>
+        <label><input type="checkbox" id="head"> prune_head</label>
+        <label>exclude <input type="text" id="ex" placeholder="layer1.0.conv1, ..."></label>
+      </div>
+      <div class="tbl"><table id="tab"></table></div>
+      <div class="console"><button class="copy" id="copy" type="button">copy</button><div class="cmd" id="cmd"></div><div class="out" id="out"></div></div>
+      <p class="note">Channel scores are drawn at random in the page, so the kept counts are those of one draw; which weights get a mask, and why the others stay dense, is <code>prune</code>'s rule exactly. The density in the stats counts every weight of the selected module types, the dense ones included, and no bias.</p>
+    </div>
+  </div>
+
+  <main class="doc">
+    <section class="sec">
+      <h2><code>prune</code></h2>
+      <p><code>prune(model, density=0.5, axis=0, layer_types=(nn.Conv2d, nn.Linear), min_dim=8, inplace=False, score_fn="magnitude", prune_head=False, exclude=(), pattern="phi")</code> returns the pruned model and a dict from each pruned parameter's name to its mask.</p>
+      <ul>
+        <li>Every parameter whose name holds <code>weight</code> in a module of <code>layer_types</code> gets a mask, apart from three cases that stay dense: the model's last weight layer, the last Conv2d, Linear or <code>layer_types</code> module in registration order, unless <code>prune_head=True</code>; the modules named in <code>exclude</code>; and a weight with fewer than <code>min_dim</code> positions along <code>axis</code>.</li>
+        <li>The last weight layer is usually the classifier head. Along axis 0 its positions are the classes, the φ mask would keep at most (n + 1) // 2 of them, and a class left out would get a logit that is its bias alone.</li>
+        <li><code>pattern="phi"</code> builds each mask with <code>phi_mask</code>, <code>pattern="2:4"</code> with <code>two_four_mask</code>; <a href="masks.html">The masks</a> shows both. A density below 0.5 reaches <code>phi_mask(density=...)</code>, and at 0.5 or above each φ mask is the heaviest set the constraint allows. With <code>"2:4"</code>, a density below 0.5 raises <code>ValueError</code>.</li>
+        <li>The weights are multiplied by their masks. With <code>inplace=False</code> a deep copy is pruned and the model passed in is left as it was.</li>
+        <li>The pruned model carries <code>_phi_prune_stats</code>: <code>pattern</code>, <code>axis</code>, <code>total_params</code>, <code>active_params</code>, <code>pruned_layers</code>, <code>density</code> and <code>sparsity</code>, counted over every weight of the <code>layer_types</code> modules, the dense ones included. <code>check</code> and <code>save_checkpoint</code> read the pattern and axis from it.</li>
+      </ul>
+    </section>
+
+    <section class="sec">
+      <h2><code>finetune</code> and <code>evaluate</code></h2>
+      <p><code>finetune(model, train_loader, epochs=40, masks=None, lr=0.01, momentum=0.9, weight_decay=1e-4, device=None, val_loader=None, verbose=True, criterion=None, amp=False)</code> trains with SGD and a cosine learning-rate schedule over all epochs, with cross-entropy unless <code>criterion</code> is given. It is fine-tuning with a fixed mask: after each backward pass every masked weight's gradient is multiplied by its mask, and after each step the weight is, so pruned weights end every step at zero. With no masks every weight trains, which is how a dense model is fine-tuned before pruning.</p>
+      <ul>
+        <li>With <code>val_loader</code> it scores every epoch with <code>evaluate</code> and at the end restores the weights of the epoch that scored best, when any epoch scored above 0%.</li>
+        <li><code>amp=True</code> runs forward passes under fp16 autocast with loss scaling on a CUDA device; on any other device training stays in fp32.</li>
+        <li><code>verbose</code> prints the loss and accuracies every <code>max(1, epochs // 4)</code> epochs.</li>
+        <li>It returns <code>history</code>, one dict per epoch with <code>epoch</code>, <code>loss</code>, <code>train_acc</code> and <code>val_acc</code>, <code>best_val_acc</code>, which is <code>None</code> without <code>val_loader</code>, and <code>final_train_acc</code>.</li>
+      </ul>
+      <p><code>evaluate(model, loader, device=None, amp=False, fp32_fallback=True)</code> returns top-1 accuracy in percent. Under <code>amp</code> on CUDA, a batch whose fp16 logits are not all finite runs again in fp32, since an activation past 65504, fp16's largest value, makes a logit inf or NaN and argmax over a row of NaN gives class 0.</p>
+    </section>
+
+    <section class="sec">
+      <h2><code>check</code></h2>
+      <p><code>check(model, masks, pattern=None, axis=None)</code> reports, for each masked parameter, the fields of <code>mask_stats</code> and <code>zeros_enforced</code>, whether every pruned weight is within 1e-10 of zero. The pattern and axis come from the stats <code>prune</code> attached, or default to <code>"phi"</code> and 0. Its <code>"_summary"</code> holds <code>all_masks_valid</code>, <code>all_zeros_enforced</code>, <code>n_layers</code>, <code>pattern</code> and <code>axis</code>.</p>
+    </section>
+
+    <section class="sec">
+      <h2>Saving and exporting</h2>
+      <p><code>phi_prune.export.save_checkpoint(model, masks, path, encoder=None, scales=None, metadata=None)</code> writes a PyTorch checkpoint holding <code>state_dict</code>, <code>masks</code>, <code>pattern</code>, <code>axis</code>, <code>format</code> <code>"phi-prune"</code>, <code>version</code>, the release of phi_prune that wrote it, and <code>prune_stats</code>, the <code>mask_stats</code> of each mask. Given an encoder it adds <code>encoding</code> with <code>n_digits</code>, <code>n_levels</code> and <code>max_value</code>; given scales it adds each layer's scale and quantization offset, as a float or a float64 tensor; and it stores <code>metadata</code> as given.</p>
+      <p>The file loads with <code>torch.load(path, weights_only=True)</code>, which runs no code from it, as long as <code>metadata</code> holds only strings, numbers, booleans, <code>None</code>, lists, tuples, dicts and tensors:</p>
+<pre><code>data = torch.load("pruned.pt", weights_only=True)
+model.load_state_dict(data["state_dict"])
+masks = data["masks"]</code></pre>
+      <p><code>export_onnx(model, path, input_shape=(1, 3, 32, 32), opset=17)</code> exports through <code>torch.onnx.export</code>, traced on a random input of <code>input_shape</code>, with the first axis of the input and output named <code>batch</code> and dynamic. The pruned weights stay in the graph as zeros, so the graph is as dense as the model. It needs the <code>export</code> extra, which installs onnx, onnxruntime and onnxscript, and raises <code>ImportError</code> without onnx.</p>
+      <p>The quantized weights' own file, <code>export_bitstream</code>, is on <a href="encoding.html">Quantization and the code</a>.</p>
+    </section>
+
+    <section class="sec app">
+      <h2>The phi-prune command</h2>
+<pre><code>phi-prune check pruned.pt
+phi-prune info pruned.pt</code></pre>
+      <ul>
+        <li><code>check</code> reads every mask of a checkpoint through <code>mask_stats</code>, along the axis the file records, and checks that each pruned weight in its state dict is within 1e-10 of zero. It prints <code>Loading</code> and the file's name, one line per mask with its density, <code>valid</code> and <code>zeros</code>, then either one line saying every mask and pruned weight holds or one line for each kind of failure, and exits 0 when every mask holds and every pruned weight is zero. A mask whose weight the state dict lacks, or holds in another shape, fails.</li>
+        <li><code>info</code> prints how many weights each mask keeps and the total over all of them, and exits 0.</li>
+        <li>Both read the file with <code>torch.load(weights_only=True)</code>, with the numpy array types a checkpoint of per-channel scales may hold allowed, and exit 1 for a file that load refuses or that holds no <code>masks</code>; <code>check</code> also exits 1 when a mask or a pruned weight fails. A command line argparse cannot read exits 2.</li>
+        <li>A file with no <code>pattern</code> is read as holding φ masks and one with no <code>axis</code> as pruned along axis 0, and the pattern value <code>"zeckendorf"</code> that earlier releases wrote reads as <code>"phi"</code>.</li>
+        <li>The command neither prunes nor exports. A model's class cannot be rebuilt from saved weights, so pruning and fine-tuning go through the Python interface.</li>
+      </ul>
+      <p class="src">Source: <a href="https://github.com/ezexe/phi/blob/main/phi_prune/cli.py">phi_prune/cli.py</a>; the command is the <code>phi-prune</code> script that <code>[project.scripts]</code> of <a href="https://github.com/ezexe/phi/blob/main/pyproject.toml">pyproject.toml</a> declares.</p>
+    </section>
+
+    <section class="sec">
+      <h2>Installing</h2>
+<pre><code>pip install git+https://github.com/ezexe/phi.git
+pip install "phi-prune[export] @ git+https://github.com/ezexe/phi.git"</code></pre>
+      <p>phi needs Python 3.11 or later, torch 2.4.1 or later and numpy 1.24 or later. Working on phi itself is on the <a href="https://github.com/ezexe/phi/blob/main/CONTRIBUTING.md">contribution page</a>.</p>
+    </section>
+  </main>
+
+  <footer>
+    The code is <a href="https://github.com/ezexe/phi/blob/main/phi_prune/api.py">phi_prune/api.py</a>, <a href="https://github.com/ezexe/phi/blob/main/phi_prune/cli.py">cli.py</a> and <a href="https://github.com/ezexe/phi/blob/main/phi_prune/export/__init__.py">export</a> in <a href="https://github.com/ezexe/phi">ezexe/phi</a>. This page is <code>docs/pho/pruning.html</code> in the same repository.
+  </footer>
+</div>
+<script>
+(function(){
+  var root=document.documentElement,key="dox-theme",btn=document.getElementById("theme");
+  function stored(){try{return localStorage.getItem(key)}catch(e){return null}}
+  function current(){return root.getAttribute("data-theme")||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light")}
+  function label(){btn.textContent=current()==="dark"?"light theme":"dark theme"}
+  var s=stored(); if(s==="dark"||s==="light")root.setAttribute("data-theme",s);
+  label();
+  try{matchMedia("(prefers-color-scheme: dark)").addEventListener("change",label)}catch(e){}
+  btn.addEventListener("click",function(){var n=current()==="dark"?"light":"dark";root.setAttribute("data-theme",n);try{localStorage.setItem(key,n)}catch(e){}label()});
+})();
+
+/* Tabs, by the WAI-ARIA tabs pattern */
+(function(){
+  var tabs=[].slice.call(document.querySelectorAll('#fig [role="tab"]'));
+  function select(t){
+    tabs.forEach(function(x){var on=x===t;x.setAttribute("aria-selected",on);x.tabIndex=on?0:-1;document.getElementById(x.getAttribute("aria-controls")).hidden=!on});
+    t.focus();
+  }
+  tabs.forEach(function(t,i){
+    t.addEventListener("click",function(){select(t)});
+    t.addEventListener("keydown",function(e){
+      var j=e.key==="ArrowRight"?(i+1)%tabs.length:e.key==="ArrowLeft"?(i-1+tabs.length)%tabs.length:e.key==="Home"?0:e.key==="End"?tabs.length-1:-1;
+      if(j>=0){e.preventDefault();select(tabs[j])}
+    });
+  });
+})();
+
+
+/* Model shapes: [name, type, out, in, k] in registration order */
+function resnet18(){
+  var L=[["conv1","Conv2d",64,3,7]],c=64,stage,b;
+  for(stage=1;stage<=4;stage++){
+    var out=64*Math.pow(2,stage-1);
+    for(b=0;b<2;b++){
+      var p="layer"+stage+"."+b+".",inn=b===0?c:out;
+      L.push([p+"conv1","Conv2d",out,inn,3]);
+      L.push([p+"conv2","Conv2d",out,out,3]);
+      if(b===0&&stage>1)L.push([p+"downsample.0","Conv2d",out,c,1]);
+    }
+    c=out;
+  }
+  L.push(["fc","Linear",10,512,1]);
+  return L;
+}
+function small(){return [["0","Conv2d",16,3,3],["2","Conv2d",16,16,3],["6","Linear",10,16,1]]}
+function size(l){return l[1]==="Conv2d"?l[2]*l[3]*l[4]*l[4]:l[2]*l[3]}
+function shape(l){return l[1]==="Conv2d"?"["+l[2]+", "+l[3]+", "+l[4]+", "+l[4]+"]":"["+l[2]+", "+l[3]+"]"}
+/* masks, ported from phi_prune.masks */
+function adjacencyDp(s){var n=s.length,i;if(n===0)return[];if(n===1)return[1];var keep=new Float64Array(n),skip=new Float64Array(n);keep[0]=s[0];for(i=1;i<n;i++){keep[i]=skip[i-1]+s[i];skip[i]=Math.max(keep[i-1],skip[i-1])}var m=new Array(n).fill(0);i=n-1;while(i>=0){if(i===0){if(keep[0]>=skip[0])m[0]=1;break}if(keep[i]>=skip[i]){m[i]=1;i-=2}else i-=1}return m}
+function pyRound(x){var f=Math.floor(x),r=x-f;if(r>0.5)return f+1;if(r<0.5)return f;return f%2===0?f:f+1}
+function sum(a){var t=0;for(var i=0;i<a.length;i++)t+=a[i];return t}
+function adjacencyDpDensity(s,d){var target=pyRound(d*s.length),best=adjacencyDp(s);if(sum(best)<=target)return best;var lo=0,hi=Math.max.apply(null,s)+1;for(var it=0;it<60;it++){var mid=(lo+hi)/2,m=adjacencyDp(s.map(function(x){return x-mid})),k=sum(m);if(Math.abs(k-target)<Math.abs(sum(best)-target))best=m;if(k>target)lo=mid;else if(k<target)hi=mid;else break}return best}
+function twoFour(s){var n=s.length,m=new Array(n).fill(1),full=n-n%4;for(var g=0;g<full;g+=4){var idx=[g,g+1,g+2,g+3].sort(function(a,b){return s[b]-s[a]||a-b});for(var j=g;j<g+4;j++)m[j]=0;m[idx[0]]=1;m[idx[1]]=1}return m}
+var seed=11;function rnd(){seed=(seed*1103515245+12345)%2147483648;return seed/2147483648}
+var SC={};
+function scores(name,n){if(!SC[name]){var a=[];for(var i=0;i<n;i++)a.push(0.5+rnd()*2);SC[name]=a}return SC[name]}
+
+function draw(){
+  var model=document.getElementById("m").value,pat=document.getElementById("pat").value,d=+document.getElementById("dens").value;
+  var lt=document.getElementById("lt").value,md=+document.getElementById("md").value||1,head=document.getElementById("head").checked;
+  var ex=document.getElementById("ex").value.split(",").map(function(x){return x.trim()}).filter(Boolean);
+  document.getElementById("densv").textContent=d.toFixed(2);
+  var layers=model==="r18"?resnet18():small(),tab=document.getElementById("tab"),cmd=document.getElementById("cmd"),out=document.getElementById("out");
+  var args=[];if(d!==0.5)args.push("density="+d.toFixed(2));if(lt==="conv")args.push("layer_types=(nn.Conv2d,)");if(md!==8)args.push("min_dim="+md);if(head)args.push("prune_head=True");if(ex.length)args.push("exclude="+JSON.stringify(ex).replace(/"/g,"'"));if(pat!=="phi")args.push("pattern='2:4'");
+  cmd.textContent="pruned, masks = prune(model"+(args.length?", "+args.join(", "):"")+")";
+  if(d<0.5&&pat!=="phi"){tab.innerHTML="";out.innerHTML="<span class='err'>ValueError: pattern '2:4' keeps half of the positions, so it takes no density below 0.5</span>";return}
+  var types=lt==="conv"?["Conv2d"]:["Conv2d","Linear"];
+  var targets=layers.filter(function(l){return types.indexOf(l[1])>=0});
+  var lastWeight=layers.filter(function(l){return l[1]==="Conv2d"||l[1]==="Linear"}).slice(-1)[0][0];
+  var dense={};ex.forEach(function(x){dense[x]="exclude"});if(!head)dense[lastWeight]="the last weight layer";
+  var st={total:0,kept:0,pruned:0},rows="<thead><tr><th>parameter</th><th>shape</th><th>mask</th><th>kept weights</th></tr></thead><tbody>";
+  layers.forEach(function(l){
+    var nm=l[0]+".weight",n=size(l);
+    if(types.indexOf(l[1])<0){rows+="<tr><td><code>"+nm+"</code></td><td>"+shape(l)+"</td><td class='dense'>not a layer_types module</td><td class='dense'>not counted</td></tr>";return}
+    var why=dense[l[0]]||(l[2]<md?"fewer than min_dim positions":null);
+    if(why){st.total+=n;st.kept+=n;rows+="<tr><td><code>"+nm+"</code></td><td>"+shape(l)+"</td><td class='dense'>dense: "+why+"</td><td class='n'>"+n+" of "+n+"</td></tr>";return}
+    var s=scores(model+l[0],l[2]),m=pat==="phi"?(d<0.5?adjacencyDpDensity(s,d):adjacencyDp(s)):twoFour(s),k=sum(m),kept=n/l[2]*k;
+    st.total+=n;st.kept+=kept;st.pruned++;
+    rows+="<tr><td><code>"+nm+"</code></td><td>"+shape(l)+"</td><td>"+k+" of "+l[2]+" channels <span class='bar"+(pat==="phi"?"":" app")+"' style='width:"+Math.round(60*k/l[2])+"px'></span></td><td class='n'>"+kept+" of "+n+"</td></tr>";
+  });
+  tab.innerHTML=rows+"</tbody>";
+  var dens=st.total?st.kept/st.total:0;
+  function py(v){return Number.isInteger(v)?v+".0":String(v)}
+  out.textContent="pruned._phi_prune_stats == {'total_params': "+st.total+", 'active_params': "+(st.pruned?py(st.kept):st.kept)+", 'pruned_layers': "+st.pruned+", 'pattern': '"+pat+"', 'axis': 0, 'density': "+(st.total?py(dens):"0")+", 'sparsity': "+py(1-dens)+"}";
+}
+["m","pat","dens","lt","md","head","ex"].forEach(function(id){var e=document.getElementById(id);e.addEventListener(e.tagName==="SELECT"||e.type==="checkbox"?"change":"input",draw)});
+document.getElementById("copy").addEventListener("click",function(){try{navigator.clipboard.writeText(document.getElementById("cmd").textContent)}catch(e){}});
+draw();
+</script>
+</body>
+</html>

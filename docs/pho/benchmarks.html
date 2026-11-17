@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>Measurements · phi docs</title>
+<meta name="description" content="What phi's pruning, quantization and checks measured, each figure from a result file in ezexe/p4-phi-experiments with the script and run that wrote it.">
+<style>
+:root{
+  --bg:#f5f3ec; --panel:#fffdf7; --sunk:#efece2; --ink:#1d1c19; --soft:#5d5a52; --line:#d9d4c6; --link:#a9a392;
+  --phi:#0b6b66; --phi-bg:#dcefec; --app:#a85507; --app-bg:#f8e7d2; --you:#6a4bb0; --you-bg:#ebe4f7;
+  --ok:#2c7a3f; --bad:#b3261e; --bad-bg:#fbe5e2;
+  --mono:ui-monospace,"Cascadia Code","SF Mono",Menlo,Consolas,monospace;
+  --sans:"Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,"Helvetica Neue",sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#131418; --panel:#1b1d23; --sunk:#16171c; --ink:#e9e6dd; --soft:#a29e93; --line:#33363f; --link:#5b5f6b;
+    --phi:#62d2c6; --phi-bg:#16312f; --app:#f1ab52; --app-bg:#3a2a14; --you:#b9a2f2; --you-bg:#2a2340;
+    --ok:#7fd494; --bad:#ff8a80; --bad-bg:#3d1c1a;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#131418; --panel:#1b1d23; --sunk:#16171c; --ink:#e9e6dd; --soft:#a29e93; --line:#33363f; --link:#5b5f6b;
+  --phi:#62d2c6; --phi-bg:#16312f; --app:#f1ab52; --app-bg:#3a2a14; --you:#b9a2f2; --you-bg:#2a2340;
+  --ok:#7fd494; --bad:#ff8a80; --bad-bg:#3d1c1a;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 var(--sans)}
+.wrap{max-width:1040px;margin:0 auto;padding:24px 16px 64px}
+a{color:var(--phi)}
+code,pre,kbd{font-family:var(--mono)}
+code{font-size:.88em;background:var(--sunk);border-radius:4px;padding:1px 4px;overflow-wrap:anywhere}
+pre{background:var(--sunk);border:1px solid var(--line);border-radius:10px;padding:12px 14px;font-size:12.5px;line-height:1.55;overflow-x:auto;margin:10px 0 14px}
+pre code{background:none;padding:0;font-size:inherit}
+:focus-visible{outline:2px solid var(--phi);outline-offset:2px}
+button,select,input{font:inherit;color:inherit}
+.top{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.mark{font:600 13px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--phi);text-decoration:none}
+.mark:hover{text-decoration:underline}
+.pill{font:600 12px/1 var(--mono);background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:9px 13px;cursor:pointer;white-space:nowrap}
+.pill:hover{border-color:var(--phi)}
+.tabs{display:flex;flex-wrap:wrap;gap:6px;margin:14px 0 0}
+.tabs a{font:600 13px/1 var(--sans);text-decoration:none;color:var(--soft);background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:8px 13px}
+.tabs a:hover{border-color:var(--phi)}
+.tabs a[aria-current="page"]{background:var(--phi);border-color:var(--phi);color:var(--panel)}
+h1{font-size:clamp(30px,5.4vw,46px);line-height:1.08;letter-spacing:-.02em;margin:16px 0 10px;text-wrap:balance}
+.lede{color:var(--soft);max-width:68ch;margin:0 0 8px}
+.facts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:18px 0 22px;padding:0;list-style:none}
+.facts li{border-left:3px solid var(--line);padding:2px 0 2px 12px;font-size:14.5px;color:var(--soft)}
+.facts li b{display:block;color:var(--ink);font-size:15px}
+.facts li.f-phi{border-color:var(--phi)} .facts li.f-app{border-color:var(--app)} .facts li.f-you{border-color:var(--you)}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px}
+.figtabs{display:flex;flex-wrap:wrap;gap:4px;padding:10px 12px;border-bottom:1px solid var(--line)}
+.figtabs [role="tab"]{border:1px solid transparent;background:none;border-radius:999px;padding:7px 12px;font:600 13px/1 var(--sans);color:var(--soft);cursor:pointer}
+.figtabs [role="tab"][aria-selected="true"]{background:var(--phi);color:var(--panel)}
+.figtabs [role="tab"]:hover{border-color:var(--line)}
+[role="tabpanel"]{padding:14px}
+.ctl{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;margin:0 0 12px;font-size:14px}
+.ctl label{display:flex;gap:8px;align-items:center;color:var(--soft)}
+.ctl select,.ctl input[type="number"]{border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:6px 8px;font-size:14px}
+.ctl input[type="range"]{accent-color:var(--phi);width:140px}
+.btn{border:1px solid var(--line);background:var(--bg);border-radius:9px;padding:7px 11px;font-size:13.5px;font-weight:600;cursor:pointer}
+.btn:hover{border-color:var(--ink)}
+.btn:disabled{opacity:.42;cursor:not-allowed}
+svg.chart{display:block;width:100%;height:auto;user-select:none;-webkit-user-select:none;touch-action:none}
+svg .axis{stroke:var(--line);stroke-width:1}
+svg .tick{font:11px var(--mono);fill:var(--soft)}
+svg .lbl{font:600 12px var(--sans);fill:var(--soft)}
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:13px;color:var(--soft);margin:8px 0 0}
+.legend i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.readout{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:12px 0 0}
+.side{border-radius:10px;padding:10px 12px;font-size:14px;line-height:1.45;min-width:0;overflow-wrap:anywhere}
+.side b{display:block;font:600 11px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;margin-bottom:6px}
+.side.phi{background:var(--phi-bg)} .side.phi b{color:var(--phi)}
+.side.app{background:var(--app-bg)} .side.app b{color:var(--app)}
+.console{margin:12px 0 0;background:var(--sunk);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font:12.5px/1.5 var(--mono);overflow-wrap:anywhere;position:relative}
+.console .cmd::before{content:">>> ";color:var(--soft)}
+.console .out{color:var(--phi)}
+.copy{position:absolute;top:8px;right:8px;font:600 11px/1 var(--mono);border:1px solid var(--line);background:var(--panel);border-radius:6px;padding:6px 8px;cursor:pointer}
+.copy:hover{border-color:var(--phi)}
+.maskgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.masklist{display:grid;gap:3px;font:12px/1 var(--mono)}
+.maskrow{display:flex;gap:2px;align-items:center}
+.maskrow span.c{display:inline-block;width:13px;height:13px;border-radius:2px;background:var(--sunk);border:1px solid var(--line)}
+.maskrow.phi span.on{background:var(--phi);border-color:var(--phi)}
+.maskrow.app span.on{background:var(--app);border-color:var(--app)}
+.maskrow em{font-style:normal;color:var(--soft);margin-left:8px}
+.masklist h3{font:600 13px var(--sans);margin:0 0 6px}
+.note{font-size:13.5px;color:var(--soft);margin:10px 0 0}
+main.doc{margin-top:28px;display:grid;grid-template-columns:minmax(0,1fr);gap:14px}
+section.sec{min-width:0}
+section.sec{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--phi);border-radius:14px;padding:16px 18px}
+section.sec.app{border-left-color:var(--app)}
+section.sec h2{font-size:21px;letter-spacing:-.01em;margin:0 0 8px}
+section.sec p{margin:8px 0;max-width:76ch}
+section.sec ul{margin:6px 0;padding-left:20px;max-width:76ch}
+section.sec li{margin:4px 0}
+.tbl{overflow-x:auto;margin:8px 0}
+table{border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums}
+th,td{text-align:left;padding:6px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--soft);font-weight:600}
+td.n{text-align:right;font-family:var(--mono);font-size:13px}
+.src{font-size:13px;color:var(--soft)}
+footer{margin-top:34px;padding-top:14px;border-top:1px solid var(--line);font-size:14px;color:var(--soft)}
+@media (max-width:760px){
+  .facts{grid-template-columns:minmax(0,1fr)}
+  .maskgrid,.readout{grid-template-columns:minmax(0,1fr)}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+<style>
+.runs{list-style:none;padding:0;margin:8px 0;display:grid;gap:4px;font-size:14px}
+.runs code{font-size:12.5px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <a class="mark" href="../index.html">← phi · docs</a>
+    <button class="pill" id="theme" type="button" aria-label="Switch between light and dark">theme</button>
+  </div>
+  <nav class="tabs" aria-label="Pages about pruning">
+    <a href="pruning.html">Pruning a model</a>
+    <a href="masks.html">The masks</a>
+    <a href="encoding.html">Quantization and the code</a>
+    <a href="benchmarks.html" aria-current="page">Measurements</a>
+  </nav>
+  <h1>Measurements</h1>
+  <p class="lede">What the pruning, the quantization and the checks did when measured. Every figure here is copied from a result file in <a href="https://github.com/ezexe/p4-phi-experiments">ezexe/p4-phi-experiments</a>, which holds the scripts that wrote them, and each section names its file, its script and, where GitHub Actions ran it, the run.</p>
+  <ul class="facts">
+    <li class="f-phi"><b>Flips caught</b>The minimal-form check caught 0.4116 to 0.5181 of single-digit flips on synthetic weights at 8 and 10 digits.</li>
+    <li class="f-app"><b>Per channel</b>Per-tensor quantization changed the top-1 class of all 64 probed images on three ImageNet ResNets; per-channel kept 87.5% to 95.3% of them.</li>
+    <li class="f-you"><b>φ against 2 of every 4</b>On a small transformer, fine-tuned after pruning half its MLP neurons, the φ mask ended above 2 of every 4 in bits per character in each of three seeds.</li>
+  </ul>
+
+  <div class="card" id="fig">
+    <div class="figtabs" role="tablist" aria-label="The measurements as charts">
+      <button role="tab" id="t-f" aria-controls="p-f" aria-selected="true">Flips caught</button>
+      <button role="tab" id="t-q" aria-controls="p-q" aria-selected="false" tabindex="-1">Per tensor or per channel</button>
+      <button role="tab" id="t-t" aria-controls="p-t" aria-selected="false" tabindex="-1">Transformer arms</button>
+    </div>
+    <div role="tabpanel" id="p-f" aria-labelledby="t-f">
+      <svg class="chart" id="f-svg" viewBox="0 0 640 260" role="img" aria-label="Simulated and exact share of flips caught, by weight distribution and digits"></svg>
+      <div class="legend"><span><i style="background:var(--phi)"></i>simulated</span><span><i style="background:var(--ink)"></i>exact over the levels stored</span><span><i style="background:var(--app)"></i>uniform over every level</span></div>
+    </div>
+    <div role="tabpanel" id="p-q" aria-labelledby="t-q" hidden>
+      <div class="ctl"><label>model <select id="q-m"></select></label></div>
+      <svg class="chart" id="q-svg" viewBox="0 0 640 230" role="img" aria-label="Share of images whose top-1 class agrees with the dense model, by quantization strategy"></svg>
+    </div>
+    <div role="tabpanel" id="p-t" aria-labelledby="t-t" hidden>
+      <div class="ctl"><label>density <select id="t-d"><option value="50" selected>half of the neurons</option><option value="25">a quarter</option><option value="75">three quarters</option></select></label></div>
+      <svg class="chart" id="t-svg" viewBox="0 0 640 260" role="img" aria-label="Fine-tuned bits per character of each pruning arm, per seed"></svg>
+      <p class="note">Lower is better. Each group is one seed; the dashed line is the dense model of that seed.</p>
+    </div>
+  </div>
+
+  <main class="doc">
+    <section class="sec">
+      <h2>Single-digit flips the minimal-form check catches</h2>
+      <p><code>measure_detection.py</code> builds a synthetic weight tensor shaped 256 × 128 × 3 × 3 from four distributions, φ-masks it, quantizes it with <code>FibonacciEncoder</code> at 8 and 10 digits, and runs <code>simulate_corruption</code> with 200,000 flips. Beside the simulated share it prints the exact share over the levels stored and the share averaged over every level, which does not depend on the weights.</p>
+      <div class="tbl"><table>
+        <thead><tr><th>digits</th><th>weights</th><th>rmse</th><th>simulated</th><th>±2σ</th><th>exact</th><th>uniform</th></tr></thead>
+        <tbody id="md-rows"></tbody>
+      </table></div>
+      <p>The share depends on where the weights fall on the grid: a 0 flipped to 1 is caught only beside a 1, and levels in the middle of the grid hold more 1s with gaps between them than the lowest levels do.</p>
+<pre><code>python scripts/measure_detection.py                     # synthetic weights
+python scripts/measure_detection.py --models resnet18,resnet50</code></pre>
+      <p class="src">Result file: <a href="https://github.com/ezexe/p4-phi-experiments/blob/main/experiments/phi-prune/results/measure_detection.txt">experiments/phi-prune/results/measure_detection.txt</a>, a run with the defaults; script: <a href="https://github.com/ezexe/p4-phi-experiments/blob/main/experiments/phi-prune/scripts/measure_detection.py">scripts/measure_detection.py</a>.</p>
+    </section>
+
+    <section class="sec app">
+      <h2>Per-tensor against per-channel quantization</h2>
+      <p><code>probe_pretrained_encoding.py --strategies</code> quantizes every convolution of torchvision's ImageNet ResNets at 10 digits, every weight of it, one strategy at a time, and compares 64 CIFAR-10 test images upscaled to 224 px against the dense model in fp32. <code>agree</code> is the share whose top-1 ImageNet class stays the dense model's; <code>tensor</code> is per-tensor quantization, <code>channel</code> is per-channel, <code>encode_tensor(..., axis=0)</code>, and <code>clipP</code> clamps the weights to their 100 − P and P percentiles before quantizing per tensor.</p>
+      <div id="q-tables"></div>
+      <p>One scale and one quantization offset for a whole tensor spread the levels so thin on the three V2 models that every probed image changed class; one per output channel kept 87.5% to 95.3% of them, and clipping did not come close. The probe does not prune.</p>
+      <p class="src">Result file: <a href="https://github.com/ezexe/p4-phi-experiments/blob/main/experiments/phi-prune/results/probe-encoding-36066245824.txt">experiments/phi-prune/results/probe-encoding-36066245824.txt</a>, from <a href="https://github.com/ezexe/phi/actions/runs/36066245824">Actions run 36066245824</a> of ezexe/phi; script: <a href="https://github.com/ezexe/p4-phi-experiments/blob/main/experiments/phi-prune/scripts/probe_pretrained_encoding.py">scripts/probe_pretrained_encoding.py</a>.</p>
+    </section>
+
+    <section class="sec app">
+      <h2>fp16 and the quantized ResNets</h2>
+      <p>The same script without <code>--strategies</code> compares four variants of each model, dense, dense quantized per tensor under a mask that keeps every weight, φ-pruned with no fine-tuning, and pruned and quantized, in fp32 and under CPU fp16 autocast on 32 of the 64 images. It prints the share of images with logits that are not finite, the agreement with the dense fp32 model, and the largest block output in fp32, against 65504, fp16's largest finite value.</p>
+      <div class="tbl"><table>
+        <thead><tr><th>model</th><th>variant</th><th>nonfinite32</th><th>nonfinite16</th><th>agree32</th><th>agree16</th><th>max|block|</th></tr></thead>
+        <tbody id="fp-rows"></tbody>
+      </table></div>
+      <p>No logit was non-finite and no block output came near 65504, so fp16 overflow is not why the quantized V2 models changed their answers. The pruned variants are not fine-tuned here, so their agreement is low by construction.</p>
+      <p class="src">Result file: <a href="https://github.com/ezexe/p4-phi-experiments/blob/main/experiments/phi-prune/results/probe-encoding-36060638869.txt">experiments/phi-prune/results/probe-encoding-36060638869.txt</a>, from <a href="https://github.com/ezexe/phi/actions/runs/36060638869">Actions run 36060638869</a>; 10-digit codewords, 2 threads.</p>
+    </section>
+
+    <section class="sec">
+      <h2>Fine-tune, prune and quantize ResNet-152 V2 on a CPU</h2>
+      <p><code>finetune_encode_check.py</code> runs the steps of the variant cells of <code>quickstart_gpu.ipynb</code> on a CPU: a dense fine-tune of ResNet-152 with its IMAGENET1K_V2 weights on 5000 CIFAR-10 training images at 128 px, φ-pruning of the convolutions, and a fine-tune with the masks held fixed. The pruned convolutions are then quantized per tensor and per channel. Each model is scored on 2000 test images in fp32 and on the first 256 under fp16 autocast.</p>
+      <div class="tbl"><table>
+        <thead><tr><th>run</th><th>model</th><th>fp32</th><th>fp16</th><th>non-finite fp16</th></tr></thead>
+        <tbody id="ft-rows"></tbody>
+      </table></div>
+      <p>Per-tensor quantization left the pruned model at 9.25% in both runs, near the 10% of one answer for every image on ten classes; per-channel quantization kept the pruned model's accuracy, 19.00% against 19.10% and 32.85% against 31.70%. No fp16 logit was non-finite.</p>
+      <ul class="runs">
+        <li><a href="https://github.com/ezexe/p4-phi-experiments/blob/main/experiments/phi-prune/results/finetune-check-36070148204.txt">finetune-check-36070148204.txt</a>, <a href="https://github.com/ezexe/phi/actions/runs/36070148204">run 36070148204</a>: one epoch per fine-tune, the defaults, 50.9 minutes.</li>
+        <li><a href="https://github.com/ezexe/p4-phi-experiments/blob/main/experiments/phi-prune/results/finetune-check-36076634102.txt">finetune-check-36076634102.txt</a>, <a href="https://github.com/ezexe/phi/actions/runs/36076634102">run 36076634102</a>: <code>--ft-epochs 6</code>, 101.2 minutes.</li>
+      </ul>
+      <p class="src">Script: <a href="https://github.com/ezexe/p4-phi-experiments/blob/main/experiments/phi-prune/scripts/finetune_encode_check.py">scripts/finetune_encode_check.py</a>, on a GitHub runner with 2 threads.</p>
+    </section>
+
+    <section class="sec">
+      <h2>φ against 2 of every 4 on a small transformer</h2>
+      <p><code>transformer_check.py</code> trains a character-level GPT with 4 layers, width 128 and MLP width 512 on the source of the Python standard library, on a CPU, for 1500 steps, then prunes MLP hidden neurons, so that a pruned neuron loses its row in <code>fc1</code> and its column in <code>fc2</code>, and fine-tunes each arm for 300 steps with the mask held fixed. The figures are validation bits per character after fine-tuning, shown to four places from the JSON files. Lower is better.</p>
+      <div class="tbl"><table>
+        <thead><tr><th>arm</th><th>density</th><th>seed 0</th><th>seed 1</th><th>seed 2</th></tr></thead>
+        <tbody id="tc-rows"></tbody>
+      </table></div>
+      <p>At half of the neurons the φ mask, whose densities were 0.4932 to 0.4946, finished above 2 of every 4 in every seed, by 0.0159 on average. The script's criterion K1, which keeps φ when that difference is below the pooled standard deviation over seeds, 0.0247, recorded it as surviving. Reordering the neurons before the φ mask gives exactly the heaviest half, as the script's docstring says, so <code>phi-reorder</code> and <code>top-50</code> match to the last digit. At a quarter, φ and 1 of every 4 differ by 0.0006 on average, and K2, which asks φ to win by more than σ, recorded φ as killed. At three quarters, where <code>phi-comp</code> puts the constraint on the pruned neurons instead, K5 asked it to beat 3 of every 4 in every seed and recorded it as killed, since seed 1 went the other way.</p>
+<p>Both files were written by an earlier version of the script, before it recorded which part it ran and which Python, platform and torch it ran on. The script makes the same parts again with:</p>
+<pre><code>python experiments/phi-register/scripts/transformer_check.py --part low --out low.json
+python experiments/phi-register/scripts/transformer_check.py --part high --out high.json</code></pre>
+      <p class="src">Result files: <a href="https://github.com/ezexe/p4-phi-experiments/blob/main/experiments/phi-register/results/transformer-check/low.json">low.json</a> and <a href="https://github.com/ezexe/p4-phi-experiments/blob/main/experiments/phi-register/results/transformer-check/high.json">high.json</a> under experiments/phi-register/results/transformer-check; script: <a href="https://github.com/ezexe/p4-phi-experiments/blob/main/experiments/phi-register/scripts/transformer_check.py">transformer_check.py</a>. It trains on the standard library of the Python that runs it, so a run on another Python gives other figures. The same files hold the check's quantization part, which belongs to the register model, and its delta part is a run of its own, <code>--part delta</code>.</p>
+    </section>
+  </main>
+
+  <footer>
+    The scripts and result files are in <a href="https://github.com/ezexe/p4-phi-experiments/tree/main/experiments/phi-prune">experiments/phi-prune</a> and <a href="https://github.com/ezexe/p4-phi-experiments/tree/main/experiments/phi-register">experiments/phi-register</a> of ezexe/p4-phi-experiments. This page is <code>docs/pho/benchmarks.html</code> in <a href="https://github.com/ezexe/phi">ezexe/phi</a>.
+  </footer>
+</div>
+<script>
+(function(){
+  var root=document.documentElement,key="dox-theme",btn=document.getElementById("theme");
+  function stored(){try{return localStorage.getItem(key)}catch(e){return null}}
+  function current(){return root.getAttribute("data-theme")||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light")}
+  function label(){btn.textContent=current()==="dark"?"light theme":"dark theme"}
+  var s=stored(); if(s==="dark"||s==="light")root.setAttribute("data-theme",s);
+  label();
+  try{matchMedia("(prefers-color-scheme: dark)").addEventListener("change",label)}catch(e){}
+  btn.addEventListener("click",function(){var n=current()==="dark"?"light":"dark";root.setAttribute("data-theme",n);try{localStorage.setItem(key,n)}catch(e){}label()});
+})();
+
+/* Tabs, by the WAI-ARIA tabs pattern */
+(function(){
+  var tabs=[].slice.call(document.querySelectorAll('#fig [role="tab"]'));
+  function select(t){
+    tabs.forEach(function(x){var on=x===t;x.setAttribute("aria-selected",on);x.tabIndex=on?0:-1;document.getElementById(x.getAttribute("aria-controls")).hidden=!on});
+    t.focus();
+  }
+  tabs.forEach(function(t,i){
+    t.addEventListener("click",function(){select(t)});
+    t.addEventListener("keydown",function(e){
+      var j=e.key==="ArrowRight"?(i+1)%tabs.length:e.key==="ArrowLeft"?(i-1+tabs.length)%tabs.length:e.key==="Home"?0:e.key==="End"?tabs.length-1:-1;
+      if(j>=0){e.preventDefault();select(tabs[j])}
+    });
+  });
+})();
+
+
+var NS="http://www.w3.org/2000/svg";
+function el(tag,attrs,parent,text){var e=document.createElementNS(NS,tag);for(var k in attrs)e.setAttribute(k,attrs[k]);if(text!=null)e.textContent=text;if(parent)parent.appendChild(e);return e}
+function css(v){return getComputedStyle(document.documentElement).getPropertyValue(v).trim()}
+function clear(s){while(s.firstChild)s.removeChild(s.firstChild)}
+function cell(v,n){return "<td"+(n?" class='n'":"")+">"+v+"</td>"}
+
+/* measure_detection.txt, as the file prints it */
+var MD=[[8,"gaussian","0.04642","0.4648","0.0022","0.4649","0.4091"],[10,"gaussian","0.01751","0.4611","0.0022","0.4604","0.4167"],[8,"laplace","0.11776","0.5181","0.0022","0.5164","0.4091"],[10,"laplace","0.04467","0.5032","0.0022","0.5020","0.4167"],[8,"student-t3","0.70665","0.4816","0.0022","0.4829","0.4091"],[10,"student-t3","0.25808","0.4560","0.0022","0.4558","0.4167"],[8,"uniform","0.01070","0.4116","0.0022","0.4120","0.4091"],[10,"uniform","0.00404","0.4187","0.0022","0.4179","0.4167"]];
+/* probe-encoding-36066245824.txt: strategy, agree, logit rel err, mean layer err, worst */
+var PQ={"resnet152 IMAGENET1K_V2":[["tensor","0.0%","7.483","0.0760","0.1863"],["channel","93.8%","0.075","0.0213","0.0387"],["clip99.9","0.0%","6.420","0.1153","0.2879"],["clip99.99","0.0%","1.958","0.0598","0.1254"],["clip99.999","65.6%","0.495","0.0583","0.1206"]],
+"resnet101 IMAGENET1K_V2":[["tensor","0.0%","1.545","0.0761","0.1955"],["channel","95.3%","0.081","0.0216","0.0395"],["clip99.9","0.0%","1.536","0.1176","0.2537"],["clip99.99","7.8%","1.152","0.0608","0.1335"],["clip99.999","75.0%","0.237","0.0590","0.1237"]],
+"resnet50 IMAGENET1K_V2":[["tensor","0.0%","99.269","0.0668","0.1415"],["channel","87.5%","0.112","0.0207","0.0355"],["clip99.9","0.0%","1.489","0.1050","0.2135"],["clip99.99","0.0%","3.518","0.0530","0.1016"],["clip99.999","0.0%","22.836","0.0529","0.0972"]],
+"resnet152 IMAGENET1K_V1":[["tensor","90.6%","0.083","0.0626","0.1656"],["channel","95.3%","0.039","0.0183","0.0300"],["clip99.9","23.4%","0.629","0.0936","0.1962"],["clip99.99","71.9%","0.350","0.0497","0.1068"],["clip99.999","81.2%","0.177","0.0490","0.0939"]]};
+/* probe-encoding-36060638869.txt */
+var FP=[["resnet152 IMAGENET1K_V2",[["dense","0.0%","0.0%","100.0%","100.0%","68.89"],["dense+enc","0.0%","0.0%","0.0%","0.0%","1051"],["pruned","0.0%","0.0%","0.0%","0.0%","60.02"],["pruned+enc","0.0%","0.0%","0.0%","0.0%","239.8"]]],
+["resnet152 IMAGENET1K_V1",[["dense","0.0%","0.0%","100.0%","100.0%","29.37"],["dense+enc","0.0%","0.0%","90.6%","90.6%","29.49"],["pruned","0.0%","0.0%","0.0%","0.0%","6.745"],["pruned+enc","0.0%","0.0%","0.0%","0.0%","6.413"]]],
+["resnet50 IMAGENET1K_V2",[["dense","0.0%","0.0%","100.0%","100.0%","89.15"],["dense+enc","0.0%","0.0%","0.0%","0.0%","3645"],["pruned","0.0%","0.0%","0.0%","0.0%","23.99"],["pruned+enc","0.0%","0.0%","0.0%","0.0%","24.42"]]]];
+/* finetune-check-36070148204.txt and finetune-check-36076634102.txt */
+var FT=[["36070148204",[["dense","86.20%","86.33%","0.0%"],["pruned","19.10%","19.53%","0.0%"],["enc per layer","9.25%","10.16%","0.0%"],["enc per channel","19.00%","21.09%","0.0%"]]],
+["36076634102",[["dense","88.75%","86.72%","0.0%"],["pruned","31.70%","30.08%","0.0%"],["enc per layer","9.25%","10.16%","0.0%"],["enc per channel","32.85%","34.77%","0.0%"]]]];
+/* low.json and high.json: fine-tuned bits per character, to four places */
+var TC={"50":[["phi","0.493 to 0.495",[2.0941,2.0431,2.0694]],["phi-reorder","0.500",[2.0751,2.0284,2.0547]],["2:4","0.500",[2.0775,2.0300,2.0515]],["top-50","0.500",[2.0751,2.0284,2.0547]],["random-50","0.500",[2.1054,2.0519,2.0737]]],
+"25":[["phi-low-25","0.250",[2.2030,2.1552,2.1821]],["1:4","0.250",[2.2022,2.1546,2.1818]],["top-25","0.250",[2.2046,2.1546,2.1797]]],
+"75":[["phi-comp-75","0.750",[2.0209,1.9779,1.9971]],["3:4","0.750",[2.0218,1.9772,1.9973]],["top-75","0.750",[2.0213,1.9762,1.9970]],["random-75","0.750",[2.0357,1.9894,2.0093]]]};
+var DENSE=[2.0225,1.9706,2.0025];
+
+document.getElementById("md-rows").innerHTML=MD.map(function(r){return "<tr>"+cell(r[0],1)+cell(r[1])+cell(r[2],1)+cell(r[3],1)+cell(r[4],1)+cell(r[5],1)+cell(r[6],1)+"</tr>"}).join("");
+document.getElementById("q-tables").innerHTML=Object.keys(PQ).map(function(m){return "<div class='tbl'><table><thead><tr><th colspan='5'>"+m+": dense quantized against dense, fp32, 64 images</th></tr><tr><th>strategy</th><th>agree</th><th>logit rel err</th><th>mean layer err</th><th>worst</th></tr></thead><tbody>"+PQ[m].map(function(r){return "<tr>"+cell(r[0])+cell(r[1],1)+cell(r[2],1)+cell(r[3],1)+cell(r[4],1)+"</tr>"}).join("")+"</tbody></table></div>"}).join("");
+document.getElementById("fp-rows").innerHTML=FP.map(function(g){return g[1].map(function(r,i){return "<tr>"+cell(i?"":g[0])+cell(r[0])+cell(r[1],1)+cell(r[2],1)+cell(r[3],1)+cell(r[4],1)+cell(r[5],1)+"</tr>"}).join("")}).join("");
+document.getElementById("ft-rows").innerHTML=FT.map(function(g){return g[1].map(function(r,i){return "<tr>"+cell(i?"":g[0])+cell(r[0])+cell(r[1],1)+cell(r[2],1)+cell(r[3],1)+"</tr>"}).join("")}).join("");
+document.getElementById("tc-rows").innerHTML=["50","25","75"].map(function(k){return TC[k].map(function(r){return "<tr>"+cell("<code>"+r[0]+"</code>")+cell(r[1],1)+r[2].map(function(v){return cell(v.toFixed(4),1)}).join("")+"</tr>"}).join("")}).join("")+"<tr>"+cell("dense")+cell("1.000",1)+DENSE.map(function(v){return cell(v.toFixed(4),1)}).join("")+"</tr>";
+
+function drawF(){
+  var s=document.getElementById("f-svg");clear(s);
+  var W=640,H=260,L=44,R=10,T=12,B=50,pw=W-L-R,ph=H-T-B,bw=pw/MD.length,lo=0.35,hi=0.55;
+  function Y(v){return T+ph-(v-lo)/(hi-lo)*ph}
+  [0.35,0.4,0.45,0.5,0.55].forEach(function(v){el("line",{x1:L,y1:Y(v),x2:W-R,y2:Y(v),class:"axis","stroke-dasharray":"2 4"},s);el("text",{x:L-6,y:Y(v)+4,"text-anchor":"end",class:"tick"},s,v.toFixed(2))});
+  MD.forEach(function(r,i){var x=L+i*bw,v=+r[3];
+    el("rect",{x:x+bw*0.22,y:Y(v),width:bw*0.56,height:Y(lo)-Y(v),rx:2,fill:css("--phi")},s);
+    el("line",{x1:x+bw*0.12,y1:Y(+r[5]),x2:x+bw*0.88,y2:Y(+r[5]),stroke:css("--ink"),"stroke-width":2},s);
+    el("line",{x1:x+bw*0.12,y1:Y(+r[6]),x2:x+bw*0.88,y2:Y(+r[6]),stroke:css("--app"),"stroke-width":3},s);
+    el("text",{x:x+bw/2,y:H-30,"text-anchor":"middle",class:"tick"},s,r[1]);
+    el("text",{x:x+bw/2,y:H-16,"text-anchor":"middle",class:"tick"},s,r[0]+" digits");
+  });
+}
+var qm=document.getElementById("q-m");Object.keys(PQ).forEach(function(m){var o=document.createElement("option");o.textContent=m;qm.appendChild(o)});
+function drawQ(){
+  var s=document.getElementById("q-svg");clear(s);var rows=PQ[qm.value];
+  var W=640,H=230,L=96,R=50,T=10,bh=(H-T-20)/rows.length;
+  rows.forEach(function(r,i){var v=parseFloat(r[1]),y=T+i*bh,w=(W-L-R)*v/100;
+    el("text",{x:L-8,y:y+bh*0.6,"text-anchor":"end",class:"tick"},s,r[0]);
+    el("rect",{x:L,y:y+bh*0.18,width:W-L-R,height:bh*0.64,rx:3,fill:css("--sunk"),stroke:css("--line")},s);
+    el("rect",{x:L,y:y+bh*0.18,width:Math.max(w,0),height:bh*0.64,rx:3,fill:r[0]==="channel"?css("--phi"):css("--app")},s);
+    el("text",{x:L+Math.max(w,0)+6,y:y+bh*0.6,class:"tick"},s,r[1]);
+  });
+  el("text",{x:L,y:H-2,class:"lbl"},s,"share of 64 images whose top-1 class agrees with the dense model");
+}
+qm.addEventListener("change",drawQ);
+var td=document.getElementById("t-d");
+function drawT(){
+  var s=document.getElementById("t-svg");clear(s);var arms=TC[td.value];
+  var all=[];arms.forEach(function(a){all=all.concat(a[2])});all=all.concat(DENSE);
+  var lo=Math.floor(Math.min.apply(null,all)*50)/50-0.01,hi=Math.ceil(Math.max.apply(null,all)*50)/50;
+  var W=640,H=260,L=48,R=10,T=12,B=56,pw=W-L-R,ph=H-T-B,gw=pw/3,bw=gw*0.8/arms.length;
+  function Y(v){return T+ph-(v-lo)/(hi-lo)*ph}
+  for(var t=0;t<=4;t++){var v=lo+(hi-lo)*t/4;el("line",{x1:L,y1:Y(v),x2:W-R,y2:Y(v),class:"axis","stroke-dasharray":"2 4"},s);el("text",{x:L-6,y:Y(v)+4,"text-anchor":"end",class:"tick"},s,v.toFixed(3))}
+  var colors=[css("--phi"),css("--you"),css("--app"),css("--link"),css("--soft")];
+  for(var sd=0;sd<3;sd++){
+    var gx=L+sd*gw+gw*0.1;
+    arms.forEach(function(a,i){var v=a[2][sd];el("rect",{x:gx+i*bw+1,y:Y(v),width:bw-2,height:Y(lo)-Y(v),rx:2,fill:colors[i%colors.length]},s)});
+    el("line",{x1:gx-4,y1:Y(DENSE[sd]),x2:gx+gw*0.8+4,y2:Y(DENSE[sd]),stroke:css("--ink"),"stroke-dasharray":"5 3"},s);
+    el("text",{x:gx+gw*0.4,y:H-38,"text-anchor":"middle",class:"lbl"},s,"seed "+sd);
+  }
+  var lx=L;arms.forEach(function(a,i){el("rect",{x:lx,y:H-22,width:11,height:11,rx:2,fill:colors[i%colors.length]},s);var t=el("text",{x:lx+15,y:H-12,class:"tick"},s,a[0]);lx+=26+a[0].length*7.2});
+}
+td.addEventListener("change",drawT);
+function redraw(){drawF();drawQ();drawT()}
+redraw();
+document.getElementById("theme").addEventListener("click",redraw);
+try{matchMedia("(prefers-color-scheme: dark)").addEventListener("change",redraw)}catch(e){}
+</script>
+</body>
+</html>
