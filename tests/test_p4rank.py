@@ -58,8 +58,6 @@ def test_train_and_eval(tmp_path):
     assert next(iter(torch.load(mdir / "ranker.pt", weights_only=True)["state"].values())).dtype == torch.float32
     assert side["anchor_round"] == 0 and side["chain"] == []
     assert side["threshold_from"].startswith("held-out") and 0 <= side["heldout_rprecision"] <= 1
-    oof = json.loads((mdir / "ranker-oof.json").read_text())
-    assert set(oof["pools"]) == {f"p{k}" for k in range(len(TOPICS))}
     # it learned the topics: each task ranks its own rules first
     for k, t in enumerate(TOPICS):
         texts = [f"the {u} rule number 0" for u in TOPICS]

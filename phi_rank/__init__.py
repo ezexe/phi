@@ -56,7 +56,6 @@ scored on) and chosen again when the labelled pools have grown by a quarter.
 """
 
 import argparse
-import hashlib
 import json
 import math
 import os
@@ -584,7 +583,6 @@ ANCHOR = "ranker-anchor.pt"     # git LFS: the chain's whole start
 CURRENT = "ranker.pt"           # this machine's fp32 build of anchor + chain; never tracked
 SIDECAR = "ranker.json"         # what the hooks read without torch: round, threshold, anchor, chain, pools seen
 SIDECAR_RECALL = "ranker-pt.json"   # the sidecar's name in a p4-recall store, whose own JSON ranker is ranker.json
-OOF = "ranker-oof.json"         # out-of-fold scores of every labelled pool: the JSON ranker's .pt feature
 
 
 def sidecar_name(p4: str) -> str:
@@ -718,22 +716,15 @@ def base_model(p4: str, minutes: float, now: str, repretrain: float = 1.25, writ
     return model, meta
 
 
-def text_key(text: str) -> str:
-    """A candidate's key in the out-of-fold scores: the plugin hashes the same distilled text the same way."""
-    return hashlib.sha1(text.encode("utf-8")).hexdigest()[:12]
-
-
 def heldout_threshold(base_state: Dict, pools: Sequence[Dict], epochs: int, folds: int = 4
-                      ) -> Tuple[float, str, Optional[float], Dict[str, Dict[str, float]]]:
-    """The pick threshold from scores on pools each fold's model never trained on; those pools' mean r-precision;
-    and the scores themselves, {pool id: {text key: score}} — out of fold, so the JSON ranker can learn how far to
-    trust this model's score without learning from a score that saw its own label. With too few pools to fold, the
-    training pools' own threshold, said so, no held-out figure and no scores."""
+                      ) -> Tuple[float, str, Optional[float]]:
+    """The pick threshold from scores on pools each fold's model never trained on, and those pools' mean
+    r-precision. With too few pools to fold, the training pools' own threshold, said so, and no held-out figure."""
     if len(pools) < 4:
         model = ranker_like(base_state)
         model.load_state_dict(base_state)
         finetune(model, pools, epochs=epochs)
-        return best_threshold(model, pools), "train", None, {}
+        return best_threshold(model, pools), "train", None
     k = min(folds, len(pools))
     scored = []
     for i in range(k):
@@ -751,8 +742,7 @@ def heldout_threshold(base_state: Dict, pools: Sequence[Dict], epochs: int, fold
         if f1 > best_f1:
             best, best_f1 = t, f1
     rprec = sum(pool_metrics([r["label"] for r in p["rows"]], sc, [])["r-precision"] for p, sc in scored) / len(scored)
-    oof = {p["id"]: {text_key(r["text"]): round(x, 5) for r, x in zip(p["rows"], sc)} for p, sc in scored}
-    return best, f"held-out, {k} folds", rprec, oof
+    return best, f"held-out, {k} folds", rprec
 
 
 def cmd_train(args) -> int:
@@ -775,12 +765,8 @@ def cmd_train(args) -> int:
     have_t = isinstance(side.get("threshold"), (int, float))
     t_pools = side.get("threshold_pools", len(side.get("pools", [])))
     if not have_t or "heldout_rprecision" not in side or len(pools) >= max(1, t_pools) * REFOLD_GROWTH:
-        t, how, rprec, oof = heldout_threshold(base_state, pools, args.epochs)
+        t, how, rprec = heldout_threshold(base_state, pools, args.epochs)
         t_pools = len(pools)
-        if oof:
-            # tracked beside the models (text, small): the JSON ranker's training reads it on any machine, torch or not
-            write_text_atomic(json.dumps({"round": rnd, "from": how, "pools": oof}, separators=(",", ":")) + "\n",
-                              os.path.join(mdir, OOF))
     else:
         t, how, rprec = side["threshold"], side.get("threshold_from", ""), side["heldout_rprecision"]
 
@@ -839,8 +825,7 @@ def cmd_train(args) -> int:
     side.update({"round": rnd, "threshold": t, "threshold_from": how, "threshold_pools": t_pools,
                  "heldout_rprecision": None if rprec is None else round(rprec, 4),
                  "trained": args.now, "pools": [p["id"] for p in pools], "per_file": PER_FILE})
-    # `seen` is kept and widened by the plugin too (pools it met with nothing to learn count as met)
-    side["seen"] = sorted(set(side.get("seen", [])) | set(side["pools"]))
+    side.pop("seen", None)
     nb, dim = model.bag.weight.shape
     meta = served_meta({"nb": nb, "dim": dim, "stage": "finetuned"}, side)
     # the sidecar first: a reader that sees it before the build rebuilds the same model from the chain
