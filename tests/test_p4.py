@@ -61,6 +61,18 @@ def test_planned_work_is_read_wherever_it_is_kept(tmp_path):
     assert len([r for r in read_p4(str(p4)) if r.source.startswith("plans/")]) == 0      # only when it is given
 
 
+def test_work_folders_skip_the_layouts_build_output(tmp_path):
+    """In the layout p4-phi and p4-temportal write, temportal's scratchpad, tmp and src folders hold build output
+    and session files, phi's archive holds what a migration kept verbatim, never planned work, and the store's own
+    parts have readers of their own."""
+    p4 = tmp_path / "p4"
+    for rel in ("phi/store/rules.md", "phi/models/x/plan.md", "temportal/memory/x/plan.md",
+                "temportal/scratchpad/job/plan.md", "temportal/tmp/s/part/report.md", "temportal/src/probe/plan.md",
+                "phi/archive/s1/plan.md", "work/w1/plan.md"):
+        write(p4 / rel, "build output\n")
+    assert [r.source for r in read_p4(str(p4))] == ["work/w1/plan.md"]
+
+
 def test_split(tmp_path):
     p4 = store(tmp_path)
     train, held = split(list(read_p4(str(p4))), "2026-10-25 00:00")

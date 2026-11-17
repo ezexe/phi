@@ -13,8 +13,9 @@ with its session, time and weight:
                messages/<s8>.md, its fingerprint, addressed and recommended
                fields
                the plan.md and the capped report.md of every folder that holds
-               one, wherever it is kept: inside the store, outside the top
-               folders STORE_PARTS names, and under the repository's plans
+               one, wherever it is kept: inside the store, outside the parts
+               of the layout and the top folders STORE_PARTS names, and under
+               the repository's plans
                directory when read_p4 is given it, whose single-file plans are
                read too; a folder with no takeoff.json is timed by its name,
                as 20261105-1126-... is
@@ -58,6 +59,8 @@ STAMPED_NAME_RE = re.compile(r"^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})\b")
 WORK_FILES = (("plan.md", None), ("report.md", REPORT_CAP))   # what makes a folder a piece of planned work
 # the top folders of a flat store that other readers cover, or that hold build output, traces and binaries
 STORE_PARTS = ("store", "memory", "models", "scratchpad", "sessions", "mrindex")
+# the same parts in the store's layout, under phi/ and temportal/
+LAYOUT_PARTS = ("store", "models", "archive", "memory", "scratchpad", "tmp", "src")
 
 
 @dataclass
@@ -142,12 +145,15 @@ def folder_time(folder: Path) -> str:
 def work_folders(root: Path, top_skip=()) -> List[Path]:
     """Every folder under root that holds a plan.md or a report.md, in path order: a piece of planned work and
     what came of it. Nothing here knows where such folders are kept, in a store, a repository's plans directory or
-    anywhere else: the files make the folder, not its place. Dot directories are not entered, nor the top-level
-    names in top_skip, the parts of a store another reader already covers."""
+    anywhere else: the files make the folder, not its place. Dot directories are not entered, nor the folders whose
+    paths relative to root, with forward slashes, top_skip names: the parts of a store another reader already
+    covers, and its build output."""
     out = []
+    skip = set(top_skip)
     for d, dirs, files in os.walk(root):
         at_top = Path(d) == root
-        dirs[:] = sorted(x for x in dirs if not x.startswith(".") and not (at_top and x in top_skip))
+        here = "" if at_top else Path(d).relative_to(root).as_posix() + "/"
+        dirs[:] = sorted(x for x in dirs if not x.startswith(".") and here + x not in skip)
         if not at_top and any(n in files for n, _ in WORK_FILES):
             out.append(Path(d))
     return out
@@ -346,7 +352,7 @@ def read_p4(root: str, plans: Optional[str] = None) -> Iterator[Record]:
 
     # planned work, wherever it is kept: inside the store, and in the repository's plans directory when one is
     # given
-    yield from work_records(p4, top_skip=STORE_PARTS)
+    yield from work_records(p4, top_skip=STORE_PARTS + tuple(layout.rel(p4, k) for k in LAYOUT_PARTS))
     if plans and Path(plans).is_dir():
         base = Path(plans)
         in_folders = set()

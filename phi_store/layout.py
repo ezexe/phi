@@ -1,6 +1,7 @@
 """The store's layout: each plugin writes in a folder of its own under `.claude/p4/`.
 
-p4-phi keeps `phi/store/` and `phi/models/`, and p4-temportal keeps `temportal/memory/`, `temportal/scratchpad/`,
+p4-phi keeps `phi/store/`, `phi/models/` and `phi/archive/`, what a migration from the per-session layout keeps
+verbatim, and p4-temportal keeps `temportal/memory/`, `temportal/scratchpad/`,
 `temportal/tmp/` and `temportal/src/`. A store an older plugin wrote holds store/ and models/ under `recall/`, or
 flat at its top, until the plugins' next session start moves them. `sub()` and `rel()` find the layout the store
 holds: the newest one it holds, else the newest of all. LAYOUT holds the places of
@@ -18,6 +19,7 @@ LAYOUT = {
     "src": "temportal/src",
     "store": "phi/store",
     "models": "phi/models",
+    "archive": "phi/archive",
 }
 # store/ and models/ in each older layout, newest first
 OLDER = ({"store": "recall/store", "models": "recall/models"}, {"store": "store", "models": "models"})
