@@ -266,14 +266,15 @@ def main(argv=None) -> int:
             p.add_argument("set", choices=sorted(recall.MODES))
     args = ap.parse_args(argv)
     p4 = p4_root(args.project)
+    if args.cmd == "mode":
+        # p4.json is written without the plugin, so a machine with a store and no plugin still sets its mode
+        print(f"mode {args.set} → {write_mode(p4, args.set, args.now)}")
+        return 0
     plugin = find_plugin(args.plugin, args.project)
     if args.cmd == "check":
         rep = check(p4, plugin)
         print(json.dumps(rep, indent=1, default=str)) if args.json else print_check(rep)
         return 1 if rep["owed"] else 0
-    if args.cmd == "mode":
-        print(f"mode {args.set} → {write_mode(p4, args.set, args.now)}")
-        return 0
     if args.cmd == "train":
         trained = train(p4, plugin, [x for x in args.only.split(",") if x], args.now, args.minutes)
         print(f"{resolve_notices(p4, plugin, trained, args.now)} notice(s) answered")
