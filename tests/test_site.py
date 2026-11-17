@@ -1,4 +1,4 @@
-"""The docs site builds: every doc, notebook, component, artifact and hand-written page gets a page, the index lists
+"""The docs site builds: every doc, notebook, artifact and hand-written page gets a page, the index lists
 them all, and a doc's relative links land on the site or on GitHub, never on a path the site doesn't carry."""
 
 import os
@@ -20,7 +20,7 @@ def test_site_builds(tmp_path):
     listed, missing = build.build(str(out))
     assert not missing
     kinds = {k for _, _, k in listed}
-    assert kinds == {"doc", "interactive", "artifact", "page"}
+    assert kinds == {"doc", "artifact", "page"}
     index = (out / "index.html").read_text(encoding="utf-8")
     for site, _, _ in listed:
         assert (out / site).exists() and f'href="{site}"' in index
