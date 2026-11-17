@@ -116,7 +116,7 @@ label.f input{border:1px solid var(--line);background:var(--bg);border-radius:8p
     <tr><td>Zeckendorf, 1972, with Lekkerkerker, 1952</td><td>every positive integer is one sum of non-consecutive Fibonacci numbers</td><td><a href="https://en.wikipedia.org/wiki/Zeckendorf%27s_theorem">Zeckendorf's theorem</a></td></tr>
     <tr><td>Apostolico and Fraenkel, 1987, IEEE Transactions on Information Theory 33</td><td>Fibonacci coding, which confines the effect of errors locally</td><td>doi 10.1109/TIT.1987.1057284</td></tr>
     <tr><td>Elias, 1975, IEEE Transactions on Information Theory 21</td><td>the gamma and delta codes <code>gap_bits</code> prices</td><td>doi 10.1109/TIT.1975.1055349</td></tr>
-    <tr><td>Reitwiesner, 1960, Advances in Computers 1</td><td>the non-adjacent form, called canonical signed digit, with about a third of its digits nonzero</td><td><a href="https://en.wikipedia.org/wiki/Non-adjacent_form">Non-adjacent form</a></td></tr>
+    <tr><td>Reitwiesner, 1960, Advances in Computers 1</td><td>canonical signed digit form, with about a third of its digits nonzero</td><td><a href="https://en.wikipedia.org/wiki/Non-adjacent_form">Non-adjacent form</a></td></tr>
     <tr><td>Booth, 1951, Quarterly Journal of Mechanics and Applied Mathematics</td><td>Booth recoding of a binary multiplier</td><td><a href="https://en.wikipedia.org/wiki/Booth%27s_multiplication_algorithm">Booth's multiplication algorithm</a></td></tr>
     <tr><td>Ahlbach, Usatine and Pippenger, 2012</td><td>Zeckendorf addition by circuits of linear size and logarithmic depth</td><td><a href="https://arxiv.org/abs/1207.4497">arXiv:1207.4497</a></td></tr>
     <tr><td>Fenwick, 2003</td><td>the removal of 2 digits, 2F(k) = F(k+1) + F(k−2), a carry up and a carry two places down</td><td>Zeckendorf arithmetic preprint, Section 2.1</td></tr>
@@ -452,7 +452,7 @@ const FINDINGS = [
     rel: 1,
     year: "1960",
     who: "George W. Reitwiesner",
-    what: "Digits {−1,0,1}, constraint: no consecutive nonzero digits. Unique, minimal Hamming weight, about n/3 nonzero digits.",
+    what: "Digits {−1,0,1}, constraint: no two consecutive digits both nonzero. Unique, minimal Hamming weight, about n/3.",
     connection: "Structurally identical constraint to Zeckendorf. Siblings: one signed-digit binary, one unsigned Fibonacci.",
     links: ["indep_sets", "booth", "golden_shift"]
   },
@@ -464,7 +464,7 @@ const FINDINGS = [
     year: "1951",
     who: "Andrew Donald Booth",
     what: "Recode binary multiplier to reduce partial products. Scan adjacent pairs, replace runs of 1s.",
-    connection: "Booth recoding, CSD and the Zeckendorf representation all keep nonzero digits apart.",
+    connection: "Booth recoding, CSD and the Zeckendorf representation allow no two adjacent digits both nonzero.",
     links: ["naf", "ahlbach"]
   },
   {
@@ -1175,7 +1175,7 @@ function getTreeAnnotation(finding) {
     booth: {
       eq: "Booth: recode to reduce partial products",
       sub: k => `${sf(k)}→B`,
-      insight: "Booth recoding, CSD and the Zeckendorf representation all keep nonzero digits apart."
+      insight: "Booth recoding, CSD and the Zeckendorf representation allow no two adjacent digits both nonzero."
     },
     phinary: {
       eq: "Base φ: 011→100 = φⁿ⁻¹+φⁿ⁻²=φⁿ",

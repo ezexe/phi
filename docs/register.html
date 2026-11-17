@@ -222,12 +222,12 @@ pre{background:var(--sunk);border:1px solid var(--line);border-radius:10px;paddi
     <tr><td>heaviest three quarters</td><td class="n">0.750</td><td class="n">2.1998</td><td class="n">1.9982</td><td></td></tr>
     <tr><td>random three quarters</td><td class="n">0.750</td><td class="n">2.2286</td><td class="n">2.0115</td><td>−&nbsp;heaviest three quarters: +0.0144, +0.0132, +0.0123</td></tr>
   </table></div>
-  <p>Reordering hidden neurons so ranks interleave does not change what the model computes, and for distinct scores of even count the φ mask it keeps is exactly the heaviest half. At 75% the (1,∞)-RLL constraint sits on the pruned neurons, so no two neighbouring neurons are both pruned.</p>
+  <p>Reordering hidden neurons so ranks interleave does not change what the model computes, and for distinct scores of even count the φ-pruning mask it keeps is exactly the heaviest half. At 75% the (1,∞)-RLL constraint sits on the pruned neurons, so no two neighbouring neurons are both pruned.</p>
 
   <h3>Hamming weight of the quantized weights</h3>
-  <p>Each count is the mean number of 1 digits per weight level, which is the number of partial products a multiplier adds per weight. Offset form is the package's uniform affine quantization, <code>(w − min) · scale</code>. Sign-magnitude form writes the magnitude of a symmetric level. CSD is canonical signed digit form.</p>
+  <p>Each count is the mean Hamming weight of a weight level, which is the number of partial products a multiplier adds per weight. Uniform affine levels are <code>round((w − min) · scale)</code> per output channel, computed by the script's own <code>quantize_levels</code> on the formula of the package's <code>encode_tensor</code>, except that its <code>torch.round</code> rounds ties to even where <code>encode_tensor</code> rounds them up. Sign-magnitude form writes the magnitude of a symmetric level. CSD is canonical signed digit form.</p>
   <div class="tbl"><table>
-    <tr><th class="n">Levels</th><th class="n">Bits</th><th class="n">Bits per character</th><th class="n">Offset: Zeckendorf</th><th class="n">CSD</th><th class="n">binary</th><th class="n">Sign-magnitude: Zeckendorf</th><th class="n">CSD</th><th class="n">binary</th></tr>
+    <tr><th class="n">Levels</th><th class="n">Bits</th><th class="n">Bits per character</th><th class="n">Uniform affine: Zeckendorf</th><th class="n">CSD</th><th class="n">binary</th><th class="n">Sign-magnitude: Zeckendorf</th><th class="n">CSD</th><th class="n">binary</th></tr>
     <tr><td class="n">16</td><td class="n">4.00</td><td class="n">2.0279</td><td class="n">1.695</td><td class="n">1.832</td><td class="n">2.000</td><td class="n">1.018</td><td class="n">1.134</td><td class="n">1.154</td></tr>
     <tr><td class="n">21</td><td class="n">4.39</td><td class="n">2.0132</td><td class="n">1.862</td><td class="n">2.000</td><td class="n">2.220</td><td class="n">1.139</td><td class="n">1.258</td><td class="n">1.296</td></tr>
     <tr><td class="n">32</td><td class="n">5.00</td><td class="n">2.0055</td><td class="n">2.098</td><td class="n">2.193</td><td class="n">2.500</td><td class="n">1.340</td><td class="n">1.470</td><td class="n">1.566</td></tr>
@@ -236,7 +236,7 @@ pre{background:var(--sunk);border:1px solid var(--line);border-radius:10px;paddi
     <tr><td class="n">377</td><td class="n">8.56</td><td class="n">1.9986</td><td class="n">3.514</td><td class="n">3.372</td><td class="n">4.281</td><td class="n">2.664</td><td class="n">2.668</td><td class="n">3.221</td></tr>
     <tr><td class="n">987</td><td class="n">9.95</td><td class="n">1.9985</td><td class="n">4.066</td><td class="n">3.845</td><td class="n">4.948</td><td class="n">3.213</td><td class="n">3.143</td><td class="n">3.924</td></tr>
   </table></div>
-  <p>The bits per character depend only on the level count: 6 Zeckendorf digits are 21 uniform levels, and the representations differ only in how many additions they cost. In offset form CSD takes the lead between 55 and 144 levels, where <a href="https://github.com/ezexe/p4-phi-experiments/blob/6576c16/experiments/phi-register/results/register/digit_counts_uniform.txt"><code>results/register/digit_counts_uniform.txt</code></a> puts it for evenly spread levels. In sign-magnitude form the Zeckendorf representation holds through 377 levels, 2.664 against 2.668, and loses at 987.</p>
+  <p>The bits per character depend only on the level count: 6 Zeckendorf digits are 21 uniform levels, and the representations differ only in how many additions they cost. With uniform affine levels CSD takes the lead between 55 and 144 levels, where <a href="https://github.com/ezexe/p4-phi-experiments/blob/6576c16/experiments/phi-register/results/register/digit_counts_uniform.txt"><code>results/register/digit_counts_uniform.txt</code></a> puts it for evenly spread levels. In sign-magnitude form the Zeckendorf representation holds through 377 levels, 2.664 against 2.668, and loses at 987.</p>
 
   <h3>The delta of a fine-tuned model</h3>
   <p><code>--part delta</code> trains a base model per seed on most of the training files, fine-tunes a copy for 300 steps on another tenth of them, and takes the delta of every Linear layer, the fine-tuned minus the base weights. Over the three seeds the general validation went from 2.1163 to 2.0165 bits per character, the held-out part of the fine-tuning files went from 1.6445 to 1.7124, and the delta's norm is 0.1459 of the weights' norm, so the fine-tune behaved as continued training of an undertrained base. Weights and deltas are both quantized symmetrically per output channel:</p>
@@ -256,19 +256,19 @@ pre{background:var(--sunk);border:1px solid var(--line);border-radius:10px;paddi
     <tr><td>K1: φ-pruning at 50% within σ of 2 of every 4</td><td>difference 0.0159, σ 0.0247</td><td><span class="verdict keep">survives</span> as registered; the paired reading is worse in every seed</td></tr>
     <tr><td>K2: φ-pruning at 25% beats 1 of every 4 by more than σ</td><td>difference −0.0006, σ 0.0239</td><td><span class="verdict kill">killed</span></td></tr>
     <tr><td>K3: φ-pruning after reordering within σ of the heaviest half</td><td>difference 0.0000, σ 0.0234</td><td><span class="verdict keep">survives</span>; the two masks are the same mask</td></tr>
-    <tr><td>K4: Zeckendorf Hamming weight below CSD's at 21 levels, offset form</td><td>difference −0.1383</td><td><span class="verdict keep">survives</span></td></tr>
+    <tr><td>K4: Zeckendorf Hamming weight below CSD's at 21 uniform affine levels</td><td>difference −0.1383</td><td><span class="verdict keep">survives</span></td></tr>
     <tr><td>K5: φ-pruning on the pruned neurons below 3 of every 4 in every seed</td><td>difference −0.0002</td><td><span class="verdict kill">killed</span></td></tr>
-    <tr><td>K6: Zeckendorf Hamming weight below CSD's at 144 levels, offset form</td><td>difference +0.0241</td><td><span class="verdict kill">killed</span></td></tr>
+    <tr><td>K6: Zeckendorf Hamming weight below CSD's at 144 uniform affine levels</td><td>difference +0.0241</td><td><span class="verdict kill">killed</span></td></tr>
     <tr><td>K7: a larger saving against CSD on the delta than on the weights, 21 levels</td><td>difference −0.0007</td><td><span class="verdict kill">killed</span></td></tr>
     <tr><td>K8: Fibonacci-coded gaps below Elias gamma and a fixed-length code at 10% kept</td><td>difference −0.3689 bits</td><td><span class="verdict keep">survives</span>, in every seed</td></tr>
   </table></div>
 
   <h2>What the measurements show</h2>
   <ul>
-    <li><b>Fewer additions at low precision.</b> On trained weights and on the delta, Zeckendorf levels have a lower Hamming weight than binary and CSD from 16 to 55 levels in offset form and through 377 levels in sign-magnitude form, so a multiply by adding Fibonacci multiples takes fewer additions there. CSD has the lower count above that.</li>
+    <li><b>Fewer additions at low precision.</b> On trained weights, Zeckendorf levels have a lower Hamming weight than binary and CSD from 16 to 55 uniform affine levels and through 377 levels in sign-magnitude form, and on the delta, quantized symmetrically per channel, at the 21 and 55 levels measured, so a multiply by adding Fibonacci multiples takes fewer additions there. On trained weights CSD has the lower count above that.</li>
     <li><b>Self-timed against clocked.</b> A self-timed Zeckendorf accumulator takes fewer rounds per dot product than a clocked binary one, and more than a self-timed binary one, whose additions reach normal form in fewer rounds.</li>
     <li><b>Single-bit error detection on one side only.</b> About two in five single-bit flips of a Zeckendorf register in normal form are detected and under one in ten can be corrected, while a binary register detects none; normalization keeps a corrupted value, so the check comes first.</li>
-    <li><b>The φ mask on a transformer's MLP.</b> At 50% it is worse than 2 of every 4 in every seed, and reordering closes the gap only by turning it into the heaviest half; at 25% and 75% every chosen mask reaches the same loss after fine-tuning.</li>
+    <li><b>φ-pruning on a transformer's MLP.</b> At 50% it is worse than 2 of every 4 in every seed, and reordering closes the gap only by turning it into the heaviest half; at 25% and 75% φ-pruning, the matching pattern of every 4 and the heaviest neurons reach the same loss after fine-tuning, and a random three quarters is worse in every seed.</li>
     <li><b>Scale.</b> The transformer has 4 layers of width 128 and trains 1500 steps on CPU, and the register figures count rewrite rounds, so the results give directions and not sizes.</li>
   </ul>
 
