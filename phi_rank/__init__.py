@@ -1,58 +1,49 @@
 """
-A .pt ranker for a .claude/p4 store: which store entries bear on a session's task.
+An asymmetric dual encoder for a .claude/p4 store: which documents bear on a session's query.
 
 Two stages, one model:
 
-1. pretrain — self-supervised over every text file git keeps in the p4
-   repository (the store, the flights, the frags, memory, scratchpad notes,
-   readings and logs): the store's .gitignore decides what is trainable, and
-   anything binary that slips past it is skipped; a file is read up to
-   MAX_FILE_BYTES. Neighbouring
-   passages of one file are pulled together and every other passage in the
-   batch pushed apart (InfoNCE), so the encoder learns the repository's own
-   vocabulary: its classes, files, measurements and rulings.
-2. finetune — on labelled pools: each pool's task against the entries picked
-   for it, the pool's other candidates as the negatives. Two sources: the pairs
-   the vlds plugin exports (`pick_model.py pairs --jsonl`, read_pools), or,
-   with no --pairs, the p4-recall plugin's own labels (read_label_pools):
-   models/labels.tsv and tasks.tsv joined over models/index.json, label 1 the
-   positives, label 0 plus NEGATIVES unlabelled BM25 candidates the negatives,
-   each candidate one the session could have been shown (dated before the task).
+1. pretrain: contrastive pretraining with in-batch negatives over every text file git keeps in the store's
+   repository. The store's .gitignore decides what is trainable, anything binary that slips past it is skipped, and
+   a file is read up to MAX_FILE_BYTES. Neighbouring passages of one file form a positive pair and every other
+   passage in the batch is a negative, by InfoNCE, so the encoder learns the repository's own vocabulary: its
+   classes, files, measurements and decisions.
+2. fine-tune: on labelled query groups, which read_label_pools builds from the store's labels.tsv and tasks.tsv
+   joined over index.json. A group is a query with its label-1 documents as the positives, and its label-0
+   documents and NEGATIVES BM25 negatives as the negatives, each candidate one the session could have been shown,
+   dated before the query. Each positive is scored against negatives sampled from its own group under a softmax
+   cross-entropy, which is Localized Contrastive Estimation.
 
-The encoder is a bag of hashed word, word-pair and character-trigram features
-(no vocabulary to download) through an EmbeddingBag and a small MLP, with one
-head for tasks and one for entries; a score is the cosine of the two. It trains
-on a CPU in minutes, and on a CUDA GPU when one is present (PHI_DEVICE=cpu keeps
-it on the CPU): pretrain and finetune move the model to device() for the run
-and back to the CPU after, so a model at rest, its checkpoints and its deltas
-are always on the CPU. Each run keeps its texts' features in memory (up to
-FEATURE_CACHE_MB), so the GPU does not wait on hashing. phi_serve serves it.
+The encoder hashes word, word-bigram and character-trigram features, so it has no vocabulary to download, and runs
+them through an EmbeddingBag and a small MLP, with one head for queries and one for documents; a score is the cosine
+of the two. It trains on a CPU in minutes, and on a CUDA GPU when one is present unless PHI_DEVICE=cpu: pretrain and
+finetune move the model to device() for the run and back to the CPU after, so a model at rest, its checkpoints and
+its deltas are always on the CPU. Each run keeps its texts' features in memory, up to FEATURE_CACHE_MB, so the GPU
+does not wait on hashing.
 
-It learns continually, in rounds, and what git keeps of it is phi_prune's:
+It learns in rounds, each warm-started from the model before it, and what git keeps of it is phi_prune's:
 
-- the anchor, models/ranker-anchor.pt (fp16, git LFS): a whole fine-tuned
-  model, the start of a chain;
-- each later round continues from the model the chain rebuilds, on every pool
-  (the new ones and a replay of the old), and ships only its change as
-  models/ranker.rNNN.phid (git LFS): the largest KEEP of the entries that
-  moved, positions in Fibonacci gap codes and values on the Zeckendorf grid
-  (phi_prune.delta), packed eight bits to a byte;
-- models/ranker.json names the anchor and the chain (models/ranker-pt.json in
-  a store the p4-recall plugin writes, whose own JSON ranker is ranker.json);
-- models/ranker.pt is this machine's build of anchor + chain, in fp32 so the
-  next round starts exactly where a reader of the store would: never tracked,
-  rebuilt by load_current() when a pull brings rounds it has not seen.
+- the full checkpoint, models/ranker-anchor.pt, at fp16 in git LFS: a whole fine-tuned model, which the later rounds
+  build on;
+- each later round continues from the model the checkpoints rebuild, on every query group, the new ones and a
+  replay of the old, and ships only its change as an incremental checkpoint, models/ranker.rNNN.phid in git LFS:
+  the largest KEEP of the entries that moved, their positions in Fibonacci gap codes and their values quantized
+  symmetrically and written in Zeckendorf digits by phi_prune.delta, packed eight bits to a byte;
+- the sidecar names the full checkpoint and the incremental ones: models/ranker.json, or models/ranker-pt.json in a
+  store p4-phi writes, whose own logistic regression ranker is ranker.json;
+- models/ranker.pt is this machine's build of those checkpoints, in fp32 so the next round starts exactly where a
+  reader of the store would; it is never tracked, and load_current() rebuilds it when a pull brings rounds it has
+  not seen.
 
-A round is shipped whole, as a new anchor, when the cut costs more than
-REBASE_GAP of the training pools' r-precision, when the chain reaches
-MAX_CHAIN rounds, or when the pretrained base has changed. The pretrained base
-learns continually too: when the repository's text has grown it continues
-pretraining from the base it has. The pick threshold is chosen on held-out
-pools (each fold's model fine-tuned from the base without the pools it is
-scored on) and chosen again when the labelled pools have grown by a quarter.
+A round is shipped whole, as a new full checkpoint, when the cut costs more than REBASE_GAP of the training query
+groups' R-precision, when MAX_CHAIN incremental checkpoints follow the full one, or when the pretrained base has
+changed. The pretrained base learns by continual pre-training: when the repository's text has grown, it continues
+pretraining from the base it has. The decision threshold is chosen on held-out query groups, each fold's model
+fine-tuned from the base without the groups it is scored on, and chosen again when the labelled query groups have
+grown by a quarter.
 
-    python -m phi_rank train --p4 <p4 root> --now "2026-10-27 09:00"
-    python -m phi_rank eval --p4 <p4 root>
+    python -m phi_rank train --p4 <store root> --now "2026-10-27 09:00"
+    python -m phi_rank eval --p4 <store root>
 """
 
 import argparse
@@ -68,7 +59,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import torch
-from phi_store import layout  # noqa: E402  (the store's layout: recall/, temportal/)
+from phi_store import layout  # noqa: E402  the store's layout: phi/ and temportal/
 import torch.nn as nn
 import torch.nn.functional as F
 
@@ -76,23 +67,23 @@ from phi_prune.delta import apply_delta, delta_stats, encode_delta, load_delta, 
 
 NB = 1 << 15                  # hashed feature buckets
 DIM = 64                      # 2^15 x 64 at fp16: a 4 MB checkpoint that pretrains in a few minutes on a CPU; a model
-                              # keeps the size it was built at (its meta), and --buckets / --dim build another
+                              # keeps the size its meta records, and --buckets and --dim build another
 MAX_FEATURES = 768            # features kept per text
 FEATURE_CACHE_MB = int(os.environ.get("PHI_FEATURE_CACHE_MB", "512"))   # per training run; full, it stops adding
 PASSAGE_CHARS = 600
 MAX_FILE_BYTES = 1 << 20      # a trace dump's first megabyte is plenty
-PER_FILE = 6                  # the pool's cap per store file, as the children's
+PER_FILE = 6                  # the most documents one file gives a query's selection
 SKIP_EXT = {".wav", ".pak", ".vst3", ".dat", ".png", ".jpg", ".jpeg", ".gif", ".bin", ".dll", ".exe", ".pdb",
             ".lib", ".obj", ".o", ".so", ".dylib", ".zip", ".gz", ".7z", ".pt", ".phid", ".wasm", ".ico", ".pdf"}
 SKIP_DIRS = {".git", "node_modules", "__pycache__", "models"}
-KEEP = 0.10                   # a round ships the largest 10% of the entries that moved (the notebook's dense-then-cut)
+KEEP = 0.10                   # a round ships the largest 10% of the entries that moved: top-k sparsification
 N_DIGITS = 6                  # Zeckendorf digits per value: 20 levels a side
-CONTINUE_EPOCHS = 10          # a round's epochs from the shipped model; an anchor's are the full --epochs
-REBASE_GAP = 0.02             # training r-precision the cut may cost before the round ships whole
-MAX_CHAIN = 8                 # rounds after an anchor before the next anchor
-REFOLD_GROWTH = 1.25          # labelled pools grown by this much since the threshold was chosen: choose it again
-MIN_PRETRAIN_STEPS = 100      # a base with fewer steps (a --minutes 0 or tiny budget) is pretrained again when asked
-NEGATIVES = 10                # unlabelled BM25 candidates added to a label pool as negatives
+CONTINUE_EPOCHS = 10          # a round's epochs from the shipped model; a full checkpoint's are the full --epochs
+REBASE_GAP = 0.02             # training R-precision the cut may cost before the round ships whole
+MAX_CHAIN = 8                 # incremental checkpoints after a full checkpoint before the next full one
+REFOLD_GROWTH = 1.25          # labelled query groups grown by this much since the threshold was chosen: choose it again
+MIN_PRETRAIN_STEPS = 100      # a base with fewer steps, from --minutes 0 or a tiny budget, is pretrained again when asked
+NEGATIVES = 10                # BM25 negatives added to a query group
 POOL_WORD_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*|\d+(?:\.\d+)*")
 TOKEN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*|\d+(?:\.\d+)*")
 
@@ -111,7 +102,7 @@ def words(text: str) -> List[str]:
 
 
 def featurize(text: str, nb: int = NB) -> List[int]:
-    """Hashed features of a text: words, neighbouring word pairs, and each word's character trigrams."""
+    """Hashed features of a text: words, word bigrams, and each word's character trigrams."""
     ws = words(text)
     feats = [f"w:{w}" for w in ws] + [f"b:{a}_{b}" for a, b in zip(ws, ws[1:])]
     for w in set(ws):
@@ -155,7 +146,7 @@ def batch_features(texts: Sequence[str], nb: int = NB, cache: Optional[FeatureCa
 
 
 def device() -> torch.device:
-    """Where training runs: PHI_DEVICE when set (cpu, cuda, cuda:1), else a CUDA GPU when there is one."""
+    """Where training runs: PHI_DEVICE when set, as cpu, cuda or cuda:1, else a CUDA GPU when there is one."""
     want = os.environ.get("PHI_DEVICE", "").strip() or ("cuda" if torch.cuda.is_available() else "cpu")
     return torch.device(want)
 
@@ -192,8 +183,9 @@ def info_nce(a: torch.Tensor, b: torch.Tensor, temperature: float = 0.05) -> tor
 # ─── the repository's text ─────────────────────────────────────────────────────────────────────────────
 
 def candidate_files(root: str) -> List[str]:
-    """What git keeps in the p4 repository — tracked files and new ones its .gitignore does not exclude — so the
-    store's .gitignore is the one rule for what is trainable; a directory that is no git repository is walked."""
+    """What git keeps in the store's repository, its tracked files and the untracked ones its .gitignore does not
+    exclude, so the store's .gitignore is the one rule for what is trainable; a directory that is no git repository
+    is walked."""
     import subprocess
     try:
         r = subprocess.run(["git", "-C", root, "ls-files", "-co", "--exclude-standard", "-z"], capture_output=True,
@@ -247,7 +239,7 @@ def passages(path: str) -> List[str]:
 
 
 def corpus_pairs(root: str) -> Tuple[List[Tuple[str, str]], int]:
-    """(neighbouring passage pairs across the repository's text, bytes read)."""
+    """The positive pairs of neighbouring passages across the repository's text, and the bytes read."""
     pairs, total = [], 0
     for p in text_files(root):
         ps = passages(p)
@@ -259,7 +251,7 @@ def corpus_pairs(root: str) -> Tuple[List[Tuple[str, str]], int]:
     return pairs, total
 
 
-# ─── the labelled pools ────────────────────────────────────────────────────────────────────────────────
+# ─── the labelled query groups ─────────────────────────────────────────────────────────────────────────
 
 def _tsv(path: str) -> List[Dict]:
     try:
@@ -272,7 +264,7 @@ def _tsv(path: str) -> List[Dict]:
 
 
 def index_docs(p4: str) -> List[Dict]:
-    """The p4-recall plugin's models/index.json docs as dicts: on disk they are rows under `doc_fields`."""
+    """The p4-phi plugin's index.json documents as dicts: on disk they are rows under `doc_fields`."""
     try:
         with open(layout.sub(p4, "models", "index.json"), encoding="utf-8") as f:
             idx = json.load(f)
@@ -284,7 +276,7 @@ def index_docs(p4: str) -> List[Dict]:
 
 
 def doc_text(d: Dict) -> str:
-    """What a candidate reads as: the entry's shown text; a repository file or commit prefixed by its path."""
+    """What a candidate reads as: the document's shown text, a repository file or commit prefixed by its path."""
     show, path = d.get("show") or "", d.get("path") or ""
     if path and d.get("kind") in ("file", "commit") and not show.startswith(path):
         return f"{path}: {show}"
@@ -292,7 +284,7 @@ def doc_text(d: Dict) -> str:
 
 
 def _bm25_order(task: str, docs: Sequence[Dict], k1: float = 1.2, b: float = 0.75) -> List[int]:
-    """Indices of docs by BM25 of the task's words against each doc's indexed tokens (`toks`), best first."""
+    """Indices of docs by BM25 of the query's words against each doc's indexed tokens, `toks`, best first."""
     toks = [(d.get("toks") or "").lower().split() for d in docs]
     n = len(toks)
     df: Dict[str, int] = {}
@@ -317,11 +309,11 @@ def _bm25_order(task: str, docs: Sequence[Dict], k1: float = 1.2, b: float = 0.7
 
 
 def read_label_pools(p4: str, negatives: int = NEGATIVES) -> List[Dict]:
-    """[{id, task, time, session, rows: [{id, file, text, label}]}] from the p4-recall plugin's models/labels.tsv,
-    tasks.tsv and index.json: one pool per task with a label-1 entry the index holds, its rows the task's labelled
-    entries (label 1 positive, label 0 negative) plus `negatives` unlabelled BM25 candidates as negatives, drawn
-    from what the session could have been shown (store entries dated before the task, undated ones, repository
-    files). A task whose text is a harness or agent message (`<...>`) is skipped. Sorted by task time."""
+    """[{id, task, time, session, rows: [{id, file, text, label}]}] from the p4-phi plugin's labels.tsv, tasks.tsv
+    and index.json: one query group per query with a label-1 document the index holds. Its rows are the query's
+    labelled documents, label 1 positive and label 0 negative, and `negatives` BM25 negatives drawn from what the
+    session could have been shown: store entries dated before the query, undated ones and repository files. A query
+    whose text is a system reminder or an agent's message, opening with `<`, is skipped. Sorted by query time."""
     docs = index_docs(p4)
     by_id = {d["id"]: d for d in docs}
     tasks = {r["id"]: r for r in _tsv(layout.sub(p4, "models", "tasks.tsv")) if r.get("id")}
@@ -353,7 +345,7 @@ def read_label_pools(p4: str, negatives: int = NEGATIVES) -> List[Dict]:
 
 
 def pools_for(args) -> List[Dict]:
-    """The pools a command trains or evaluates on: the store's own labels."""
+    """The query groups a command trains or evaluates on: the store's own labels."""
     return read_label_pools(args.p4, getattr(args, "negatives", NEGATIVES))
 
 
@@ -404,8 +396,8 @@ def best_threshold(model: Ranker, pools: Sequence[Dict]) -> float:
 # ─── training ──────────────────────────────────────────────────────────────────────────────────────────
 
 class Optim:
-    """SparseAdam for the embedding table (only touched rows move, so a step costs what its batch touches) and Adam
-    for the dense layers."""
+    """SparseAdam for the embedding table, where only touched rows move so that a step costs what its batch
+    touches, and Adam for the dense layers."""
 
     def __init__(self, model: "Ranker", lr: float):
         sparse = list(model.bag.parameters())
@@ -426,8 +418,8 @@ def pretrain(model: Ranker, pairs: List[Tuple[str, str]], minutes: float, batch:
              info: Optional[Dict] = None) -> int:
     """InfoNCE over neighbouring passages until the time budget runs out; returns the steps taken.
 
-    Early stopping: with `select` (model -> score, higher is better), the model is scored every `select_every`
-    seconds and once at the end, and the best-scoring weights are the ones it keeps. `info`, when given, receives
+    Early stopping: with `select`, a function from a model to a score where higher is better, the model is scored
+    every `select_every` seconds and once at the end, and the best-scoring weights are the ones it keeps. `info`, when given, receives
     the curve [(steps, score)], the best score and the steps it was reached at."""
     if len(pairs) < 2:
         return 0
@@ -478,7 +470,8 @@ def pretrain(model: Ranker, pairs: List[Tuple[str, str]], minutes: float, batch:
 
 def finetune(model: Ranker, pools: Sequence[Dict], epochs: int = 30, negatives: int = 31, lr: float = 1e-3,
              seed: int = 0) -> None:
-    """Each picked entry against the task, its pool's unpicked candidates as the negatives (listwise softmax)."""
+    """Each positive document against its query and negatives sampled from its query group, under a softmax
+    cross-entropy: Localized Contrastive Estimation."""
     rng = random.Random(seed)
     cache = FeatureCache(model.bag.num_embeddings)
     dev = device()
@@ -513,7 +506,7 @@ def models_dir(p4: str) -> str:
 
 
 def replace_retrying(tmp: str, path: str, tries: int = 50) -> None:
-    """os.replace, retried: Windows refuses it while a reader (the server, a hook) holds the target open."""
+    """os.replace, retried: Windows refuses it while a reader, such as a hook, holds the target open."""
     for attempt in range(tries):
         try:
             os.replace(tmp, path)
@@ -553,23 +546,23 @@ def load(path: str) -> Tuple[Ranker, Dict]:
 
 
 def save(model: Ranker, meta: Dict, path: str, half: bool = True) -> None:
-    """The weights at fp16, half the bytes in git LFS (load() trains and scores in fp32); half=False keeps fp32, for
-    the local build a next round continues from exactly."""
+    """The weights at fp16, half the bytes in git LFS, while load() trains and scores in fp32; half=False keeps
+    fp32, for the local build a next round continues from exactly."""
     save_atomic({"state": {k: v.half() if half else v.float() for k, v in model.state_dict().items()}, "meta": meta},
                 path)
 
 
-# ─── the chain: an anchor and its rounds' φ-deltas ──────────────────────────────────────────────────────
+# ─── the full checkpoint and its rounds' incremental checkpoints ───────────────────────────────────────
 
-ANCHOR = "ranker-anchor.pt"     # git LFS: the chain's whole start
-CURRENT = "ranker.pt"           # this machine's fp32 build of anchor + chain; never tracked
-SIDECAR = "ranker.json"         # what the hooks read without torch: round, threshold, anchor, chain, pools seen
-SIDECAR_RECALL = "ranker-pt.json"   # the sidecar's name in a p4-recall store, whose own JSON ranker is ranker.json
+ANCHOR = "ranker-anchor.pt"     # git LFS: the full checkpoint the rounds build on
+CURRENT = "ranker.pt"           # this machine's fp32 build of the checkpoints; never tracked
+SIDECAR = "ranker.json"         # the sidecar: round, threshold, full and incremental checkpoints, query groups
+SIDECAR_RECALL = "ranker-pt.json"   # the sidecar's name in a store p4-phi writes, whose own ranker is ranker.json
 
 
 def sidecar_name(p4: str) -> str:
-    """ranker.json, or ranker-pt.json in a store the p4-recall plugin writes (store/ at its top): the plugin's
-    ranker.py keeps its JSON ranker under models/ranker.json, and a train here must never overwrite it."""
+    """ranker.json, or ranker-pt.json in a store p4-phi writes, one with store/ in its layout: the plugin's
+    ranker.py keeps its logistic regression ranker as ranker.json, and a train here must never overwrite it."""
     return SIDECAR_RECALL if os.path.isdir(layout.sub(p4, "store")) else SIDECAR
 
 
@@ -582,14 +575,14 @@ def read_sidecar(p4: str) -> Dict:
         with open(sidecar_path(p4), encoding="utf-8") as f:
             side = json.load(f)
         if not isinstance(side, dict) or str(side.get("kind", "")).startswith("p4 recall"):
-            return {}                       # the plugin's own JSON ranker is not this sidecar
+            return {}                       # the plugin's own logistic regression ranker is not this sidecar
         return side
     except (OSError, ValueError):
         return {}
 
 
 def chain_key(side: Dict) -> List:
-    """What a build of the chain is a build of: the anchor's round and the deltas in order."""
+    """What a build is a build of: the full checkpoint's round and the incremental checkpoints in order."""
     return [side.get("anchor_round")] + list(side.get("chain", []))
 
 
@@ -604,7 +597,8 @@ def served_meta(meta: Dict, side: Dict) -> Dict:
 
 
 def rebuild(p4: str, side: Dict) -> Tuple[Ranker, Dict]:
-    """The anchor plus every delta of the chain, in order, in fp32: what any reader of the store rebuilds."""
+    """The full checkpoint plus every incremental checkpoint, in order, in fp32: what any reader of the store
+    rebuilds."""
     mdir = models_dir(p4)
     model, meta = load(os.path.join(mdir, ANCHOR))
     if meta.get("round") != side.get("anchor_round"):
@@ -619,9 +613,9 @@ def rebuild(p4: str, side: Dict) -> Tuple[Ranker, Dict]:
 
 
 def load_current(p4: str, write: bool = True) -> Tuple[Ranker, Dict]:
-    """The model the store's chain names: models/ranker.pt when it is a build of that chain, else rebuilt from the
-    anchor and the deltas (and, with write, saved as the new ranker.pt). A store from before the chain has no anchor:
-    its ranker.pt is the model."""
+    """The model the sidecar names: models/ranker.pt when it is a build of those checkpoints, else rebuilt from the
+    full checkpoint and the incremental ones and, with write, saved as ranker.pt. A store from before the incremental
+    checkpoints has no full checkpoint, and its ranker.pt is the model."""
     mdir = models_dir(p4)
     side = read_sidecar(p4)
     cur = os.path.join(mdir, CURRENT)
@@ -641,14 +635,15 @@ def load_current(p4: str, write: bool = True) -> Tuple[Ranker, Dict]:
 
 
 def adopt_legacy(p4: str, side: Dict) -> bool:
-    """A store from before the chain: its whole fine-tuned ranker.pt becomes the anchor. True when adopted."""
+    """A store from before the incremental checkpoints: its whole fine-tuned ranker.pt becomes the full
+    checkpoint. True when adopted."""
     mdir = models_dir(p4)
     cur, anc = os.path.join(mdir, CURRENT), os.path.join(mdir, ANCHOR)
     if os.path.exists(anc) or not os.path.exists(cur) or "anchor_round" in side:
         return False
     try:
         model, meta = load(cur)
-    except Exception:  # noqa: BLE001 — a broken old checkpoint is no anchor; the round starts a fresh one
+    except Exception:  # noqa: BLE001 — a broken old checkpoint is no full checkpoint; the round starts a fresh one
         return False
     if meta.get("stage") != "finetuned":
         return False
@@ -667,10 +662,11 @@ def mean_rprecision(model: Ranker, pools: Sequence[Dict]) -> float:
 
 def base_model(p4: str, minutes: float, now: str, repretrain: float = 1.25, write: bool = True, nb: int = NB,
                dim: int = DIM) -> Tuple[Ranker, Dict]:
-    """The pretrained base: models/ranker-base.pt. Built when absent, or when it has fewer than MIN_PRETRAIN_STEPS
-    (built with no or a tiny budget) and a budget is given now; when the repository's text has grown by `repretrain`
-    times since, it continues pretraining from the base it has, so the base keeps learning what the store adds.
-    write=False (an evaluation) builds a missing base in memory and saves nothing."""
+    """The pretrained base, models/ranker-base.pt. It is built when absent, or when it has fewer than
+    MIN_PRETRAIN_STEPS, having been built with no budget or a tiny one, and this call gives a budget. When the
+    repository's text has grown `repretrain` times since, it continues pretraining from the base it has, so the base
+    keeps learning what the store adds. write=False, for an evaluation, builds a missing base in memory and saves
+    nothing."""
     path = os.path.join(models_dir(p4), "ranker-base.pt")
     model, prior = None, 0
     if os.path.exists(path):
@@ -700,8 +696,9 @@ def base_model(p4: str, minutes: float, now: str, repretrain: float = 1.25, writ
 
 def heldout_threshold(base_state: Dict, pools: Sequence[Dict], epochs: int, folds: int = 4
                       ) -> Tuple[float, str, Optional[float]]:
-    """The pick threshold from scores on pools each fold's model never trained on, and those pools' mean
-    r-precision. With too few pools to fold, the training pools' own threshold, said so, and no held-out figure."""
+    """The decision threshold from scores on query groups each fold's model never trained on, and those groups'
+    mean R-precision. With too few groups to fold, the training groups' own threshold, said so, and no held-out
+    figure."""
     if len(pools) < 4:
         model = ranker_like(base_state)
         model.load_state_dict(base_state)
@@ -728,8 +725,8 @@ def heldout_threshold(base_state: Dict, pools: Sequence[Dict], epochs: int, fold
 
 
 def cmd_train(args) -> int:
-    """One round: the first (or a rebase) fine-tunes the base and ships a whole anchor; every other continues from
-    the chain's model on every pool and ships its change as a φ-delta."""
+    """One round: the first, or one that ships whole, fine-tunes the base and ships a full checkpoint; every other
+    continues from the rebuilt model on every query group and ships its change as an incremental checkpoint."""
     pools = pools_for(args)
     if not pools:
         print("train — no labelled pool in models/labels.tsv + tasks.tsv + index.json; nothing written")
@@ -753,16 +750,16 @@ def cmd_train(args) -> int:
 
     parent, why = None, ""
     if "anchor_round" not in side or not os.path.exists(os.path.join(mdir, ANCHOR)):
-        why = "the first anchor"
+        why = "the first full checkpoint"
     elif side.get("anchor_base") != base_id(bmeta):
         why = "the pretrained base changed"
     elif len(side.get("chain", [])) >= MAX_CHAIN:
-        why = f"{MAX_CHAIN} rounds since the anchor"
+        why = f"{MAX_CHAIN} rounds since the full checkpoint"
     else:
         try:
             parent, _ = load_current(args.p4, write=False)
-        except Exception as e:  # noqa: BLE001 — a chain that does not rebuild is replaced, not trusted
-            why = f"the chain did not rebuild ({type(e).__name__}: {e})"
+        except Exception as e:  # noqa: BLE001 — checkpoints that do not rebuild are replaced, not trusted
+            why = f"the checkpoints did not rebuild: {type(e).__name__}: {e}"
 
     shipped, note = None, ""
     if parent is not None:
@@ -776,7 +773,7 @@ def cmd_train(args) -> int:
         shipped.eval()
         dense_rp, ship_rp = mean_rprecision(parent, pools), mean_rprecision(shipped, pools)
         if dense_rp - ship_rp > REBASE_GAP:
-            why = f"the cut cost {dense_rp - ship_rp:.3f} r-precision ({dense_rp:.3f} → {ship_rp:.3f})"
+            why = f"the cut cost {dense_rp - ship_rp:.3f} R-precision, {dense_rp:.3f} → {ship_rp:.3f}"
             model, shipped = parent, None
         else:
             name = f"ranker.r{rnd:03d}.phid"
@@ -785,8 +782,8 @@ def cmd_train(args) -> int:
             replace_retrying(tmp, os.path.join(mdir, name))
             side["chain"] = list(side.get("chain", [])) + [name]
             st = delta_stats(header, payload)
-            note = (f"delta {name}: {st['kept']:,} of {st['entries']:,} entries, {st['bits_per_kept']:.1f} bits each, "
-                    f"{os.path.getsize(os.path.join(mdir, name)) / 1e6:.2f} MB; training r-precision {dense_rp:.3f} "
+            note = (f"incremental checkpoint {name}: {st['kept']:,} of {st['entries']:,} entries, {st['bits_per_kept']:.1f} bits each, "
+                    f"{os.path.getsize(os.path.join(mdir, name)) / 1e6:.2f} MB; training R-precision {dense_rp:.3f} "
                     f"dense, {ship_rp:.3f} shipped")
             model = shipped
     if shipped is None:
@@ -799,9 +796,9 @@ def cmd_train(args) -> int:
         meta = {"nb": nb, "dim": dim, "stage": "finetuned", "round": rnd, "per_file": PER_FILE, "trained": args.now,
                 "corpus_bytes": bmeta.get("corpus_bytes", 0), "base_steps": bmeta.get("steps", 0)}
         save(model, meta, os.path.join(mdir, ANCHOR))
-        model, _ = load(os.path.join(mdir, ANCHOR))      # the anchor as a reader rebuilds it: fp16, back in fp32
+        model, _ = load(os.path.join(mdir, ANCHOR))      # the full checkpoint as a reader rebuilds it: fp16, back in fp32
         side.update({"anchor_round": rnd, "chain": [], "anchor_base": base_id(bmeta)})
-        note = f"anchor {ANCHOR} (whole): {why}"
+        note = f"full checkpoint {ANCHOR}: {why}"
 
     side.update({"round": rnd, "threshold": t, "threshold_from": how, "threshold_pools": t_pools,
                  "heldout_rprecision": None if rprec is None else round(rprec, 4),
@@ -809,19 +806,19 @@ def cmd_train(args) -> int:
     side.pop("seen", None)
     nb, dim = model.bag.weight.shape
     meta = served_meta({"nb": nb, "dim": dim, "stage": "finetuned"}, side)
-    # the sidecar first: a reader that sees it before the build rebuilds the same model from the chain
+    # the sidecar first: a reader that sees it before the build rebuilds the same model from the checkpoints
     write_text_atomic(json.dumps(side, indent=1) + "\n", sidecar_path(args.p4))
     save(model, meta, os.path.join(mdir, CURRENT), half=False)
-    print(f"train — round {rnd}: {len(pools)} pools, threshold {t:.2f} ({how})"
-          + (f", held-out r-precision {rprec:.3f}" if rprec is not None else "")
-          + ("; adopted the old ranker.pt as the anchor" if adopted else "") + f"; {note}")
+    print(f"train — round {rnd}: {len(pools)} query groups, threshold {t:.2f}, {how}"
+          + (f", held-out R-precision {rprec:.3f}" if rprec is not None else "")
+          + ("; adopted the old ranker.pt as the full checkpoint" if adopted else "") + f"; {note}")
     return 0
 
 
 def cmd_eval(args) -> int:
     pools = pools_for(args)
     if len(pools) < 3:
-        print(f"eval — {len(pools)} labelled pools; at least 3 are needed")
+        print(f"eval — {len(pools)} labelled query groups; at least 3 are needed")
         return 1
     base, _meta = base_model(args.p4, args.minutes, args.now or "", write=False, nb=args.buckets, dim=args.dim)
     base_state = {k: v.clone() for k, v in base.state_dict().items()}
@@ -840,8 +837,8 @@ def cmd_eval(args) -> int:
             got.append(pool_metrics([r["label"] for r in p["rows"]], sc,
                                     select([r["file"] for r in p["rows"]], sc, t)))
     mean = lambda k: sum(g[k] for g in got) / len(got)  # noqa: E731
-    print(f"eval — {args.folds}-fold over {len(pools)} pools: r-precision {mean('r-precision'):.3f}, recall@20 "
-          f"{mean('recall@20'):.3f}, picks precision {mean('precision'):.3f} recall {mean('recall'):.3f}")
+    print(f"eval — {args.folds}-fold over {len(pools)} query groups: R-precision {mean('r-precision'):.3f}, recall@20 "
+          f"{mean('recall@20'):.3f}, above the threshold precision {mean('precision'):.3f} recall {mean('recall'):.3f}")
     return 0
 
 
@@ -852,8 +849,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         p = sub.add_parser(name)
         p.add_argument("--p4", required=True)
         p.add_argument("--negatives", type=int, default=NEGATIVES,
-                       help="unlabelled BM25 candidates added to each label pool as negatives")
-        p.add_argument("--minutes", type=float, default=5, help="pretraining budget when the base is (re)built")
+                       help="BM25 negatives added to each query group")
+        p.add_argument("--minutes", type=float, default=5, help="pretraining budget when the base is built or rebuilt")
         p.add_argument("--buckets", type=int, default=NB, help="hashed feature buckets of a new base")
         p.add_argument("--dim", type=int, default=DIM, help="embedding width of a new base")
         p.add_argument("--epochs", type=int, default=30)
