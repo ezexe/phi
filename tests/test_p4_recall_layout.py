@@ -107,7 +107,6 @@ def test_module_summary_on_both_layouts(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "pair" in out and "store/" in out
     assert main([str(store(tmp_path))]) == 0
-    assert "dispatch rows" in capsys.readouterr().out
 
 
 def test_store_with_store_and_models_is_a_root(tmp_path):

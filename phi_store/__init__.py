@@ -376,27 +376,6 @@ def pick_pairs(jsonl: str) -> List[dict]:
         return [json.loads(line) for line in f if line.strip()]
 
 
-def dispatch_rows(root: str) -> Iterator[dict]:
-    """Every session's dispatch rows: the message fingerprint, its time, the barrier's state (FRESH, ECHO or
-    SUPERSEDED), the match the operator gave and what was addressed. Labels for an open-moment classifier; on
-    AudioPlugin-p4 as of 2026-10-27 they are 3,449 FRESH against 35 ECHO and 10 SUPERSEDED, too few repeats to train on."""
-    p4 = Path(root)
-    for path in sorted(p4.glob("sessions/*/vlds/dispatch.md")):
-        text = _read(path)
-        body = text.split("\n---\n", 1)[1] if "\n---\n" in text else ""
-        for block in re.split(r"\n(?=- fingerprint:)", body):
-            if not block.startswith("- fingerprint:"):
-                continue
-            fields = dict(re.findall(r"^\s*-?\s*([a-z-]+):\s*(.*)$", block, re.M))
-            m = re.match(r"(FRESH|ECHO|SUPERSEDED)\b(?!\s*\|)", fields.get("state", "").strip())
-            if not m:   # an open row, or the header's shape line copied as a row
-                continue
-            state = m.group(1)
-            yield {"session": session_id(path.parent.parent.name), "time": fields.get("time", ""),
-                   "fingerprint": fields.get("fingerprint", "").strip('"'), "state": state,
-                   "match": fields.get("match", ""), "addressed": fields.get("addressed", "")}
-
-
 def split(records: List[Record], cutoff: str) -> Tuple[List[Record], List[Record]]:
     """Records timed before cutoff train; timed at or after it are held out; untimed ones train."""
     train = [r for r in records if not r.time or r.time < cutoff]
@@ -416,8 +395,7 @@ def source_group(source: str) -> str:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    """python -m phi_store <p4 root>: records per kind and per source, characters, and the old layout's dispatch
-    rows when it has any."""
+    """python -m phi_store <p4 root>: records per kind and per source, and characters."""
     import sys
     from collections import Counter
 
@@ -436,8 +414,6 @@ def main(argv: Optional[List[str]] = None) -> int:
     chars = sum(len(r.text) + len(r.target) for r in recs)
     print(f"{len(recs)} records {dict(kinds)}, {chars / 1e6:.1f} M characters")
     print("by source:", dict(sorted(Counter(source_group(r.source) for r in recs).items())))
-    if (Path(root) / "sessions").is_dir():
-        print("dispatch rows:", dict(Counter(d["state"] for d in dispatch_rows(root))))
     return 0
 
 
