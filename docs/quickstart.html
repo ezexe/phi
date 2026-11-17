@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quick start · phi docs</title>
+<link rel="icon" href="data:,">
+<meta name="description" content="Install phi-prune, prune a small model, check its masks, write its kept weights as a Fibonacci-coded bitstream, and run the tests.">
+<style>
+:root{
+  --bg:#f5f3ec; --panel:#fffdf7; --sunk:#efece2; --ink:#1d1c19; --soft:#5d5a52; --line:#d9d4c6;
+  --phi:#0b6b66; --phi-bg:#dcefec; --app:#a85507; --app-bg:#f8e7d2;
+  --mono:ui-monospace,"Cascadia Code","SF Mono",Menlo,Consolas,monospace;
+  --sans:"Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,"Helvetica Neue",sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#131418; --panel:#1b1d23; --sunk:#16171c; --ink:#e9e6dd; --soft:#a29e93; --line:#33363f;
+    --phi:#62d2c6; --phi-bg:#16312f; --app:#f1ab52; --app-bg:#3a2a14;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#131418; --panel:#1b1d23; --sunk:#16171c; --ink:#e9e6dd; --soft:#a29e93; --line:#33363f;
+  --phi:#62d2c6; --phi-bg:#16312f; --app:#f1ab52; --app-bg:#3a2a14;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 var(--sans)}
+.wrap{max-width:880px;margin:0 auto;padding:24px 16px 64px}
+a{color:var(--phi)}
+code,pre{font-family:var(--mono)}
+code{font-size:.88em;background:var(--sunk);border-radius:4px;padding:1px 4px;overflow-wrap:anywhere}
+pre code{background:none;padding:0;font-size:inherit}
+:focus-visible{outline:2px solid var(--phi);outline-offset:2px}
+.top{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.mark{font:600 13px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--phi);text-decoration:none}
+.mark:hover{text-decoration:underline}
+.pill{font:600 12px/1 var(--mono);color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:9px 13px;cursor:pointer;white-space:nowrap}
+.pill:hover{border-color:var(--phi)}
+h1{font-size:clamp(30px,5.4vw,46px);line-height:1.08;letter-spacing:-.02em;margin:16px 0 10px;text-wrap:balance}
+h2{font-size:22px;line-height:1.2;letter-spacing:-.01em;margin:0 0 8px;text-wrap:balance}
+p,li{max-width:74ch}
+.lede{color:var(--soft);max-width:70ch;margin:0 0 22px}
+ol.steps{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:minmax(0,1fr);gap:14px;counter-reset:step}
+ol.steps>li{max-width:none;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 18px;counter-increment:step}
+ol.steps>li>h2::before{content:counter(step) ". ";color:var(--phi)}
+pre{background:var(--sunk);border:1px solid var(--line);border-radius:10px;padding:12px 14px;overflow-x:auto;font-size:13px;line-height:1.5;margin:10px 0}
+pre.out{background:var(--bg);color:var(--soft);border-style:dashed}
+.label{font:600 11px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--soft);margin:12px 0 0}
+ul.next{padding-left:20px}
+footer{margin-top:34px;padding-top:14px;border-top:1px solid var(--line);font-size:14px;color:var(--soft)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <a class="mark" href="index.html">← phi · docs</a>
+    <button class="pill" id="theme" type="button" aria-label="Switch between light and dark">theme</button>
+  </div>
+
+  <h1>Quick start</h1>
+  <p class="lede">Install <code>phi-prune</code>, prune a small model, check its masks, write its kept weights as a Fibonacci-coded bitstream, and run the tests. Each step below ran once on Python 3.14 with torch 2.15 on a CPU, and each output is what it printed. The three Python steps run in one session, each using the names the one before it set.</p>
+
+  <ol class="steps">
+    <li>
+      <h2>Install</h2>
+      <p>phi-prune needs Python 3.11 or later, torch 2.4.1 or later, and numpy. Install the package and its <code>phi-prune</code> command from GitHub:</p>
+      <pre><code>pip install git+https://github.com/ezexe/phi</code></pre>
+      <p>To work on the code and run its tests, clone it and install it in editable mode with the <code>dev</code> extra, which adds pytest:</p>
+      <pre><code>git clone https://github.com/ezexe/phi
+cd phi
+pip install -e ".[dev]"</code></pre>
+      <p>pip installs torch when it is missing. For torch's CPU-only wheels, install torch first from <code>https://download.pytorch.org/whl/cpu</code>, as the tests workflow does.</p>
+    </li>
+
+    <li>
+      <h2>Prune a model</h2>
+      <p><code>prune</code> gives each eligible Conv2d and Linear weight a φ mask over its output channels, which keeps the heaviest set of channels with no two adjacent, and zeroes the rest. It prunes a copy and returns it with the masks.</p>
+      <pre><code>import torch
+import torch.nn as nn
+from phi_prune import prune
+
+torch.manual_seed(0)
+model = nn.Sequential(
+    nn.Conv2d(3, 16, 3), nn.ReLU(),
+    nn.Conv2d(16, 32, 3), nn.ReLU(),
+    nn.AdaptiveAvgPool2d(1), nn.Flatten(),
+    nn.Linear(32, 10),
+)
+
+pruned, masks = prune(model)
+for name, mask in masks.items():
+    print(name, tuple(mask.shape), f"keeps {mask.float().mean():.1%}")
+print(f"density {pruned._phi_prune_stats['density']:.1%}")</code></pre>
+      <p class="label">Output</p>
+      <pre class="out">0.weight (16, 3, 3, 3) keeps 50.0%
+2.weight (32, 16, 3, 3) keeps 50.0%
+density 53.0%</pre>
+      <p>The last weight layer, here the <code>Linear</code> classifier head, stays dense, and the density counts its weights too. A trained model is fine-tuned next with the masks held fixed, through <code>finetune</code>, which <a href="pho/pruning.html">Pruning a model</a> covers.</p>
+    </li>
+
+    <li>
+      <h2>Check it</h2>
+      <p><code>check</code> reads every mask against its pattern and checks that every pruned weight is zero. <code>save_checkpoint</code> writes the model with its masks, so the <code>phi-prune</code> command can check the file again.</p>
+      <pre><code>from phi_prune import check
+from phi_prune.export import save_checkpoint
+
+report = check(pruned, masks)
+print(report["_summary"]["all_masks_valid"], report["_summary"]["all_zeros_enforced"])
+save_checkpoint(pruned, masks, "pruned.pt")</code></pre>
+      <p class="label">Output</p>
+      <pre class="out">True True</pre>
+      <pre><code>phi-prune check pruned.pt
+phi-prune info pruned.pt</code></pre>
+      <p class="label">Output</p>
+      <pre class="out">Loading pruned.pt...
+  ✓ 0.weight: density=0.500 valid=True zeros=True
+  ✓ 2.weight: density=0.500 valid=True zeros=True
+
+✓ All masks satisfy the (1,∞)-RLL constraint, and every pruned weight is zero.
+  0.weight: 216/432 (50.0%)
+  2.weight: 2304/4608 (50.0%)
+
+  Overall: 2520/5040, 50.0% density</pre>
+      <p><code>phi-prune check</code> exits 1 when a mask breaks its pattern or a pruned weight is not zero. <code>info</code> counts only the masked weights.</p>
+    </li>
+
+    <li>
+      <h2>Encode it</h2>
+      <p><code>FibonacciEncoder</code> rounds each kept weight to the nearest of its quantization levels, with a scale and an offset per output channel when <code>axis=0</code>. <code>export_bitstream</code> writes each level as a Fibonacci codeword, and <code>load_bitstream</code> reads the file back into the kept positions.</p>
+      <pre><code>from phi_prune import FibonacciEncoder
+from phi_prune.export import export_bitstream, load_bitstream
+
+encoder = FibonacciEncoder(n_digits=8)
+scales = {}
+for name, param in pruned.named_parameters():
+    if name in masks:
+        encoded, scale, rmse, offset = encoder.encode_tensor(
+            param.data, mask=masks[name], return_offset=True, axis=0)
+        param.data.copy_(encoded)
+        scales[name] = (scale, offset)
+        print(name, f"rmse {rmse:.4f}")
+
+stats = export_bitstream(pruned, masks, encoder, scales, "pruned.phi")
+print(stats["n_weights"], "weights,", f"{stats['bits_per_weight']:.2f} bits per weight")
+
+encoded = {name: p.detach().clone() for name, p in pruned.named_parameters()}
+for p in pruned.parameters():
+    p.data.zero_()
+load_bitstream(pruned, masks, "pruned.phi")
+for name in masks:
+    error = (pruned.get_parameter(name) - encoded[name]).abs().max().item()
+    print(name, f"read back, largest error {error:.1e}")</code></pre>
+      <p class="label">Output</p>
+      <pre class="out">0.weight rmse 0.0018
+2.weight rmse 0.0009
+2520 weights, 7.55 bits per weight
+0.weight read back, largest error 0.0e+00
+2.weight read back, largest error 0.0e+00</pre>
+      <p>Eight digits give 55 quantization levels. The bits per weight count the payload alone, and the file's JSON header line holds each layer's shape, kept count, scales and offsets.</p>
+    </li>
+
+    <li>
+      <h2>Run the tests</h2>
+      <p>From the root of the clone, with the <code>dev</code> extra installed:</p>
+      <pre><code>python -m pytest</code></pre>
+      <p class="label">Last line of the output, at commit 3e430bb</p>
+      <pre class="out">================= 178 passed, 5 skipped, 4 warnings in 53.49s =================</pre>
+      <p>A test that needs a package or a store this machine lacks is skipped, and <code>-ra</code> in <code>pyproject.toml</code> prints why. Outside CI, <code>tests/test_suite.py</code> fails a run that takes longer than the <code>budget_seconds</code> that <code>pyproject.toml</code> sets.</p>
+    </li>
+  </ol>
+
+  <h2 style="margin-top:34px">Where next</h2>
+  <ul class="next">
+    <li><a href="pho/pruning.html">Pruning a model</a>: <code>prune</code>, <code>finetune</code>, <code>check</code> and the saved checkpoint in full.</li>
+    <li><a href="pho/encoding.html">Quantization and the code</a>: the quantization levels, per-channel scales and the bitstream's layout.</li>
+    <li><a href="phi/codes.html">Fibonacci codes</a>: the codewords, the gap codes and the <code>.phid</code> file of a model's delta.</li>
+    <li><a href="register.html">The register model</a>: a Zeckendorf register beside a binary register on phi-prune's multiply–accumulate step.</li>
+  </ul>
+
+  <footer>
+    The code is in <a href="https://github.com/ezexe/phi">ezexe/phi</a>. This page is <code>docs/quickstart.html</code> there.
+  </footer>
+</div>
+<script>
+(function(){
+  var root=document.documentElement,key="dox-theme",btn=document.getElementById("theme");
+  function stored(){try{return localStorage.getItem(key)}catch(e){return null}}
+  function current(){return root.getAttribute("data-theme")||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light")}
+  function label(){btn.textContent=current()==="dark"?"light theme":"dark theme"}
+  var s=stored(); if(s==="dark"||s==="light")root.setAttribute("data-theme",s);
+  label();
+  try{matchMedia("(prefers-color-scheme: dark)").addEventListener("change",label)}catch(e){}
+  btn.addEventListener("click",function(){var n=current()==="dark"?"light":"dark";root.setAttribute("data-theme",n);try{localStorage.setItem(key,n)}catch(e){}label()});
+})();
+</script>
+</body>
+</html>
