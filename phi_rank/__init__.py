@@ -105,10 +105,11 @@ def words(text: str) -> List[str]:
 
 
 def featurize(text: str, nb: int = NB) -> List[int]:
-    """Hashed features of a text: words, word bigrams, and each word's character trigrams."""
+    """Hashed features of a text: words, word bigrams, and each word's character trigrams, in the words' first order,
+    so a text past MAX_FEATURES keeps the same trigrams in every process, whatever its PYTHONHASHSEED."""
     ws = words(text)
     feats = [f"w:{w}" for w in ws] + [f"b:{a}_{b}" for a, b in zip(ws, ws[1:])]
-    for w in set(ws):
+    for w in dict.fromkeys(ws):
         padded = f"<{w}>"
         feats += [f"c:{padded[i:i + 3]}" for i in range(len(padded) - 2)]
     ids = [zlib.crc32(f.encode("utf-8")) % nb for f in feats[:MAX_FEATURES * 2]]   # the model's own buckets

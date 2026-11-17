@@ -1,8 +1,10 @@
 """Tests for phi_rank: the dual encoder trained on a store in rounds of incremental checkpoints."""
 
+import ast
 import json
 import os
 import subprocess
+import sys
 
 import pytest
 import torch
@@ -221,3 +223,26 @@ def test_the_base_reads_the_text_once_to_continue_and_never_to_keep_itself(tmp_p
     _, continued = phi_rank.base_model(p4, 0.01, now, nb=4096, dim=16)
     assert continued["continued_from_steps"] == built["steps"] and continued["corpus_bytes"] > built["corpus_bytes"]
     assert sorted(cut) == sorted(phi_rank.text_files(p4))
+
+
+def test_a_texts_features_are_the_same_under_every_hash_seed():
+    """A model trains in one process and scores in another, so a text past MAX_FEATURES keeps the same trigrams
+    whatever PYTHONHASHSEED the process has: its first 300 words of phi_rank's own source fill the cap with trigrams.
+    Each process runs phi_rank's own words and featurize, lifted from its source, so that neither imports torch."""
+    source = open(phi_rank.__file__, encoding="utf-8").read()
+    text = " ".join(source.split()[:300])
+    lifted = [n for n in ast.parse(source).body
+              if isinstance(n, ast.FunctionDef) and n.name in ("words", "featurize")
+              or isinstance(n, ast.Assign) and n.targets[0].id in ("NB", "MAX_FEATURES", "TOKEN_RE")]
+    assert len(lifted) == 5
+    code = "\n".join(["import re, sys, zlib", "from typing import List", ast.unparse(lifted),
+                      "print(','.join(map(str, featurize(sys.stdin.read()))))"])
+    assert len(phi_rank.words(text)) * 2 - 1 < phi_rank.MAX_FEATURES       # the words and pairs leave room
+    ids = []
+    for seed in ("0", "1"):
+        out = subprocess.run([sys.executable, "-c", code], input=text, capture_output=True, text=True,
+                             env={**os.environ, "PYTHONHASHSEED": seed})
+        assert out.returncode == 0, out.stderr
+        ids.append([int(i) for i in out.stdout.split(",")])
+    assert ids[1] == ids[0]
+    assert ids[0] == phi_rank.featurize(text) and len(ids[0]) == phi_rank.MAX_FEATURES
