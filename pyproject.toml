@@ -29,4 +29,5 @@ include = ["phi_prune*", "phi_store*", "phi_rank*", "phi_model*"]
 testpaths = ["tests"]
 addopts = "--durations=0 --durations-min=0 -ra"
 # The seconds a whole run may take on this machine; tests/test_suite.py fails a run that takes longer, except in CI.
-budget_seconds = "60"
+# Five runs of python -m pytest here took a median of 25.5 s of wall time, and the slowest run's own count was 26.7 s.
+budget_seconds = "30"
