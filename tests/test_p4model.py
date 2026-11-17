@@ -38,6 +38,18 @@ def test_plugin_version_reads_any_manifest(tmp_path, version, want):
     assert phi_model.plugin_version(str(tmp_path)) == want
 
 
+def test_the_recall_tests_leave_the_environment_alone():
+    """Importing a test module, as collection does, sets no variable every later test and process would see."""
+    import os
+    import subprocess
+    import sys
+    here = os.path.dirname(os.path.abspath(__file__))
+    env = {k: v for k, v in os.environ.items() if k != "VLDS_PT_RANKER"}
+    out = subprocess.run([sys.executable, "-c", "import os, test_p4model_recall; print(os.environ.get('VLDS_PT_RANKER'))"],
+                         cwd=here, env=env, capture_output=True, text=True)
+    assert out.stdout.strip() == "None", out.stdout + out.stderr
+
+
 def test_explicit_plugin_wins(tmp_path):
     fake = tmp_path / "p4-phi"
     (fake / "scripts").mkdir(parents=True)

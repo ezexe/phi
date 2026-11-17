@@ -15,7 +15,6 @@ from phi_model import recall
 from phi_store import layout  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-os.environ["VLDS_PT_RANKER"] = "1"      # these tests build the dual encoder, which is on only as an experiment
 PLUGIN = os.environ.get("P4_RECALL_PLUGIN_ROOT") or next(
     (p for p in (os.path.normpath(os.path.join(HERE, "..", "..", "p4", "lbiza", "plugins", "p4-phi")),)
      if os.path.exists(os.path.join(p, "scripts", "p4.py"))), "")
@@ -23,6 +22,13 @@ needs_plugin = pytest.mark.skipif(not recall.is_plugin(PLUGIN), reason="the p4-p
 
 TOPICS = ["ring buffer drain", "midi transport playhead", "toolbar latency readout", "crash dump symbols",
           "plan document decisions", "render thread priority", "cmake floor version", "branch per machine"]
+
+
+@pytest.fixture(autouse=True)
+def dual_encoder_on(monkeypatch):
+    """These tests build the dual encoder, which is on only as an experiment; the variable is set for each test
+    alone, so no other test file or later process sees it."""
+    monkeypatch.setenv("VLDS_PT_RANKER", "1")
 
 
 def entry(pairs):
