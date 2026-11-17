@@ -345,7 +345,8 @@ def read_p4(root: str, plans: Optional[str] = None) -> Iterator[Record]:
     for path in sorted(layout.sub(p4, "memory").glob("*.md")):
         if new and path.name == "MEMORY.md":
             continue                        # the index of links, not a note
-        yield Record("pretrain", path.relative_to(p4).as_posix(), "", "", _read(path))
+        # named by the layout's key, as store_entries names the same note and store/ and models/ name theirs
+        yield Record("pretrain", f"memory/{path.name}", "", "", _read(path))
 
     if new:
         yield from read_recall_layout(p4)
@@ -375,7 +376,8 @@ def split(records: List[Record], cutoff: str) -> Tuple[List[Record], List[Record
 
 def source_group(source: str) -> str:
     """store/rules.md:5 gives store/rules.md; store/messages/ab.md:9 gives store/messages/; work/x/plan.md gives
-    work/; models/labels.tsv:<query> gives models/labels.tsv; temportal/memory/x.md gives temportal/."""
+    work/; models/labels.tsv:<query> gives models/labels.tsv; memory/x.md, the name read_p4 gives a memory note,
+    gives memory/."""
     parts = source.split(":", 1)[0].split("/")
     if parts[0] == "store":
         return "store/messages/" if parts[1] == "messages" else "/".join(parts[:2])

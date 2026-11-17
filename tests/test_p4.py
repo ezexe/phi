@@ -73,6 +73,17 @@ def test_work_folders_skip_the_layouts_build_output(tmp_path):
     assert [r.source for r in read_p4(str(p4))] == ["work/w1/plan.md"]
 
 
+def test_a_memory_note_has_one_name(tmp_path):
+    """A memory note's records name it memory/<name> in any layout, as store_entries does, and group as memory/."""
+    from phi_store import source_group, store_entries
+    p4 = tmp_path / "p4"
+    write(p4 / "phi" / "store" / "rules.md", "- ruling: x\n  time: 2026-11-01 10:00\n")
+    write(p4 / "temportal" / "memory" / "cef.md", "---\ndescription: the cef build\n---\nbody\n")
+    note = [r.source for r in read_p4(str(p4)) if r.source.endswith("cef.md")]
+    assert note == ["memory/cef.md"] and source_group(note[0]) == "memory/"
+    assert {s for s, _t, _x in store_entries(p4).values()} >= {"memory/cef.md"}
+
+
 def test_split(tmp_path):
     p4 = store(tmp_path)
     train, held = split(list(read_p4(str(p4))), "2026-10-25 00:00")
