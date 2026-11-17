@@ -86,29 +86,29 @@ def _time_of(text: str) -> str:
     return m.group(0) if m else ""
 
 
-def folder_pair(flight: Path) -> Optional[Record]:
+def folder_pair(folder: Path) -> Optional[Record]:
     """A work folder's ask and plan as the prompt, its close note and diff as the target: any folder that holds
     them, wherever it is kept."""
-    takeoff, close = _json(flight / "takeoff.json"), _json(flight / "close.json")
-    status = _read(flight / "status") if (flight / "status").exists() else ""
+    takeoff, close = _json(folder / "takeoff.json"), _json(folder / "close.json")
+    status = _read(folder / "status") if (folder / "status").exists() else ""
     clearance = re.search(r"^clearance:\s*(.*)$", status, re.M)
-    plan = _read(flight / "plan.md") if (flight / "plan.md").exists() else ""
+    plan = _read(folder / "plan.md") if (folder / "plan.md").exists() else ""
     prompt = "\n\n".join(x for x in (clearance.group(1) if clearance else "", plan) if x)
-    diff = _read(flight / "diff.patch") if (flight / "diff.patch").exists() else ""
+    diff = _read(folder / "diff.patch") if (folder / "diff.patch").exists() else ""
     target = "\n\n".join(x for x in (close.get("note", ""), diff) if x)
     if not prompt or not target:
         return None
     verdict = close.get("verdict") or status.split("\n", 1)[0].strip()
-    return Record("pair", str(flight.name), flight.name, takeoff.get("time", ""), prompt, target,
+    return Record("pair", str(folder.name), folder.name, takeoff.get("time", ""), prompt, target,
                   1.0 if verdict == "landed" else NOT_LANDED_WEIGHT)
 
 
-def folder_time(flight: Path) -> str:
+def folder_time(folder: Path) -> str:
     """takeoff.json's time, or the time in the folder's name: 20261105-1126-land-... gives 2026-11-05 11:26."""
-    t = _json(flight / "takeoff.json").get("time", "")
+    t = _json(folder / "takeoff.json").get("time", "")
     if t:
         return t
-    m = STAMPED_NAME_RE.match(flight.name)
+    m = STAMPED_NAME_RE.match(folder.name)
     return f"{m.group(1)}-{m.group(2)}-{m.group(3)} {m.group(4)}:{m.group(5)}" if m else ""
 
 
