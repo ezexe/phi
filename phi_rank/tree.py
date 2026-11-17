@@ -48,8 +48,6 @@ from phi_prune.masks import phi_mask
 
 TREE_DIR = "tree"
 TREE_JSON = "tree.json"
-TREE_OOF = "tree-oof.json"
-FOLDS = 4
 EFFORTS = ("medium", "high")
 
 
@@ -166,7 +164,7 @@ def build(p4: str, pools: Sequence[Dict], k: int = 4, minutes: float = MINUTES, 
     trained: Dict[str, Dict] = {}
     out_dir = os.path.join(pr.models_dir(p4), TREE_DIR)
     os.makedirs(out_dir, exist_ok=True)
-    nodes, pre = [], []
+    nodes = []
     for i, a in enumerate(order):
         m = pr.Ranker(nb, dim)
         kids = [trained[c] for c in trained if parent(c) == a]
@@ -178,7 +176,6 @@ def build(p4: str, pools: Sequence[Dict], k: int = 4, minutes: float = MINUTES, 
                                                     if minutes > 0 else "") + "fine-tuning")
         steps = pr.pretrain(m, shard_pairs(p4, files[i]), minutes / k, seed=i, log=lambda *_: None) if minutes > 0 else 0
         trained[a] = {key: v.clone() for key, v in m.state_dict().items()}   # what a parent starts from
-        pre.append(trained[a])
         pr.finetune(m, pools, epochs=epochs, seed=i)
         if mask:
             mask_rows(m)
@@ -188,44 +185,5 @@ def build(p4: str, pools: Sequence[Dict], k: int = 4, minutes: float = MINUTES, 
     meta = {"k": k, "nb": nb, "dim": dim, "trained": now, "nodes": nodes, "pools": [p["id"] for p in pools],
             "masked": mask, "minutes": minutes}
     pr.write_text_atomic(json.dumps(meta, indent=1) + "\n", os.path.join(pr.models_dir(p4), TREE_JSON))
-    oof = out_of_fold(pre, pools, epochs, now, log, mask=mask)
-    if oof:
-        pr.write_text_atomic(json.dumps(oof, separators=(",", ":")) + "\n", os.path.join(pr.models_dir(p4), TREE_OOF))
-        meta["heldout"] = oof["heldout"]
-        log(f"tree - held out over {oof['folds']} folds: medium {oof['heldout']['medium']:.3f}, "
-            f"high {oof['heldout']['high']:.3f}")
     return meta
-
-
-def out_of_fold(pre: Sequence[Dict], pools: Sequence[Dict], epochs: int, now: str, log=print,
-                mask: bool = MASK) -> Optional[Dict]:
-    """Every pool scored at medium and at high by a fold tree that never fine-tuned on it: each fold fine-tunes
-    every node from its pretrained state on the other folds' pools and masks it, as build does. None with too few
-    pools to fold."""
-    if len(pools) < FOLDS:
-        return None
-    scores: Dict[str, Dict[str, Dict[str, float]]] = {"medium": {}, "high": {}}
-    rprec: Dict[str, List[float]] = {"medium": [], "high": []}
-    for f in range(FOLDS):
-        held = pools[f::FOLDS]
-        train = [p for j, p in enumerate(pools) if j % FOLDS != f]
-        models = []
-        for i, state in enumerate(pre):
-            m = pr.ranker_like(state)
-            m.load_state_dict(state)
-            torch.manual_seed(f * 100 + i)
-            pr.finetune(m, train, epochs=epochs, seed=f * 100 + i)
-            if mask:
-                mask_rows(m)
-            models.append(m)
-        rows = node_rows(models)
-        log(f"tree - out of fold: fold {f + 1}/{FOLDS}, {len(pre)} nodes fine-tuned on {len(train)} pools")
-        for p in held:
-            texts = [r["text"] for r in p["rows"]]
-            for effort in scores:
-                sc, _ = answer(models, rows, p["task"], texts, effort)
-                scores[effort][p["id"]] = {pr.text_key(t): round(x, 5) for t, x in zip(texts, sc)}
-                rprec[effort].append(pr.pool_metrics([r["label"] for r in p["rows"]], sc, [])["r-precision"])
-    return {"trained": now, "k": len(pre), "folds": FOLDS,
-            "heldout": {e: round(sum(v) / len(v), 4) for e, v in rprec.items()}, "efforts": scores}
 

@@ -181,14 +181,6 @@ def test_node_tree_answers_by_effort(tmp_path):
         assert not bool((kept[1:] & kept[:-1]).any()), n["address"]     # no two adjacent rows kept
     models = [p4rank.load(str(mdir / "tree" / f"{n['address']}.pt"))[0] for n in meta["nodes"]]
     assert 0 <= tree.route(tree.node_rows(models), "a plan about the ring buffer drain") < 4
-    # the JSON ranker's .pt weight for the tree is fitted on these: every pool, each effort, out of fold
-    oof = json.loads((mdir / tree.TREE_OOF).read_text())
-    assert set(oof["efforts"]) == {"medium", "high"} and set(oof["heldout"]) == {"medium", "high"}
-    for effort in ("medium", "high"):
-        assert set(oof["efforts"][effort]) == {p["id"] for p in pools}
-        for p in pools:
-            assert set(oof["efforts"][effort][p["id"]]) == {p4rank.text_key(r["text"]) for r in p["rows"]}
-    assert meta["heldout"] == oof["heldout"]
 
 
 def test_training_device_and_feature_cache(monkeypatch):
