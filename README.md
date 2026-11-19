@@ -2,6 +2,7 @@
 
 φ-pruning keeps whole output channels of a layer and never keeps two adjacent ones, the (1,∞)-RLL constraint.
 phi holds that pruner, the Fibonacci codes it writes quantized weights and model deltas in, and a Zeckendorf register modeled beside a binary register.
+Beside them, `phi_store`, `phi_rank` and `phi_model` read the store the p4 plugins write in a project, and train and check its ranking models.
 
 - **[Quick start](https://ezexe.github.io/phi/docs/quickstart.html):** install, prune a model, check it, encode it and run the tests.
 - **[Documentation](https://ezexe.github.io/phi/docs/index.html):** every page, published from `docs/`.
@@ -30,6 +31,20 @@ phi holds that pruner, the Fibonacci codes it writes quantized weights and model
 - The rules can fire in any order and every order ends at the same normal form.
 - The module runs phi-prune's own multiply–accumulate step in each register, so the two are measured on the same sums.
 - Pages: [The register model](https://ezexe.github.io/phi/docs/register.html), with the Zeckendorf register, the binary register, computing F(n), the Fibonacci Q-matrix and related work beside it.
+
+## The models of a store
+
+- A store is a repository's `.claude/p4` directory, written by the p4 plugins of [ezexe/p4](https://github.com/ezexe/p4): p4-phi keeps its entries under `phi/store` and its training files under `phi/models`, and p4-temportal keeps memory notes under `temportal/memory`.
+- `phi_store` reads a store as training records, each a text with its session, its time and its weight, and `split` holds out every record timed at or after a cutoff.
+- `phi_rank` trains an asymmetric dual encoder that scores a store's documents against a session's query, by feature hashing of words, word bigrams and character trigrams, with one head for queries and one for documents.
+- It pretrains contrastively with in-batch negatives on the text files of the store that its `.gitignore` does not exclude, then fine-tunes on the store's labelled query groups by Localized Contrastive Estimation.
+- The dual encoder learns in rounds: git LFS keeps a full checkpoint, and a later round is warm-started from the model the checkpoints rebuild and ships an incremental checkpoint, a `.phid` file that holds the largest 10% of the entries the round changed.
+- A round ships a full checkpoint again when the cut costs more than 0.02 of the training query groups' R-precision, when eight incremental checkpoints follow the full one, or when the pretrained base has changed.
+- `phi_rank.tree` builds an ensemble of shard models, K small rankers at the first K store addresses, which answers by dynamic classifier selection or by the mean of every member's z-scored scores.
+- `phi_model` is model monitoring and on-demand retraining for a store: `python -m phi_model` takes `check`, `init`, `train`, `test`, `update` and `mode`, over the p4-phi plugin's logistic regression ranker and the dual encoder.
+- `mode` writes the `recall` section of the store's `p4.json`: `shadow` trains and logs retrieval's lines without adding them to a session's context, `active` adds the rule and fact lines, and `off` trains nothing and adds nothing.
+- The dual encoder is an experiment that retrieval does not serve: `check`, `init`, `train` and `update` leave it untrained and find nothing of it stale unless `VLDS_PT_RANKER=1` is set, and `test` evaluates it either way.
+- The [p4-model skill](.claude/skills/p4-model/SKILL.md) gives the routine, and [ezexe/p4-phi-experiments](https://github.com/ezexe/p4-phi-experiments) holds the measurements.
 
 ## The repository
 
