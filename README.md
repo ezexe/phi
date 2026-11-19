@@ -48,6 +48,7 @@ Beside them, `phi_store`, `phi_rank` and `phi_model` read the store the p4 plugi
 
 ## The repository
 
-- [CONTRIBUTING.md](CONTRIBUTING.md), [SUPPORT.md](SUPPORT.md), [SECURITY.md](SECURITY.md) and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
+- Ask a question or report a problem in the [issues](https://github.com/ezexe/phi/issues) of this repository.
+- [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md) and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 - [CITATION.cff](CITATION.cff), which GitHub shows as "Cite this repository".
 - [LICENSE](LICENSE): Apache-2.0.
