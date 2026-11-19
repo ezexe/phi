@@ -1,0 +1,108 @@
+name: release
+
+# A push to main whose phi/pyproject.toml names a version that has no tag yet is released: the tests run, the sdist
+# and the wheel are built from phi/, the commit is tagged v<version>, and a GitHub release of that tag holds both
+# files. A push that leaves the version as it is releases nothing. To release, raise version in phi/pyproject.toml
+# and in CITATION.cff, which tests/test_packaging.py holds equal.
+#
+# The pypi job uploads the same two files to PyPI as the project phi-prune, by trusted publishing, with no token kept
+# here. It runs once the repository variable PYPI_PUBLISH is true, and needs a trusted publisher on PyPI for the
+# project phi-prune that names the owner ezexe, the repository phi, the workflow release.yml and the environment pypi.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One release at a time, and a release that has begun is never cancelled by a later push.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.read.outputs.version }}
+      tag: ${{ steps.read.outputs.tag }}
+      new: ${{ steps.read.outputs.new }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: read
+        name: Read the version of phi/pyproject.toml and look for its tag
+        run: |
+          version=$(python3 -c "import tomllib; print(tomllib.load(open('phi/pyproject.toml', 'rb'))['project']['version'])")
+          tag="v$version"
+          if [ -n "$(git ls-remote --tags origin "refs/tags/$tag")" ]; then new=false; else new=true; fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "new=$new" >> "$GITHUB_OUTPUT"
+          echo "$tag, new: $new" >> "$GITHUB_STEP_SUMMARY"
+
+  tests:
+    needs: version
+    if: needs.version.outputs.new == 'true'
+    uses: ./.github/workflows/tests.yml
+
+  build:
+    needs: [version, tests]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - name: Build the sdist and the wheel from phi/
+        run: |
+          pip install build twine
+          python -m build phi --outdir dist
+          twine check --strict dist/*
+      - name: Fail unless both files carry the version that is being tagged
+        run: |
+          ls dist
+          test -f "dist/phi_prune-${{ needs.version.outputs.version }}.tar.gz"
+          test -f "dist/phi_prune-${{ needs.version.outputs.version }}-py3-none-any.whl"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist
+          if-no-files-found: error
+
+  github-release:
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist
+      - name: Tag the commit and release the two files
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create "${{ needs.version.outputs.tag }}" dist/*
+          --repo "${{ github.repository }}"
+          --target "${{ github.sha }}"
+          --title "phi-prune ${{ needs.version.outputs.version }}"
+          --generate-notes
+
+  pypi:
+    needs: [version, build, github-release]
+    if: vars.PYPI_PUBLISH == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/phi-prune/${{ needs.version.outputs.version }}/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@release/v1

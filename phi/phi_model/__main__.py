@@ -9,7 +9,7 @@ import sys
 def venv_python():
     """The first .venv python that exists: this checkout's, the one beside it, or a sibling p4 checkout's, which
     that checkout's scripts/make_venv.py builds."""
-    repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    repo = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     up = os.path.dirname(repo)
     rel = os.path.join("Scripts", "python.exe") if os.name == "nt" else os.path.join("bin", "python")
     for root in (repo, up, os.path.join(up, "p4")):

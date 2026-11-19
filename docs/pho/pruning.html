@@ -221,19 +221,19 @@ phi-prune info pruned.pt</code></pre>
         <li>A file with no <code>pattern</code> is read as holding φ masks and one with no <code>axis</code> as pruned along axis 0, and the pattern value <code>"zeckendorf"</code> that earlier releases wrote reads as <code>"phi"</code>.</li>
         <li>The command neither prunes nor exports. A model's class cannot be rebuilt from saved weights, so pruning and fine-tuning go through the Python interface.</li>
       </ul>
-      <p class="src">Source: <a href="https://github.com/ezexe/phi/blob/main/phi_prune/cli.py">phi_prune/cli.py</a>; the command is the <code>phi-prune</code> script that <code>[project.scripts]</code> of <a href="https://github.com/ezexe/phi/blob/main/pyproject.toml">pyproject.toml</a> declares.</p>
+      <p class="src">Source: <a href="https://github.com/ezexe/phi/blob/main/phi/phi_prune/cli.py">phi_prune/cli.py</a>; the command is the <code>phi-prune</code> script that <code>[project.scripts]</code> of <a href="https://github.com/ezexe/phi/blob/main/phi/pyproject.toml">pyproject.toml</a> declares.</p>
     </section>
 
     <section class="sec">
       <h2>Installing</h2>
-<pre><code>pip install git+https://github.com/ezexe/phi.git
-pip install "phi-prune[export] @ git+https://github.com/ezexe/phi.git"</code></pre>
+<pre><code>pip install "git+https://github.com/ezexe/phi.git#subdirectory=phi"
+pip install "phi-prune[export] @ git+https://github.com/ezexe/phi.git#subdirectory=phi"</code></pre>
       <p>phi needs Python 3.11 or later, torch 2.4.1 or later and numpy 1.24 or later.</p>
     </section>
   </main>
 
   <footer>
-    The code is <a href="https://github.com/ezexe/phi/blob/main/phi_prune/api.py">phi_prune/api.py</a>, <a href="https://github.com/ezexe/phi/blob/main/phi_prune/cli.py">cli.py</a> and <a href="https://github.com/ezexe/phi/blob/main/phi_prune/export/__init__.py">export</a> in <a href="https://github.com/ezexe/phi">ezexe/phi</a>. This page is <code>docs/pho/pruning.html</code> in the same repository.
+    The code is <a href="https://github.com/ezexe/phi/blob/main/phi/phi_prune/api.py">phi_prune/api.py</a>, <a href="https://github.com/ezexe/phi/blob/main/phi/phi_prune/cli.py">cli.py</a> and <a href="https://github.com/ezexe/phi/blob/main/phi/phi_prune/export/__init__.py">export</a> in <a href="https://github.com/ezexe/phi">ezexe/phi</a>. This page is <code>docs/pho/pruning.html</code> in the same repository.
   </footer>
 </div>
 <script>

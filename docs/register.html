@@ -104,7 +104,7 @@ pre{background:var(--sunk);border:1px solid var(--line);border-radius:10px;paddi
   </nav>
 
   <h1>The register model</h1>
-  <p class="lede"><a href="https://github.com/ezexe/phi/blob/main/phi_prune/register.py"><code>phi_prune.register</code></a> holds two registers side by side, a Zeckendorf register and a binary register. Each is a list of digits, least significant first, that local rewrite rules bring to its normal form. The module runs phi-prune's own multiply–accumulate step in each, so the two can be measured on the same sums.</p>
+  <p class="lede"><a href="https://github.com/ezexe/phi/blob/main/phi/phi_prune/register.py"><code>phi_prune.register</code></a> holds two registers side by side, a Zeckendorf register and a binary register. Each is a list of digits, least significant first, that local rewrite rules bring to its normal form. The module runs phi-prune's own multiply–accumulate step in each, so the two can be measured on the same sums.</p>
   <ul class="facts">
     <li><b>Place values.</b>The Zeckendorf register weighs its digits 1, 2, 3, 5, 8, …, the place values <code>FibonacciEncoder</code> uses. The binary register weighs them 1, 2, 4, 8, ….</li>
     <li><b>Normal form.</b>Every digit is 0 or 1. In the Zeckendorf register no two adjacent digits are both 1, so its normal form is the Zeckendorf representation.</li>
@@ -137,7 +137,7 @@ pre{background:var(--sunk);border:1px solid var(--line);border-radius:10px;paddi
   <p><code>apply</code> refuses a rule that cannot fire, at a position outside the register or on a digit too small to take from, so no digit ever goes below 0. <code>rewrites</code> lists every rule that can fire, and <code>normalize</code> fires them until none can, the lowest position first, or one at random with an <code>rng</code>, which stands in for self-timed hardware where any local rewrite may happen first.</p>
 
   <h3>Confluence</h3>
-  <p>Both rule sets are confluent: every order of firing reaches the same normal form, because each rule keeps the value and each value has one normal form. Neither register needs a clock to decide the order. <a href="https://github.com/ezexe/phi/blob/main/tests/test_register.py"><code>tests/test_register.py</code></a> checks this on 200 random registers, each brought to normal form in 10 random orders, and checks that every rule keeps the value on 500 random registers with digits from 0 to 3. <code>test_add_exhaustive</code> adds every pair of 6-digit registers in normal form of each kind and checks the sum and its normal form.</p>
+  <p>Both rule sets are confluent: every order of firing reaches the same normal form, because each rule keeps the value and each value has one normal form. Neither register needs a clock to decide the order. <a href="https://github.com/ezexe/phi/blob/main/phi/tests/test_register.py"><code>tests/test_register.py</code></a> checks this on 200 random registers, each brought to normal form in 10 random orders, and checks that every rule keeps the value on 500 random registers with digits from 0 to 3. <code>test_add_exhaustive</code> adds every pair of 6-digit registers in normal form of each kind and checks the sum and its normal form.</p>
 
   <h2>How many digits a register needs</h2>
   <p>An n-digit string with no two adjacent 1s ends either in 0, after any such string of n − 1 digits, or in 01, after any such string of n − 2 digits. So the count Z(n) of such strings is Z(n − 1) + Z(n − 2), with Z(0) = 1 and Z(1) = 2, which gives 1, 2, 3, 5, 8, 13, 21, …, the register's own place values. In the standard numbering of the Fibonacci numbers, F(1) = F(2) = 1, Z(n) is F(n + 2), and by Binet's formula F(n + 2) is the nearest integer to φ<sup>n+2</sup>/√5, which is about 1.171 · φ<sup>n</sup>, with φ = 1.618…. Each Zeckendorf digit therefore carries log<sub>2</sub> φ, about 0.694 bits, so holding a given number of levels takes about 1.44 times as many digits as binary.</p>
@@ -273,7 +273,7 @@ pre{background:var(--sunk);border:1px solid var(--line);border-radius:10px;paddi
   </ul>
 
   <h2>Run it</h2>
-  <p>The module's tests run with the package's own suite, from a checkout of ezexe/phi:</p>
+  <p>The module's tests run with the package's own suite, from <code>phi/</code> in a checkout of ezexe/phi:</p>
 <pre>python -m pytest tests/test_register.py</pre>
   <p>The measurements, the notebook and the transformer check are in ezexe/p4-phi-experiments under <a href="https://github.com/ezexe/p4-phi-experiments/tree/6576c16/experiments/phi-register"><code>experiments/phi-register/</code></a>, whose README gives the command that writes each result file.</p>
 </div>

@@ -4,6 +4,13 @@ on:
   push:
     branches: [main]
   pull_request:
+  # The release workflow runs these jobs before it tags a version.
+  workflow_call:
+
+# pyproject.toml, the packages and the tests are in phi/.
+defaults:
+  run:
+    working-directory: phi
 
 jobs:
   pytest:

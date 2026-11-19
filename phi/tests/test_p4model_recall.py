@@ -1,6 +1,6 @@
 """phi_model on a store the p4-phi plugin writes: modes into p4.json, check, init and update through the plugin's
 own `p4.py` and phi_rank, retrain notices answered. Needs the p4-phi plugin: P4_RECALL_PLUGIN_ROOT, or the p4
-checkout beside this one at ../p4/lbiza/plugins/p4-phi; skipped otherwise."""
+checkout beside this one, at p4/lbiza/plugins/p4-phi beside this checkout's folder; skipped otherwise."""
 
 import hashlib
 import os
@@ -16,7 +16,7 @@ from phi_store import layout  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PLUGIN = os.environ.get("P4_RECALL_PLUGIN_ROOT") or next(
-    (p for p in (os.path.normpath(os.path.join(HERE, "..", "..", "p4", "lbiza", "plugins", "p4-phi")),)
+    (p for p in (os.path.normpath(os.path.join(HERE, "..", "..", "..", "p4", "lbiza", "plugins", "p4-phi")),)
      if os.path.exists(os.path.join(p, "scripts", "p4.py"))), "")
 needs_plugin = pytest.mark.skipif(not recall.is_plugin(PLUGIN), reason="the p4-phi plugin is not beside this checkout")
 

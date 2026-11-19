@@ -2,8 +2,8 @@
 import pathlib
 import re
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-WORKFLOWS = ("tests.yml", "pages.yml")
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+WORKFLOWS = ("tests.yml", "pages.yml", "release.yml")
 
 # The first major of each action whose action.yml declares node24, or, for the composite upload-pages-artifact, whose
 # upload-artifact does, read from https://raw.githubusercontent.com/actions/<action>/<tag>/action.yml at each tag.
@@ -11,6 +11,7 @@ FIRST_NODE24_MAJOR = {
     "actions/checkout": 5,
     "actions/setup-python": 6,
     "actions/upload-artifact": 6,
+    "actions/download-artifact": 7,
     "actions/upload-pages-artifact": 5,
     "actions/deploy-pages": 5,
     "actions/configure-pages": 6,

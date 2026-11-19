@@ -1,10 +1,10 @@
-"""The suite itself: python -m pytest is the one command that runs it, here and in the tests workflow, and the whole
+"""The suite itself: python -m pytest is the one command that runs it from phi/, here and in the tests workflow, and the whole
 run fits a time budget on this machine."""
 import os
 import pathlib
 import re
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+REPO = pathlib.Path(__file__).resolve().parents[2]
 
 
 def test_the_tests_workflow_runs_the_one_command(pytestconfig):
@@ -12,8 +12,9 @@ def test_the_tests_workflow_runs_the_one_command(pytestconfig):
     duration of every setup, call and teardown, and every outcome but a pass, each skip with its reason."""
     assert pytestconfig.getini("testpaths") == ["tests"]
     assert pytestconfig.getini("addopts") == ["--durations=0", "--durations-min=0", "-ra"]
-    workflow = (ROOT / ".github" / "workflows" / "tests.yml").read_text(encoding="utf-8")
+    workflow = (REPO / ".github" / "workflows" / "tests.yml").read_text(encoding="utf-8")
     assert re.findall(r"run: (.*\bpytest\b.*)", workflow) == ["python -m pytest"]
+    assert re.search(r"^defaults:\n  run:\n    working-directory: phi$", workflow, re.M), "the jobs run in phi/"
 
 
 def in_ci(environ):

@@ -25,7 +25,7 @@ import subprocess
 from html.parser import HTMLParser
 from urllib.parse import unquote, urlsplit
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 SITE_HOST, SITE_PATH = "ezexe.github.io", "/phi"
 REPO_HOST, REPO_PATH = "github.com", "/ezexe/phi"
 RAW_HOST = "raw.githubusercontent.com"

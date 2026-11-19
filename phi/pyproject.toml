@@ -22,6 +22,11 @@ dev = ["pytest>=7.0"]
 [project.scripts]
 phi-prune = "phi_prune.cli:main"
 
+[project.urls]
+Homepage = "https://ezexe.github.io/phi/"
+Repository = "https://github.com/ezexe/phi"
+Issues = "https://github.com/ezexe/phi/issues"
+
 [tool.setuptools.packages.find]
 include = ["phi_prune*", "phi_store*", "phi_rank*", "phi_model*"]
 
