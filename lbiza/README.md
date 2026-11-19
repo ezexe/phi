@@ -11,7 +11,7 @@ This folder is the Python project of [ezexe/phi](https://github.com/ezexe/phi): 
 ## Install
 
 ```bash
-pip install "git+https://github.com/ezexe/phi#subdirectory=phi"
+pip install "git+https://github.com/ezexe/phi#subdirectory=lbiza"
 ```
 
 To work on the code, clone the repository and install this folder in editable mode with the `dev` extra, then run the tests from this folder:

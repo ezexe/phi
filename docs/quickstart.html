@@ -65,10 +65,10 @@ footer{margin-top:34px;padding-top:14px;border-top:1px solid var(--line);font-si
     <li>
       <h2>Install</h2>
       <p>phi-prune needs Python 3.11 or later, torch 2.4.1 or later, and numpy. Install the package and its <code>phi-prune</code> command from GitHub:</p>
-      <pre><code>pip install "git+https://github.com/ezexe/phi#subdirectory=phi"</code></pre>
+      <pre><code>pip install "git+https://github.com/ezexe/phi#subdirectory=lbiza"</code></pre>
       <p>To work on the code and run its tests, clone it and install it in editable mode with the <code>dev</code> extra, which adds pytest:</p>
       <pre><code>git clone https://github.com/ezexe/phi
-cd phi/phi
+cd phi/lbiza
 pip install -e ".[dev]"</code></pre>
       <p>pip installs torch when it is missing. For torch's CPU-only wheels, install torch first from <code>https://download.pytorch.org/whl/cpu</code>, as the tests workflow does.</p>
     </li>
@@ -163,7 +163,7 @@ for name in masks:
 
     <li>
       <h2>Run the tests</h2>
-      <p>From <code>phi/</code> in the clone, the folder that holds <code>pyproject.toml</code>, with the <code>dev</code> extra installed:</p>
+      <p>From <code>lbiza/</code> in the clone, the folder that holds <code>pyproject.toml</code>, with the <code>dev</code> extra installed:</p>
       <pre><code>python -m pytest</code></pre>
       <p class="label">Last line of the output, at commit 49b36ab</p>
       <pre class="out">================ 203 passed, 13 skipped, 4 warnings in 18.64s =================</pre>

@@ -97,7 +97,7 @@ label.f input{border:1px solid var(--line);background:var(--bg);border-radius:8p
   </nav>
 
     <h1>Binary register</h1>
-  <p class="lede">The register the <a href="phi.html">Zeckendorf register</a> is measured against: digits weighing 1, 2, 4, 8, …, every pattern of 0s and 1s a valid number, and one rule, the carry. <a href="https://github.com/ezexe/phi/blob/main/phi/phi_prune/register.py"><code>phi_prune.register</code></a> models it as the kind <code>"binary"</code>, with the same functions as the Zeckendorf register.</p>
+  <p class="lede">The register the <a href="phi.html">Zeckendorf register</a> is measured against: digits weighing 1, 2, 4, 8, …, every pattern of 0s and 1s a valid number, and one rule, the carry. <a href="https://github.com/ezexe/phi/blob/main/lbiza/phi_prune/register.py"><code>phi_prune.register</code></a> models it as the kind <code>"binary"</code>, with the same functions as the Zeckendorf register.</p>
   <ul class="facts">
     <li><b>One rule.</b>The carry fires on a digit of 2 or more: <code>d[k] − 2, d[k+1] + 1</code>, since 2 · 2<sup>k</sup> = 2<sup>k+1</sup>. It only moves up.</li>
     <li><b>Normal form.</b>Every digit 0 or 1. Each value has one normal form, so the carries reach it in any order, as the Zeckendorf register's rules do.</li>

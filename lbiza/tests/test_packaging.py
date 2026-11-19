@@ -39,12 +39,12 @@ def test_the_license_pyproject_declares_is_the_one_LICENSE_holds():
     assert PROJECT["license"] == "Apache-2.0"
     assert PROJECT["license-files"] == ["LICENSE"]
     assert (ROOT / "LICENSE").read_text(encoding="utf-8").split()[:4] == ["Apache", "License", "Version", "2.0,"]
-    assert (ROOT / "LICENSE").read_bytes() == (REPO / "LICENSE").read_bytes(), "phi/LICENSE is a copy of LICENSE"
+    assert (ROOT / "LICENSE").read_bytes() == (REPO / "LICENSE").read_bytes(), "lbiza/LICENSE is a copy of LICENSE"
     assert PYPROJECT["build-system"]["requires"] == ["setuptools>=77"]
 
 
 def test_the_build_reads_only_files_of_its_own_folder():
-    """setuptools refuses a readme or a license file outside the folder of pyproject.toml, so phi/ holds both."""
+    """setuptools refuses a readme or a license file outside the folder of pyproject.toml, so lbiza/ holds both."""
     include = PYPROJECT["tool"]["setuptools"]["packages"]["find"]["include"]
     assert PROJECT["readme"] == "README.md"
     assert (ROOT / "README.md").is_file()
@@ -59,11 +59,11 @@ def test_the_version_pyproject_declares_is_the_one_CITATION_cites():
 
 
 def test_the_release_workflow_tags_the_version_pyproject_declares():
-    """It reads the version from phi/pyproject.toml, builds from phi/, runs the tests workflow first, and uploads to
+    """It reads the version from lbiza/pyproject.toml, builds from lbiza/, runs the tests workflow first, and uploads to
     PyPI only where the repository variable PYPI_PUBLISH turns that on."""
     workflow = (REPO / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
-    assert "tomllib.load(open('phi/pyproject.toml', 'rb'))['project']['version']" in workflow
-    assert "python -m build phi --outdir dist" in workflow
+    assert "tomllib.load(open('lbiza/pyproject.toml', 'rb'))['project']['version']" in workflow
+    assert "python -m build lbiza --outdir dist" in workflow
     assert "uses: ./.github/workflows/tests.yml" in workflow
     assert "workflow_call:" in (REPO / ".github" / "workflows" / "tests.yml").read_text(encoding="utf-8")
     assert re.search(r"pypi:\n    needs: \[version, build, github-release\]\n    if: vars\.PYPI_PUBLISH == 'true'", workflow)

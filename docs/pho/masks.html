@@ -197,7 +197,7 @@ skip[i] = max(keep[i-1], skip[i-1]) # skip i, after the better of the two</code>
       <p>The backward pass keeps position i when <code>keep[i] &gt;= skip[i]</code>, so a tie keeps it, and then jumps two places. With scores of zero or more at least one position is kept, and an empty array gives an empty mask.</p>
       <p>The 1-D mask is reshaped to size 1 on every axis but <code>axis</code> and expanded to the weight's shape, dtype and device, so a dropped output channel loses every one of its weights. The mask is ready to multiply.</p>
       <p>When every score is above zero, the heaviest set leaves no dropped position whose two neighbours are both dropped too, since keeping it would add weight. So the φ mask keeps between a third and a half of the positions, at most (n + 1) // 2. On the MLP layers of the small transformer the transformer check prunes, it kept 0.4932, 0.4937 and 0.4946 of the neurons in its three seeds, as <a href="https://github.com/ezexe/p4-phi-experiments/blob/main/experiments/phi-register/results/transformer-check/low.json">low.json</a> records.</p>
-      <p class="src">Source: <a href="https://github.com/ezexe/phi/blob/main/phi/phi_prune/masks.py">phi_prune/masks.py</a>, <code>adjacency_dp</code> and <code>phi_mask</code>. The problem and its recurrence are the case study "Max Weight Independent Set on a Path" of <a href="https://courses.cs.cornell.edu/cs4820/2025sp/notes/WIS-reading.pdf">Cornell's CS 4820 notes on dynamic programming</a>.</p>
+      <p class="src">Source: <a href="https://github.com/ezexe/phi/blob/main/lbiza/phi_prune/masks.py">phi_prune/masks.py</a>, <code>adjacency_dp</code> and <code>phi_mask</code>. The problem and its recurrence are the case study "Max Weight Independent Set on a Path" of <a href="https://courses.cs.cornell.edu/cs4820/2025sp/notes/WIS-reading.pdf">Cornell's CS 4820 notes on dynamic programming</a>.</p>
     </section>
 
     <section class="sec">
@@ -205,7 +205,7 @@ skip[i] = max(keep[i-1], skip[i-1]) # skip i, after the better of the two</code>
       <p><code>phi_mask(weight, density=d)</code> calls <code>adjacency_dp_density(scores, d)</code>, which aims at <code>round(d * n)</code> kept positions. When the heaviest set already keeps that many or fewer, it is returned as it is, so no density keeps more than (n + 1) // 2.</p>
       <p>Otherwise it subtracts a penalty λ from every score, so that adjacency_dp keeps only positions whose score clears λ, and bisects λ between 0 and the largest score plus 1 for up to 60 rounds. It returns the mask whose kept count came closest to the target, and ties among scores can leave that count one or two off. A density so low that <code>round(d * n)</code> is 0 keeps no position at all.</p>
       <p><code>prune</code> passes a density through only below 0.5. At 0.5 or above, each φ mask is the heaviest set the constraint allows.</p>
-      <p class="src">Source: <code>adjacency_dp_density</code> in <a href="https://github.com/ezexe/phi/blob/main/phi/phi_prune/masks.py">phi_prune/masks.py</a>, and <code>prune</code> in <a href="https://github.com/ezexe/phi/blob/main/phi/phi_prune/api.py">phi_prune/api.py</a>.</p>
+      <p class="src">Source: <code>adjacency_dp_density</code> in <a href="https://github.com/ezexe/phi/blob/main/lbiza/phi_prune/masks.py">phi_prune/masks.py</a>, and <code>prune</code> in <a href="https://github.com/ezexe/phi/blob/main/lbiza/phi_prune/api.py">phi_prune/api.py</a>.</p>
     </section>
 
     <section class="sec app">
@@ -256,7 +256,7 @@ skip[i] = max(keep[i-1], skip[i-1]) # skip i, after the better of the two</code>
   </main>
 
   <footer>
-    The code is <a href="https://github.com/ezexe/phi/blob/main/phi/phi_prune/masks.py">phi_prune/masks.py</a> in <a href="https://github.com/ezexe/phi">ezexe/phi</a>. This page is <code>docs/pho/masks.html</code> in the same repository.
+    The code is <a href="https://github.com/ezexe/phi/blob/main/lbiza/phi_prune/masks.py">phi_prune/masks.py</a> in <a href="https://github.com/ezexe/phi">ezexe/phi</a>. This page is <code>docs/pho/masks.html</code> in the same repository.
   </footer>
 </div>
 <script>

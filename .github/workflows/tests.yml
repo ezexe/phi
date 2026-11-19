@@ -7,10 +7,10 @@ on:
   # The release workflow runs these jobs before it tags a version.
   workflow_call:
 
-# pyproject.toml, the packages and the tests are in phi/.
+# pyproject.toml, the packages and the tests are in lbiza/.
 defaults:
   run:
-    working-directory: phi
+    working-directory: lbiza
 
 jobs:
   pytest:

@@ -211,7 +211,7 @@ textarea{width:100%;min-height:58px;border:1px solid var(--line);background:var(
         </tbody>
       </table></div>
       <p><code>to_codeword(level)</code> writes a level greedily from the top place value down, least significant digit first, <code>n_digits</code> long. A greedy Zeckendorf representation never holds two adjacent 1s.</p>
-      <p class="src">Source: <a href="https://github.com/ezexe/phi/blob/main/phi/phi_prune/encoding.py">phi_prune/encoding.py</a>. The representation is <a href="https://en.wikipedia.org/wiki/Zeckendorf%27s_theorem">Zeckendorf's theorem</a>: every positive integer is a unique sum of non-consecutive Fibonacci numbers.</p>
+      <p class="src">Source: <a href="https://github.com/ezexe/phi/blob/main/lbiza/phi_prune/encoding.py">phi_prune/encoding.py</a>. The representation is <a href="https://en.wikipedia.org/wiki/Zeckendorf%27s_theorem">Zeckendorf's theorem</a>: every positive integer is a unique sum of non-consecutive Fibonacci numbers.</p>
     </section>
 
     <section class="sec">
@@ -240,7 +240,7 @@ textarea{width:100%;min-height:58px;border:1px solid var(--line);background:var(
       </ol>
       <p>It returns <code>path</code>, <code>n_weights</code>, <code>bitstream_length</code> in bits, <code>bits_per_weight</code> and <code>header_bytes</code>. A small level takes fewer bits than a large one, so the bits per weight depend on where the weights fall on the grid, and a fixed-length code of the same levels can be shorter.</p>
       <p><code>load_bitstream(model, masks, path)</code> reads the file back into the kept positions of a model, in place, and returns the header. The header holds no masks, so pass the masks the export used, which <code>save_checkpoint</code> stores. Before it writes any weight it raises <code>ValueError</code> for a header whose <code>codeword_digits</code> and <code>level_bias</code> are not n_digits + 1 and 1, for packed bytes that do not hold <code>payload_bits</code> with zero padding, for a level above the grid, for a count of levels other than the header's, and for a layer missing from the model or from <code>masks</code> or whose shape, mask, kept count or <code>scale_shape</code> does not fit. It also reads a file whose header has no <code>payload_bits</code> and whose payload is the characters 0 and 1.</p>
-      <p class="src">Source: <a href="https://github.com/ezexe/phi/blob/main/phi/phi_prune/export/__init__.py">phi_prune/export/__init__.py</a> and <a href="https://github.com/ezexe/phi/blob/main/phi/phi_prune/gaps.py">phi_prune/gaps.py</a>.</p>
+      <p class="src">Source: <a href="https://github.com/ezexe/phi/blob/main/lbiza/phi_prune/export/__init__.py">phi_prune/export/__init__.py</a> and <a href="https://github.com/ezexe/phi/blob/main/lbiza/phi_prune/gaps.py">phi_prune/gaps.py</a>.</p>
     </section>
 
     <section class="sec app">
@@ -252,7 +252,7 @@ textarea{width:100%;min-height:58px;border:1px solid var(--line);background:var(
         <li><code>simulate_corruption(tensor, mask, encoder, scale, offset, n_flips=1000)</code> flips one random digit of the digits of a random kept weight's level, <code>n_flips</code> times, and returns how many flips <code>adjacency_check</code> caught and <code>n_flips</code>, or 0 and 0 when the mask keeps nothing.</li>
       </ul>
       <p>On synthetic weights the simulated share runs from 0.4116 to 0.5181 at 8 and 10 digits, and over every level it is 0.4091 and 0.4167; <a href="benchmarks.html">Measurements</a> has the table.</p>
-      <p class="src">Source: <a href="https://github.com/ezexe/phi/blob/main/phi/phi_prune/integrity.py">phi_prune/integrity.py</a>.</p>
+      <p class="src">Source: <a href="https://github.com/ezexe/phi/blob/main/lbiza/phi_prune/integrity.py">phi_prune/integrity.py</a>.</p>
     </section>
 
     <section class="sec">
@@ -263,7 +263,7 @@ textarea{width:100%;min-height:58px;border:1px solid var(--line);background:var(
   </main>
 
   <footer>
-    The code is <a href="https://github.com/ezexe/phi/tree/main/phi/phi_prune">phi_prune</a> in <a href="https://github.com/ezexe/phi">ezexe/phi</a>. This page is <code>docs/pho/encoding.html</code> in the same repository.
+    The code is <a href="https://github.com/ezexe/phi/tree/main/lbiza/phi_prune">phi_prune</a> in <a href="https://github.com/ezexe/phi">ezexe/phi</a>. This page is <code>docs/pho/encoding.html</code> in the same repository.
   </footer>
 </div>
 <script>

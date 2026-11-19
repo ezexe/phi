@@ -1,8 +1,8 @@
 name: release
 
-# A push to main whose phi/pyproject.toml names a version that has no tag yet is released: the tests run, the sdist
-# and the wheel are built from phi/, the commit is tagged v<version>, and a GitHub release of that tag holds both
-# files. A push that leaves the version as it is releases nothing. To release, raise version in phi/pyproject.toml
+# A push to main whose lbiza/pyproject.toml names a version that has no tag yet is released: the tests run, the sdist
+# and the wheel are built from lbiza/, the commit is tagged v<version>, and a GitHub release of that tag holds both
+# files. A push that leaves the version as it is releases nothing. To release, raise version in lbiza/pyproject.toml
 # and in CITATION.cff, which tests/test_packaging.py holds equal.
 #
 # The pypi job uploads the same two files to PyPI as the project phi-prune, by trusted publishing, with no token kept
@@ -32,9 +32,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - id: read
-        name: Read the version of phi/pyproject.toml and look for its tag
+        name: Read the version of lbiza/pyproject.toml and look for its tag
         run: |
-          version=$(python3 -c "import tomllib; print(tomllib.load(open('phi/pyproject.toml', 'rb'))['project']['version'])")
+          version=$(python3 -c "import tomllib; print(tomllib.load(open('lbiza/pyproject.toml', 'rb'))['project']['version'])")
           tag="v$version"
           if [ -n "$(git ls-remote --tags origin "refs/tags/$tag")" ]; then new=false; else new=true; fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
@@ -55,10 +55,10 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
-      - name: Build the sdist and the wheel from phi/
+      - name: Build the sdist and the wheel from lbiza/
         run: |
           pip install build twine
-          python -m build phi --outdir dist
+          python -m build lbiza --outdir dist
           twine check --strict dist/*
       - name: Fail unless both files carry the version that is being tagged
         run: |

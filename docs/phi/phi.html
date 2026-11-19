@@ -97,7 +97,7 @@ label.f input{border:1px solid var(--line);background:var(--bg);border-radius:8p
   </nav>
 
     <h1>Zeckendorf register</h1>
-  <p class="lede">A register whose digits weigh 1, 2, 3, 5, 8, …, the Fibonacci numbers from 1 and 2, and whose normal form holds no two adjacent 1s, which makes it the Zeckendorf representation of its value. <a href="https://github.com/ezexe/phi/blob/main/phi/phi_prune/register.py"><code>phi_prune.register</code></a> models it beside a binary register, and the <a href="../register.html">register model</a> page measures the two.</p>
+  <p class="lede">A register whose digits weigh 1, 2, 3, 5, 8, …, the Fibonacci numbers from 1 and 2, and whose normal form holds no two adjacent 1s, which makes it the Zeckendorf representation of its value. <a href="https://github.com/ezexe/phi/blob/main/lbiza/phi_prune/register.py"><code>phi_prune.register</code></a> models it beside a binary register, and the <a href="../register.html">register model</a> page measures the two.</p>
   <ul class="facts">
     <li><b>One identity, two rules.</b>F(k) + F(k+1) = F(k+2) gives the adjacent 1s rule, which merges two adjacent 1s upward. Applied to a doubled digit it gives the removal of 2 digits, 2F(k) = F(k+1) + F(k−2), which sends one carry up and one down.</li>
     <li><b>Any order.</b>Each rule keeps the value and touches at most three nearby digits, so the rules can fire in any order and every order ends at the same normal form.</li>
