@@ -4,8 +4,8 @@
 phi holds that pruner, the Fibonacci codes it writes quantized weights and model deltas in, and a Zeckendorf register modeled beside a binary register.
 Beside them, `phi_store`, `phi_rank` and `phi_model` read the store the p4 plugins write in a project, and train and check its ranking models.
 
-- **[Quick start](https://ezexe.github.io/phi/docs/quickstart.html):** install, prune a model, check it, encode it and run the tests.
-- **[Documentation](https://ezexe.github.io/phi/docs/index.html):** every page, published from `docs/`.
+- **[Quick start](https://ezexe.github.io/phi/quickstart.html):** install, prune a model, check it, encode it and run the tests.
+- **[Documentation](https://ezexe.github.io/phi/):** every page, published from `docs/`.
 
 ## Pruning
 
@@ -14,7 +14,7 @@ Beside them, `phi_store`, `phi_rank` and `phi_model` read the store the p4 plugi
 - `pattern="2:4"` keeps instead the 2 heaviest of every 4 consecutive channels, the mask the φ mask is measured against.
 - `finetune` trains with the masks held fixed, so pruned weights stay zero.
 - `check`, and the `phi-prune check` command on a saved checkpoint, verify every mask against its pattern and that every pruned weight is zero.
-- Pages: [Pruning a model](https://ezexe.github.io/phi/docs/pho/pruning.html), [The masks](https://ezexe.github.io/phi/docs/pho/masks.html) and [Measurements](https://ezexe.github.io/phi/docs/pho/benchmarks.html).
+- Pages: [Pruning a model](https://ezexe.github.io/phi/pho/pruning.html), [The masks](https://ezexe.github.io/phi/pho/masks.html) and [Measurements](https://ezexe.github.io/phi/pho/benchmarks.html).
 
 ## Number codes and the `.phid` delta
 
@@ -23,14 +23,14 @@ Beside them, `phi_store`, `phi_rank` and `phi_model` read the store the p4 plugi
 - `cassini_check` runs the minimal-form check on each kept weight's digits, which catches a digit flipped from 0 to 1 beside a 1.
 - `phi_prune.gaps` writes the positions of kept entries as Fibonacci-coded gaps, and `gap_bits` prices them against Elias gamma, Elias delta, a fixed-length code and the entropy.
 - `phi_prune.delta` writes a model's delta between two checkpoints as a `.phid` file: the top-k changes of each tensor, their positions as gaps and each value as a sign digit and a Fibonacci-coded level.
-- Pages: [Quantization and the code](https://ezexe.github.io/phi/docs/pho/encoding.html) and [Fibonacci codes](https://ezexe.github.io/phi/docs/phi/codes.html).
+- Pages: [Quantization and the code](https://ezexe.github.io/phi/pho/encoding.html) and [Fibonacci codes](https://ezexe.github.io/phi/phi/codes.html).
 
 ## The register model
 
 - `phi_prune.register` holds a Zeckendorf register and a binary register, each a list of digits that local rewrite rules bring to its normal form.
 - The rules can fire in any order and every order ends at the same normal form.
 - The module runs phi-prune's own multiply–accumulate step in each register, so the two are measured on the same sums.
-- Pages: [The register model](https://ezexe.github.io/phi/docs/register.html), with the Zeckendorf register, the binary register, computing F(n), the Fibonacci Q-matrix and related work beside it.
+- Pages: [The register model](https://ezexe.github.io/phi/register.html), with the Zeckendorf register, the binary register, computing F(n), the Fibonacci Q-matrix and related work beside it.
 
 ## The models of a store
 

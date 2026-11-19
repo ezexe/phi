@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>phi docs</title>
+<link rel="icon" href="data:,">
+<meta name="description" content="Every page of phi's documentation: the quick start, pruning a model and its masks, quantization and Fibonacci coding, the measurements, and the register model with the pages beside it.">
+<style>
+:root{
+  --bg:#f5f3ec; --panel:#fffdf7; --sunk:#efece2; --ink:#1d1c19; --soft:#5d5a52; --line:#d9d4c6;
+  --phi:#0b6b66; --phi-bg:#dcefec; --app:#a85507; --app-bg:#f8e7d2;
+  --mono:ui-monospace,"Cascadia Code","SF Mono",Menlo,Consolas,monospace;
+  --sans:"Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,"Helvetica Neue",sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#131418; --panel:#1b1d23; --sunk:#16171c; --ink:#e9e6dd; --soft:#a29e93; --line:#33363f;
+    --phi:#62d2c6; --phi-bg:#16312f; --app:#f1ab52; --app-bg:#3a2a14;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#131418; --panel:#1b1d23; --sunk:#16171c; --ink:#e9e6dd; --soft:#a29e93; --line:#33363f;
+  --phi:#62d2c6; --phi-bg:#16312f; --app:#f1ab52; --app-bg:#3a2a14;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 var(--sans)}
+.wrap{max-width:880px;margin:0 auto;padding:24px 16px 64px}
+a{color:var(--phi)}
+code{font-family:var(--mono);font-size:.88em;background:var(--sunk);border-radius:4px;padding:1px 4px;overflow-wrap:anywhere}
+:focus-visible{outline:2px solid var(--phi);outline-offset:2px}
+.top{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.mark{font:600 13px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--phi)}
+.pill{font:600 12px/1 var(--mono);color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:9px 13px;cursor:pointer;white-space:nowrap}
+.pill:hover{border-color:var(--phi)}
+h1{font-size:clamp(30px,5.4vw,46px);line-height:1.08;letter-spacing:-.02em;margin:16px 0 10px;text-wrap:balance}
+.lede{color:var(--soft);max-width:70ch;margin:0 0 26px}
+h2{font:600 12px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--soft);margin:26px 0 12px}
+.cards{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:12px}
+.doc{display:block;height:100%;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 18px;color:inherit;text-decoration:none;transition:border-color .15s,transform .15s}
+.doc:hover{border-color:var(--phi);transform:translateY(-1px)}
+.doc h3{margin:0 0 4px;font-size:19px;line-height:1.25;letter-spacing:-.01em}
+.doc p{margin:0;color:var(--soft);font-size:15px}
+.doc .file{font:12px/1 var(--mono);color:var(--phi);margin-top:10px;display:block}
+footer{margin-top:34px;padding-top:14px;border-top:1px solid var(--line);font-size:14px;color:var(--soft)}
+@media (prefers-reduced-motion:reduce){.doc{transition:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <span class="mark">phi · docs</span>
+    <button class="pill" id="theme" type="button" aria-label="Switch between light and dark">theme</button>
+  </div>
+
+  <h1>The documentation of phi</h1>
+  <p class="lede">φ-pruning keeps whole output channels of a layer and never keeps two adjacent ones, the (1,∞)-RLL constraint. phi holds that pruner, the Fibonacci codes it writes quantized weights and model deltas in, and a Zeckendorf register modeled beside a binary register. Each page here is a single HTML file.</p>
+
+  <h2>Start</h2>
+  <ul class="cards">
+    <li>
+      <a class="doc" href="quickstart.html">
+        <h3>Quick start</h3>
+        <p>Install <code>phi-prune</code>, prune a small model, check its masks, write its kept weights as a Fibonacci-coded bitstream, and run the tests.</p>
+        <span class="file">quickstart.html</span>
+      </a>
+    </li>
+  </ul>
+
+  <h2>Pruning, quantization and measurements</h2>
+  <ul class="cards">
+    <li>
+      <a class="doc" href="pho/pruning.html">
+        <h3>Pruning a model</h3>
+        <p><code>phi_prune</code>'s Python interface and command: prune, fine-tune with the masks fixed, evaluate, check, save a checkpoint, export to ONNX, and <code>phi-prune check</code> and <code>info</code>.</p>
+        <span class="file">pho/pruning.html</span>
+      </a>
+    </li>
+    <li>
+      <a class="doc" href="pho/masks.html">
+        <h3>The masks</h3>
+        <p><code>phi_prune.masks</code>: the φ mask, which never keeps two adjacent channels, the mask that keeps 2 of every 4 channels, and how many masks each rule allows, with the module's algorithms running in the page.</p>
+        <span class="file">pho/masks.html</span>
+      </a>
+    </li>
+    <li>
+      <a class="doc" href="pho/encoding.html">
+        <h3>Quantization and the code</h3>
+        <p><code>phi_prune.encoding</code>, <code>export</code> and <code>integrity</code>: uniform affine quantization to F(n+2) levels, each level's Zeckendorf digits and Fibonacci code, the bitstream file, and the checks of quantized weights.</p>
+        <span class="file">pho/encoding.html</span>
+      </a>
+    </li>
+    <li>
+      <a class="doc" href="pho/benchmarks.html">
+        <h3>Measurements</h3>
+        <p>What phi's pruning, quantization and checks measured, each figure from a result file in ezexe/p4-phi-experiments with the script and run that wrote it.</p>
+        <span class="file">pho/benchmarks.html</span>
+      </a>
+    </li>
+  </ul>
+
+  <h2>The register model and the number codes</h2>
+  <ul class="cards">
+    <li>
+      <a class="doc" href="register.html">
+        <h3>The register model</h3>
+        <p><code>phi_prune.register</code>: a Zeckendorf register and a binary register, each brought to normal form by local rewrite rules, and what the measurements of the two show.</p>
+        <span class="file">register.html</span>
+      </a>
+    </li>
+    <li>
+      <a class="doc" href="phi/codes.html">
+        <h3>Fibonacci codes</h3>
+        <p><code>phi_prune.gaps</code>, <code>phi_prune.delta</code> and <code>FibonacciEncoder</code>'s levels: Fibonacci coding of quantization levels and of the gaps between kept positions, and the <code>.phid</code> file of a model's delta.</p>
+        <span class="file">phi/codes.html</span>
+      </a>
+    </li>
+    <li>
+      <a class="doc" href="phi/phi.html">
+        <h3>Zeckendorf register</h3>
+        <p>A Zeckendorf register run in the page: digit-wise addition and the two rules that bring it to normal form, the call tree of <code>fib(n)</code>, and the register's properties, beside what <code>phi_prune.register</code> holds.</p>
+        <span class="file">phi/phi.html</span>
+      </a>
+    </li>
+    <li>
+      <a class="doc" href="phi/bin.html">
+        <h3>Binary register</h3>
+        <p>A binary register run in the page: digit-wise addition and its carries, the call chain of <code>to_bin(n)</code>, and one number's bits, beside what <code>phi_prune.register</code>'s binary kind holds.</p>
+        <span class="file">phi/bin.html</span>
+      </a>
+    </li>
+    <li>
+      <a class="doc" href="phi/fib.html">
+        <h3>Computing F(n)</h3>
+        <p>Seven ways to compute the Fibonacci number F(n), traced step by step in the page, and which of them phi's code uses.</p>
+        <span class="file">phi/fib.html</span>
+      </a>
+    </li>
+    <li>
+      <a class="doc" href="phi/matrix.html">
+        <h3>Fibonacci Q-matrix</h3>
+        <p>The Fibonacci Q-matrix in the page: two ciphers for 0 to 15, value addition against index composition, and Q to the 20th along the Zeckendorf and the binary representation.</p>
+        <span class="file">phi/matrix.html</span>
+      </a>
+    </li>
+    <li>
+      <a class="doc" href="phi/Q.html">
+        <h3>Related work</h3>
+        <p>A map of published work around the Zeckendorf register, the Fibonacci Q-matrix and Fibonacci coding, built up level by level in the page, with the sources each node rests on.</p>
+        <span class="file">phi/Q.html</span>
+      </a>
+    </li>
+  </ul>
+
+  <footer>
+    The code is in <a href="https://github.com/ezexe/phi">ezexe/phi</a>, whose <a href="https://github.com/ezexe/phi/blob/main/README.md">README</a> also covers <code>phi_store</code>, <code>phi_rank</code> and <code>phi_model</code>, the packages that read a p4 store and train and check its ranking models. This page is <code>docs/index.html</code> there.
+  </footer>
+</div>
+<script>
+(function(){
+  var root=document.documentElement,key="dox-theme",btn=document.getElementById("theme");
+  function stored(){try{return localStorage.getItem(key)}catch(e){return null}}
+  function current(){return root.getAttribute("data-theme")||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light")}
+  function label(){btn.textContent=current()==="dark"?"light theme":"dark theme"}
+  var s=stored(); if(s==="dark"||s==="light")root.setAttribute("data-theme",s);
+  label();
+  try{matchMedia("(prefers-color-scheme: dark)").addEventListener("change",label)}catch(e){}
+  btn.addEventListener("click",function(){var n=current()==="dark"?"light":"dark";root.setAttribute("data-theme",n);try{localStorage.setItem(key,n)}catch(e){}label()});
+})();
+</script>
+</body>
+</html>

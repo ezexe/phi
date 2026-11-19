@@ -1,7 +1,7 @@
 name: pages
 
-# The docs site at https://ezexe.github.io/phi/: every doc, notebook, interactive component and hand-written page,
-# built by scripts/site/build.py. Needs Settings → Pages → Source: GitHub Actions.
+# The documentation at https://ezexe.github.io/phi/: the pages under docs/, published as they are, so docs/index.html
+# is the site's first page. Needs Settings → Pages → Source: GitHub Actions.
 
 on:
   push:
@@ -18,24 +18,15 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
-      - run: pip install markdown nbconvert
-      - run: python scripts/site/build.py --out _site
-      - uses: actions/upload-pages-artifact@v5
-        with:
-          path: _site
   deploy:
-    needs: build
     runs-on: ubuntu-latest
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      - uses: actions/checkout@v7
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: docs
       - id: deployment
         uses: actions/deploy-pages@v5
