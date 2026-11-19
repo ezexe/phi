@@ -17,7 +17,7 @@ phi-prune: channel pruning under the (1,∞)-RLL constraint, which never keeps t
     export_onnx(pruned_model, "model_sparse.onnx")
 """
 
-__version__ = "0.3.0"
+__version__ = "0.3.1"
 
 from phi_prune.api import prune, finetune, check, evaluate
 from phi_prune.encoding import FibonacciEncoder

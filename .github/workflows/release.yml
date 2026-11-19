@@ -1,9 +1,13 @@
 name: release
 
 # A push to main whose lbiza/pyproject.toml names a version that has no tag yet is released: the tests run, the sdist
-# and the wheel are built from lbiza/, the commit is tagged v<version>, and a GitHub release of that tag holds both
-# files. A push that leaves the version as it is releases nothing. To release, raise version in lbiza/pyproject.toml
-# and in CITATION.cff, which tests/test_packaging.py holds equal.
+# and the wheel are built from lbiza/, an image with the wheel installed is pushed to ghcr.io/ezexe/phi, the commit is
+# tagged v<version>, and a GitHub release of that tag holds both files. A push that leaves the version as it is
+# releases nothing. To release, raise version in lbiza/pyproject.toml, in lbiza/phi_prune/__init__.py and in
+# CITATION.cff, which tests/test_packaging.py holds equal.
+#
+# The image is the repository's package, ghcr.io/ezexe/phi:<version> and :latest, built by lbiza/Dockerfile. It is
+# pushed before the tag is made, so a release whose image fails to build or to run leaves no tag behind.
 #
 # The pypi job uploads the same two files to PyPI as the project phi-prune, by trusted publishing, with no token kept
 # here. It runs once the repository variable PYPI_PUBLISH is true, and needs a trusted publisher on PyPI for the
@@ -71,8 +75,35 @@ jobs:
           path: dist
           if-no-files-found: error
 
-  github-release:
+  image:
     needs: [version, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE: ghcr.io/${{ github.repository }}
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist
+      - name: Build the image from the wheel
+        run: docker build -f lbiza/Dockerfile -t "$IMAGE:$VERSION" -t "$IMAGE:latest" dist
+      - name: Fail unless the image runs phi-prune and imports the four packages at this version
+        run: |
+          docker run --rm "$IMAGE:$VERSION" --help
+          docker run --rm --entrypoint python "$IMAGE:$VERSION" -c "import phi_prune, phi_store, phi_rank, phi_model; assert phi_prune.__version__ == '$VERSION', phi_prune.__version__"
+      - name: Push the image to ghcr.io
+        run: |
+          echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker push "$IMAGE:$VERSION"
+          docker push "$IMAGE:latest"
+
+  github-release:
+    needs: [version, build, image]
     runs-on: ubuntu-latest
     permissions:
       contents: write

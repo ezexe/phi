@@ -7,6 +7,6 @@ authors:
   - alias: ezexe
     website: "https://github.com/ezexe"
 license: Apache-2.0
-version: "0.3.0"
+version: "0.3.1"
 repository-code: "https://github.com/ezexe/phi"
 url: "https://ezexe.github.io/phi/"
