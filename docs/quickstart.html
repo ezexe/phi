@@ -165,9 +165,9 @@ for name in masks:
       <h2>Run the tests</h2>
       <p>From the root of the clone, with the <code>dev</code> extra installed:</p>
       <pre><code>python -m pytest</code></pre>
-      <p class="label">Last line of the output, at commit 3e430bb</p>
-      <pre class="out">================= 178 passed, 5 skipped, 4 warnings in 53.49s =================</pre>
-      <p>A test that needs a package or a store this machine lacks is skipped, and <code>-ra</code> in <code>pyproject.toml</code> prints why. Outside CI, <code>tests/test_suite.py</code> fails a run that takes longer than the <code>budget_seconds</code> that <code>pyproject.toml</code> sets.</p>
+      <p class="label">Last line of the output, at commit 49b36ab</p>
+      <pre class="out">================ 203 passed, 13 skipped, 4 warnings in 18.64s =================</pre>
+      <p>A test that needs a package, git or the p4-phi plugin where this machine lacks it is skipped, and <code>-ra</code> in <code>pyproject.toml</code> prints why. In this run 12 tests skipped for the p4-phi plugin, which a checkout of ezexe/p4 beside the clone or <code>P4_RECALL_PLUGIN_ROOT</code> supplies, and one for <code>onnx</code>, which the <code>export</code> extra installs. Outside CI, <code>tests/test_suite.py</code> fails a run that takes longer than the <code>budget_seconds</code> that <code>pyproject.toml</code> sets.</p>
     </li>
   </ol>
 
