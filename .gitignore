@@ -206,7 +206,7 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
-data
-model_pruned.pt
+# The checkpoint the quick start saves, docs/quickstart.html.
+pruned.pt
 # This repository's store is a clone of the private repository ezexe/phi-p4 and never part of phi.
 .claude/p4/
