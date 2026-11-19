@@ -3,10 +3,11 @@ An asymmetric dual encoder for a .claude/p4 store: which documents bear on a ses
 
 Two stages, one model:
 
-1. pretrain: contrastive pretraining with in-batch negatives over every text file git keeps in the store's
-   repository. The store's .gitignore decides what is trainable, anything binary that slips past it is skipped, and
+1. pretrain: contrastive pretraining with in-batch negatives over the text files git keeps in the store, the ones
+   under the store's root that are tracked or that its .gitignore does not exclude, outside the folders SKIP_DIRS
+   names. The store's .gitignore decides what is trainable, anything binary that slips past it is skipped, and
    a file is read up to MAX_FILE_BYTES. Neighbouring passages of one file form a positive pair and every other
-   passage in the batch is a negative, by InfoNCE, so the encoder learns the repository's own vocabulary: its
+   passage in the batch is a negative, by InfoNCE, so the encoder learns the store's own vocabulary: its
    classes, files, measurements and decisions.
 2. fine-tune: on labelled query groups, which read_label_pools builds from the store's labels.tsv and tasks.tsv
    joined over index.json. A group is a query with its label-1 documents as the positives, and its label-0
@@ -184,13 +185,14 @@ def info_nce(a: torch.Tensor, b: torch.Tensor, temperature: float = 0.05) -> tor
     return (F.cross_entropy(logits, target) + F.cross_entropy(logits.T, target)) / 2
 
 
-# ─── the repository's text ─────────────────────────────────────────────────────────────────────────────
+# ─── the store's text ──────────────────────────────────────────────────────────────────────────────────
 
 def candidate_files(root: str) -> List[str]:
-    """What git keeps in the store's repository, its tracked files and the untracked ones its .gitignore does not
-    exclude, so the store's .gitignore is the one rule for what is trainable. A directory git lists nothing in, as
-    one that is no git repository or one its repository ignores, is listed by git as its own work tree, so its own
-    .gitignore files still decide; only where git cannot run is it walked whole."""
+    """What git keeps under `root`, the store: its tracked files and the untracked ones its .gitignore does not
+    exclude, each outside the folders SKIP_DIRS names, so the store's .gitignore is the one rule for what is
+    trainable. A directory git lists nothing in, as one that is no git repository or one its repository ignores,
+    is listed by git as its own work tree, so its own .gitignore files still decide; only where git cannot run is
+    it walked whole."""
     import subprocess
     import tempfile
 
