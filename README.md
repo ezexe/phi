@@ -1,4 +1,4 @@
-# phi
+# phi (≈ 1.618)
 
 φ-pruning keeps whole output channels of a layer and never keeps two adjacent ones, the (1,∞)-RLL constraint.
 phi holds that pruner, the Fibonacci codes it writes quantized weights and model deltas in, and a Zeckendorf register modeled beside a binary register.
