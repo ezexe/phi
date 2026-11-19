@@ -1,5 +1,5 @@
 """
-Build the phi docs site: every Markdown doc, notebook, interactive component (.jsx) and saved artifact in the repo,
+Build the phi docs site: every Markdown doc, notebook, interactive component (.jsx) and hand-written page in the repo,
 rendered to static HTML for GitHub Pages (.github/workflows/pages.yml).
 
   README.md, CONTRIBUTING.md         -> readme.html, contributing.html
@@ -7,7 +7,6 @@ rendered to static HTML for GitHub Pages (.github/workflows/pages.yml).
   docs/**/*.md                       -> docs/**/*.html
   docs/**/*.ipynb                    -> docs/**/*.html (nbconvert, outputs as saved)
   docs/**/*.jsx                      -> docs/**/*.jsx.html (React 18 + Babel in the page)
-  docs/artifacts/*.html              -> docs/artifacts/*.html (a page fragment gets a document skeleton)
   docs/**/*.html                     -> docs/**/*.html as written, a hand-written page
   every other file under docs/       -> copied as is, so the docs' links to results/ and data resolve
 
@@ -36,8 +35,7 @@ BABEL = "https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.24.7/babel.mi
 TOP = {"README.md": "readme.html", "CONTRIBUTING.md": "contributing.html",
        ".claude/skills/p4-model/SKILL.md": "skills/p4-model.html"}
 SECTIONS = [("docs/phi/", "φ — the register and its matrix"), ("docs/pho/", "pho — theory and tiers"),
-            ("docs/p4/", "p4 — the nested store"), ("docs/artifacts/", "Artifacts"), ("docs/", "Walkthroughs"),
-            ("", "The repository")]
+            ("docs/", "Walkthroughs"), ("", "The repository")]
 
 STYLE = """
 :root { --bg: #f2f4f7; --panel: #ffffff; --ink: #172033; --muted: #5a6477; --line: #cdd4df; --one: #a8661a;
@@ -185,14 +183,6 @@ def render_jsx(src, out):
     return title, body
 
 
-def wrap_fragment(text, title):
-    if re.search(r"<html[\s>]", text[:2000], re.I):
-        return text
-    return (f'<!doctype html>\n<html lang="en"><head><meta charset="utf-8">'
-            f'<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">'
-            f'</head><body style="margin:0">\n{text}\n</body></html>\n')
-
-
 def build(out):
     pages, copies = collect()
     copied = {src: site for src, site in copies}
@@ -218,11 +208,10 @@ def build(out):
             doc, kind = page(title, body, depth, src, wide=True), "interactive"
         else:
             with open(os.path.join(ROOT, src), encoding="utf-8") as f:
-                text = f.read()
-            m = re.search(r"<title>(.*?)</title>", text, re.S)
+                doc = f.read()
+            m = re.search(r"<title>(.*?)</title>", doc, re.S)
             title = html.unescape(m.group(1)).strip() if m else posixpath.basename(src)
-            kind = "artifact" if src.startswith("docs/artifacts/") else "page"
-            doc = wrap_fragment(text, title)
+            kind = "page"
         dst = os.path.join(out, site)
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         with open(dst, "w", encoding="utf-8", newline="\n") as f:
@@ -240,7 +229,7 @@ def build(out):
             lis = "".join(f'<li><a href="{s}">{html.escape(t)}<span>{k}</span></a></li>' for s, t, k in items)
             groups.append(f"<h2>{html.escape(name)}</h2><ul>{lis}</ul>")
     intro = ('<h1>phi</h1><p>φ-based Fibonacci-weighted encoding and φ-prune structured sparsity, and the p4 models '
-             'built on them. Every doc, notebook, interactive component and artifact in '
+             'built on them. Every doc, notebook, interactive component and hand-written page in '
              f'<a href="{REPO}">ezexe/phi</a>, rebuilt on every push to main.</p>')
     with open(os.path.join(out, "index.html"), "w", encoding="utf-8", newline="\n") as f:
         f.write(page("Docs", f'<div class="index">{intro}{"".join(groups)}</div>', 0))

@@ -1,6 +1,6 @@
 name: pages
 
-# The docs site at https://ezexe.github.io/phi/: every doc, notebook, interactive component and artifact,
+# The docs site at https://ezexe.github.io/phi/: every doc, notebook, interactive component and hand-written page,
 # built by scripts/site/build.py. Needs Settings → Pages → Source: GitHub Actions.
 
 on:
