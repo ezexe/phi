@@ -283,7 +283,8 @@ def print_check(rep: Dict) -> None:
           f"last round: {json.dumps(rep['eval_last']) if rep['eval_last'] else 'none'}")
     if rep.get("no_torch"):
         print(f"  pt ranker: not checked or trained here: {rep['no_torch']} is not installed in {rep['python']} "
-              "and retrieval serves without it; `python3 <p4 checkout>/lbiza/scripts/make_venv.py` installs it where a build exists")
+              f"and retrieval serves without it; `python -I -X utf8 \"{rep['plugin']}/scripts/p4.py\" venv --p4 "
+              "<repository>` installs it into the store's .claude/p4/.venv where a build exists")
     elif rep.get("pt_off"):
         print(f"  pt ranker: off, an experiment retrieval does not serve, which VLDS_PT_RANKER=1 trains; on disk: "
               f"{json.dumps(rep['pt_ranker']) if rep['pt_ranker'] else 'none'}")
